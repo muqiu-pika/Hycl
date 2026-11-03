@@ -801,6 +801,9 @@ public partial class InstallWizardViewModel : ObservableObject
         _wizardGeneration++;
         Step = 1;
         ActiveLoaderCard = null;
+        // 陈旧的加载器请求收尾时会跳过重置（代际不符），这里显式清除，
+        // 避免加载遮罩卡住导致返回后按钮全部不可点
+        IsLoaderLoading = false;
     }
 
     [RelayCommand]
@@ -808,6 +811,7 @@ public partial class InstallWizardViewModel : ObservableObject
     {
         _wizardGeneration++;
         ActiveLoaderCard = null;
+        IsLoaderLoading = false;
     }
 
     [RelayCommand]
