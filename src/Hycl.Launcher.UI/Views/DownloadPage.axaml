@@ -452,7 +452,7 @@
                                                          Width="24"
                                                          Height="24"
                                                          VerticalAlignment="Center" />
-                                            <StackPanel VerticalAlignment="Center" Spacing="1">
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
                                                 <TextBlock Text="{Binding Wizard.ActiveLoaderCard.Title}"
                                                            FontSize="14"
                                                            FontWeight="SemiBold"

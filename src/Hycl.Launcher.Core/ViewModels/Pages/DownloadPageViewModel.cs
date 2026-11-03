@@ -53,7 +53,7 @@ public partial class DownloadPageViewModel : ObservableObject
             new("安装包",
             [
                 new NavItemViewModel("Minecraft 客户端", "vanilla", CreateClientSection()),
-                new NavItemViewModel("Forge", "forge", CreateLoaderSection("forge", "Forge", "anvil")),
+                new NavItemViewModel("Forge", "forge", CreateLoaderSection("forge", "Forge", "forge")),
                 new NavItemViewModel("NeoForge", "neoforge", CreateLoaderSection("neoforge", "NeoForge", "neoforge")),
                 new NavItemViewModel("Cleanroom", "cleanroom", CreateLoaderSection("cleanroom", "Cleanroom", "cleanroom")),
                 new NavItemViewModel("Fabric", "fabric", CreateLoaderSection("fabric", "Fabric", "fabric")),
