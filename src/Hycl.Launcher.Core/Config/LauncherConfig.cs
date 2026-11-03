@@ -31,6 +31,45 @@ public sealed class LauncherConfig
 
     public string ExtraGameArguments { get; set; } = "";
 
+    /// <summary>游戏窗口标题；空 = 不修改。支持 {name}/{user}/{version} 占位符（对应 PCL-CE LaunchArgumentTitle）。</summary>
+    public string WindowTitle { get; set; } = "";
+
+    /// <summary>自定义信息，显示在游戏主界面左下角与 F3（对应 PCL-CE LaunchArgumentInfo）。</summary>
+    public string TypeInfo { get; set; } = "HYCL";
+
+    /// <summary>启动器可见性：0 游戏启动后立即关闭 / 4 启动游戏后最小化 / 5 保持不变（对应 PCL-CE LaunchArgumentVisible 的常用档）。</summary>
+    public int LauncherVisibility { get; set; } = 5;
+
+    /// <summary>游戏进程优先级：0 高 / 1 中 / 2 低 / 3 极高 / 4 实时（对应 PCL-CE LaunchArgumentPriority）。</summary>
+    public int ProcessPriority { get; set; } = 1;
+
+    /// <summary>IP 协议偏好：0 IPv4 优先 / 1 Java 默认 / 2 IPv6 优先（对应 PCL-CE LaunchPreferredIpStack）。</summary>
+    public int PreferredIpStack { get; set; } = 0;
+
+    /// <summary>初始内存（-Xms）；0 = 自动（对应 PCL-CE LaunchRamCustomInitial）。</summary>
+    public int InitialMemoryMegabytes { get; set; } = 0;
+
+    /// <summary>锁定内存分配：-Xms = -Xmx（对应 PCL-CE LaunchAdvanceLockMemory）。</summary>
+    public bool LockMemory { get; set; }
+
+    /// <summary>启动前执行命令；支持 {path}/{user}/{name}/{version} 占位符（对应 PCL-CE LaunchAdvanceRun）。</summary>
+    public string PreLaunchCommand { get; set; } = "";
+
+    /// <summary>等待启动前命令执行完成后再继续启动（对应 PCL-CE LaunchAdvanceRunWait）。</summary>
+    public bool PreLaunchCommandWait { get; set; } = true;
+
+    /// <summary>安装新实例后自动选定该实例（对应 PCL-CE ToolDownloadAutoSelectVersion）。</summary>
+    public bool AutoSelectInstance { get; set; } = true;
+
+    /// <summary>社区资源列表忽略 Quilt（对应 PCL-CE ToolDownloadIgnoreQuilt）。</summary>
+    public bool CompIgnoreQuilt { get; set; } = true;
+
+    /// <summary>快速下载行为：0 总是询问 / 1 安装到当前实例 / 2 询问实例 / 3 询问路径（对应 PCL-CE ToolDownloadQuickBehavior）。</summary>
+    public int QuickDownloadBehavior { get; set; } = 0;
+
+    /// <summary>启动器更新通道：0 正式版 / 1 测试版 / 2 开发版（对应 PCL-CE SystemUpdateChannel）。</summary>
+    public int UpdateChannel { get; set; } = 0;
+
     /// <summary>版本列表源：0 镜像优先 / 1 官方优先（缓慢时自动切换）/ 2 仅官方（对应 PCL-CE ToolDownloadVersion）。</summary>
     public int VersionListSource { get; set; } = (int)Download.DownloadSourceMode.OfficialAuto;
 
@@ -85,6 +124,12 @@ public sealed class LauncherConfig
         }
 
         MemoryMegabytes = Math.Clamp(MemoryMegabytes, 0, 65536);
+        InitialMemoryMegabytes = Math.Clamp(InitialMemoryMegabytes, 0, 65536);
+        LauncherVisibility = LauncherVisibility is 0 or 4 or 5 ? LauncherVisibility : 5;
+        ProcessPriority = Math.Clamp(ProcessPriority, 0, 4);
+        PreferredIpStack = Math.Clamp(PreferredIpStack, 0, 2);
+        QuickDownloadBehavior = Math.Clamp(QuickDownloadBehavior, 0, 3);
+        UpdateChannel = Math.Clamp(UpdateChannel, 0, 2);
         WindowType = Math.Clamp(WindowType, 0, 4);
         WindowWidth = Math.Clamp(WindowWidth, 320, 7680);
         WindowHeight = Math.Clamp(WindowHeight, 240, 4320);

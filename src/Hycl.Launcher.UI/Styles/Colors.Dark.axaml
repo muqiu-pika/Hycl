@@ -1,0 +1,53 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- 深色主题画刷（运行时由 ThemeManager 按配置整体替换） -->
+    <SolidColorBrush x:Key="TextBrush" Color="#D6DAE1" />
+    <SolidColorBrush x:Key="PrimaryDeepBrush" Color="#5E9BF0" />
+    <SolidColorBrush x:Key="PrimaryBrush" Color="#3F87F5" />
+    <SolidColorBrush x:Key="PrimaryLightBrush" Color="#6FA6F7" />
+    <SolidColorBrush x:Key="Primary5Brush" Color="#2E5C9E" />
+    <SolidColorBrush x:Key="Primary6Brush" Color="#1E3A5F" />
+    <SolidColorBrush x:Key="Primary7Brush" Color="#1B3355" />
+    <SolidColorBrush x:Key="Primary8Brush" Color="#182C49" />
+
+    <SolidColorBrush x:Key="Gray2Brush" Color="#9CA3AF" />
+    <SolidColorBrush x:Key="Gray3Brush" Color="#848B96" />
+    <SolidColorBrush x:Key="Gray4Brush" Color="#6B7280" />
+    <SolidColorBrush x:Key="Gray5Brush" Color="#4B5563" />
+    <SolidColorBrush x:Key="Gray6Brush" Color="#374151" />
+    <SolidColorBrush x:Key="Gray7Brush" Color="#252B36" />
+    <SolidColorBrush x:Key="Gray8Brush" Color="#1F242E" />
+
+    <SolidColorBrush x:Key="ErrorBrush" Color="#F07060" />
+    <SolidColorBrush x:Key="ErrorDarkBrush" Color="#D94A3B" />
+
+    <SolidColorBrush x:Key="CardBrush" Color="#232933" Opacity="0.94" />
+    <SolidColorBrush x:Key="SurfaceBrush" Color="#1C212B" />
+    <SolidColorBrush x:Key="WhiteGlassBrush" Color="#2A313D" />
+    <SolidColorBrush x:Key="SoftWhiteBrush" Color="#33262D38" />
+    <SolidColorBrush x:Key="CardBorderBrush" Color="#333A4653" />
+    <SolidColorBrush x:Key="HairlineBrush" Color="#2E3A4653" />
+
+    <SolidColorBrush x:Key="MsBlueBrush" Color="#4C93EE" />
+    <SolidColorBrush x:Key="ToastBrush" Color="#EBD6DAE1" />
+
+    <LinearGradientBrush x:Key="PrimaryGradientBrush" StartPoint="0%,0%" EndPoint="100%,100%">
+        <GradientStop Color="#2E5C9E" Offset="0" />
+        <GradientStop Color="#1E4787" Offset="1" />
+    </LinearGradientBrush>
+
+    <SolidColorBrush x:Key="SoftLineBrush" Color="#3D4A5566" />
+    <SolidColorBrush x:Key="GlassSurfaceBrush" Color="#E61C212B" />
+
+    <LinearGradientBrush x:Key="TitleGradientBrush" StartPoint="0%,50%" EndPoint="100%,50%">
+        <GradientStop Color="#173A63" Offset="0" />
+        <GradientStop Color="#0F2A4C" Offset="1" />
+    </LinearGradientBrush>
+
+    <LinearGradientBrush x:Key="AppBackdropBrush" StartPoint="20%,0%" EndPoint="80%,100%">
+        <GradientStop Color="#141A24" Offset="0" />
+        <GradientStop Color="#171E2A" Offset="0.38" />
+        <GradientStop Color="#12161E" Offset="1" />
+    </LinearGradientBrush>
+</ResourceDictionary>

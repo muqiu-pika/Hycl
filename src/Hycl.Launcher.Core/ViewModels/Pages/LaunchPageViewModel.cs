@@ -86,6 +86,9 @@ public partial class LaunchPageViewModel : ObservableObject
 
     public event EventHandler? CloseRequested;
 
+    /// <summary>游戏启动后的启动器行为（0 关闭 / 4 最小化 / 其余保持）。</summary>
+    public event EventHandler<int>? LauncherVisibilityChanged;
+
     /// <summary>请求切换到其他标签页（“下载游戏”快捷方式使用）。</summary>
     public event EventHandler<string>? NavigateRequested;
 
@@ -265,13 +268,22 @@ public partial class LaunchPageViewModel : ObservableObject
                 GameDirectory = config.EffectiveGameDirectory,
                 JavaPath = config.JavaPath,
                 MemoryMegabytes = config.GetEffectiveMemoryMegabytes(),
+                InitialMemoryMegabytes = config.InitialMemoryMegabytes,
+                LockMemory = config.LockMemory,
                 WindowType = config.WindowType,
                 WindowWidth = config.WindowWidth,
                 WindowHeight = config.WindowHeight,
                 ExtraJvmArguments = config.ExtraJvmArguments,
                 ExtraGameArguments = config.ExtraGameArguments,
                 PlayerName = account.Name,
-                PlayerUuid = account.Uuid
+                PlayerUuid = account.Uuid,
+                WindowTitle = config.WindowTitle,
+                TypeInfo = config.TypeInfo,
+                LauncherVisibility = config.LauncherVisibility,
+                ProcessPriority = config.ProcessPriority,
+                PreferredIpStack = config.PreferredIpStack,
+                PreLaunchCommand = config.PreLaunchCommand,
+                PreLaunchCommandWait = config.PreLaunchCommandWait
             };
 
             var session = await _services.Launch
@@ -280,9 +292,15 @@ public partial class LaunchPageViewModel : ObservableObject
             _session = session;
             LaunchCount++;
             _toast?.Invoke($"已启动 {instance.Name}（PID {session.Id}）");
-            if (config.CloseLauncherAfterLaunch)
+
+            // 启动器可见性（对应 PCL-CE LaunchArgumentVisible）：0 立即关闭 / 4 最小化 / 其余保持
+            if (config.LauncherVisibility == 0 || config.CloseLauncherAfterLaunch)
             {
                 CloseRequested?.Invoke(this, EventArgs.Empty);
+            }
+            else
+            {
+                LauncherVisibilityChanged?.Invoke(this, config.LauncherVisibility);
             }
 
             _ = WatchSessionAsync(session);

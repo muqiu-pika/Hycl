@@ -2,66 +2,124 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!--
-      全局设计令牌，与网页版 style.css 的 :root 变量一一对应
-      （提取自 PCL-CE 的 Application.xaml 调色板）。
-      引用方式统一用 {DynamicResource xxx}，避免跨文件 StaticResource 的解析顺序问题。
+      全局设计令牌，与网页版 style.css 的 :root 变量对应（提取自 PCL-CE 的调色板）。
+      引用方式统一用 {DynamicResource xxx}；Light/Dark 两套 ThemeDictionaries 支持真实换肤。
     -->
 
-    <!-- 品牌主色（ColorBrush 1-8） -->
-    <SolidColorBrush x:Key="TextBrush" Color="#343D4A" />
-    <SolidColorBrush x:Key="PrimaryDeepBrush" Color="#0B5BCB" />
-    <SolidColorBrush x:Key="PrimaryBrush" Color="#1370F3" />
-    <SolidColorBrush x:Key="PrimaryLightBrush" Color="#4890F5" />
-    <SolidColorBrush x:Key="Primary5Brush" Color="#96C0F9" />
-    <SolidColorBrush x:Key="Primary6Brush" Color="#D5E6FD" />
-    <SolidColorBrush x:Key="Primary7Brush" Color="#E0EAFD" />
-    <SolidColorBrush x:Key="Primary8Brush" Color="#EAF2FE" />
+    <ResourceDictionary.ThemeDictionaries>
 
-    <!-- 中性灰 -->
-    <SolidColorBrush x:Key="Gray2Brush" Color="#737373" />
-    <SolidColorBrush x:Key="Gray3Brush" Color="#8C8C8C" />
-    <SolidColorBrush x:Key="Gray4Brush" Color="#A6A6A6" />
-    <SolidColorBrush x:Key="Gray5Brush" Color="#CCCCCC" />
-    <SolidColorBrush x:Key="Gray6Brush" Color="#EBEBEB" />
-    <SolidColorBrush x:Key="Gray7Brush" Color="#F0F0F0" />
-    <SolidColorBrush x:Key="Gray8Brush" Color="#F5F5F5" />
+        <!-- 浅色（默认） -->
+        <ResourceDictionary x:Key="Light">
+            <!-- 品牌主色（ColorBrush 1-8） -->
+            <SolidColorBrush x:Key="TextBrush" Color="#343D4A" />
+            <SolidColorBrush x:Key="PrimaryDeepBrush" Color="#0B5BCB" />
+            <SolidColorBrush x:Key="PrimaryBrush" Color="#1370F3" />
+            <SolidColorBrush x:Key="PrimaryLightBrush" Color="#4890F5" />
+            <SolidColorBrush x:Key="Primary5Brush" Color="#96C0F9" />
+            <SolidColorBrush x:Key="Primary6Brush" Color="#D5E6FD" />
+            <SolidColorBrush x:Key="Primary7Brush" Color="#E0EAFD" />
+            <SolidColorBrush x:Key="Primary8Brush" Color="#EAF2FE" />
 
-    <!-- 状态色 -->
-    <SolidColorBrush x:Key="ErrorBrush" Color="#E74C3C" />
-    <SolidColorBrush x:Key="ErrorDarkBrush" Color="#CE2111" />
+            <!-- 中性灰 -->
+            <SolidColorBrush x:Key="Gray2Brush" Color="#737373" />
+            <SolidColorBrush x:Key="Gray3Brush" Color="#8C8C8C" />
+            <SolidColorBrush x:Key="Gray4Brush" Color="#A6A6A6" />
+            <SolidColorBrush x:Key="Gray5Brush" Color="#CCCCCC" />
+            <SolidColorBrush x:Key="Gray6Brush" Color="#EBEBEB" />
+            <SolidColorBrush x:Key="Gray7Brush" Color="#F0F0F0" />
+            <SolidColorBrush x:Key="Gray8Brush" Color="#F5F5F5" />
 
-    <!-- 卡片表面（半透明白） -->
-    <SolidColorBrush x:Key="CardBrush" Color="#FCFCFD" Opacity="0.9" />
-    <SolidColorBrush x:Key="SurfaceBrush" Color="#FFFFFF" />
-    <SolidColorBrush x:Key="WhiteGlassBrush" Color="#8CFFFFFF" />
-    <SolidColorBrush x:Key="SoftWhiteBrush" Color="#B3FFFFFF" />
-    <SolidColorBrush x:Key="CardBorderBrush" Color="#B3FFFFFF" />
-    <SolidColorBrush x:Key="HairlineBrush" Color="#99FFFFFF" />
+            <!-- 状态色 -->
+            <SolidColorBrush x:Key="ErrorBrush" Color="#E74C3C" />
+            <SolidColorBrush x:Key="ErrorDarkBrush" Color="#CE2111" />
 
-    <!-- 微软账户标记色 / 轻提示底色 -->
-    <SolidColorBrush x:Key="MsBlueBrush" Color="#2F7DE1" />
-    <SolidColorBrush x:Key="ToastBrush" Color="#EB343D4A" />
+            <!-- 卡片表面（半透明白） -->
+            <SolidColorBrush x:Key="CardBrush" Color="#FCFCFD" Opacity="0.9" />
+            <SolidColorBrush x:Key="SurfaceBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="WhiteGlassBrush" Color="#8CFFFFFF" />
+            <SolidColorBrush x:Key="SoftWhiteBrush" Color="#B3FFFFFF" />
+            <SolidColorBrush x:Key="CardBorderBrush" Color="#B3FFFFFF" />
+            <SolidColorBrush x:Key="HairlineBrush" Color="#99FFFFFF" />
 
-    <!-- 主色渐变：图标底座与主按钮，避免大面积纯色显得生硬 -->
-    <LinearGradientBrush x:Key="PrimaryGradientBrush" StartPoint="0%,0%" EndPoint="100%,100%">
-        <GradientStop Color="#4C97F8" Offset="0" />
-        <GradientStop Color="#1370F3" Offset="1" />
-    </LinearGradientBrush>
+            <!-- 微软账户标记色 / 轻提示底色 -->
+            <SolidColorBrush x:Key="MsBlueBrush" Color="#2F7DE1" />
+            <SolidColorBrush x:Key="ToastBrush" Color="#EB343D4A" />
 
-    <!-- 控件细边线与半透明白表面：替代刺眼的纯白描边 -->
-    <SolidColorBrush x:Key="SoftLineBrush" Color="#26343D4A" />
-    <SolidColorBrush x:Key="GlassSurfaceBrush" Color="#E6FFFFFF" />
+            <!-- 主色渐变：图标底座与主按钮 -->
+            <LinearGradientBrush x:Key="PrimaryGradientBrush" StartPoint="0%,0%" EndPoint="100%,100%">
+                <GradientStop Color="#4C97F8" Offset="0" />
+                <GradientStop Color="#1370F3" Offset="1" />
+            </LinearGradientBrush>
 
-    <!-- 标题栏渐变：90deg #1370F3 → #0B5BCB -->
-    <LinearGradientBrush x:Key="TitleGradientBrush" StartPoint="0%,50%" EndPoint="100%,50%">
-        <GradientStop Color="#1370F3" Offset="0" />
-        <GradientStop Color="#0B5BCB" Offset="1" />
-    </LinearGradientBrush>
+            <!-- 控件细边线与半透明白表面 -->
+            <SolidColorBrush x:Key="SoftLineBrush" Color="#26343D4A" />
+            <SolidColorBrush x:Key="GlassSurfaceBrush" Color="#E6FFFFFF" />
 
-    <!-- 窗口背景：165deg 浅蓝 → 白 -->
-    <LinearGradientBrush x:Key="AppBackdropBrush" StartPoint="20%,0%" EndPoint="80%,100%">
-        <GradientStop Color="#CFE2FB" Offset="0" />
-        <GradientStop Color="#EAF2FE" Offset="0.38" />
-        <GradientStop Color="#FBFBFB" Offset="1" />
-    </LinearGradientBrush>
+            <!-- 标题栏渐变：90deg #1370F3 → #0B5BCB -->
+            <LinearGradientBrush x:Key="TitleGradientBrush" StartPoint="0%,50%" EndPoint="100%,50%">
+                <GradientStop Color="#1370F3" Offset="0" />
+                <GradientStop Color="#0B5BCB" Offset="1" />
+            </LinearGradientBrush>
+
+            <!-- 窗口背景：165deg 浅蓝 → 白 -->
+            <LinearGradientBrush x:Key="AppBackdropBrush" StartPoint="20%,0%" EndPoint="80%,100%">
+                <GradientStop Color="#CFE2FB" Offset="0" />
+                <GradientStop Color="#EAF2FE" Offset="0.38" />
+                <GradientStop Color="#FBFBFB" Offset="1" />
+            </LinearGradientBrush>
+        </ResourceDictionary>
+
+        <!-- 深色 -->
+        <ResourceDictionary x:Key="Dark">
+            <SolidColorBrush x:Key="TextBrush" Color="#D6DAE1" />
+            <SolidColorBrush x:Key="PrimaryDeepBrush" Color="#5E9BF0" />
+            <SolidColorBrush x:Key="PrimaryBrush" Color="#3F87F5" />
+            <SolidColorBrush x:Key="PrimaryLightBrush" Color="#6FA6F7" />
+            <SolidColorBrush x:Key="Primary5Brush" Color="#2E5C9E" />
+            <SolidColorBrush x:Key="Primary6Brush" Color="#1E3A5F" />
+            <SolidColorBrush x:Key="Primary7Brush" Color="#1B3355" />
+            <SolidColorBrush x:Key="Primary8Brush" Color="#182C49" />
+
+            <SolidColorBrush x:Key="Gray2Brush" Color="#9CA3AF" />
+            <SolidColorBrush x:Key="Gray3Brush" Color="#848B96" />
+            <SolidColorBrush x:Key="Gray4Brush" Color="#6B7280" />
+            <SolidColorBrush x:Key="Gray5Brush" Color="#4B5563" />
+            <SolidColorBrush x:Key="Gray6Brush" Color="#374151" />
+            <SolidColorBrush x:Key="Gray7Brush" Color="#252B36" />
+            <SolidColorBrush x:Key="Gray8Brush" Color="#1F242E" />
+
+            <SolidColorBrush x:Key="ErrorBrush" Color="#F07060" />
+            <SolidColorBrush x:Key="ErrorDarkBrush" Color="#D94A3B" />
+
+            <SolidColorBrush x:Key="CardBrush" Color="#232933" Opacity="0.94" />
+            <SolidColorBrush x:Key="SurfaceBrush" Color="#1C212B" />
+            <SolidColorBrush x:Key="WhiteGlassBrush" Color="#2A313D" />
+            <SolidColorBrush x:Key="SoftWhiteBrush" Color="#33262D38" />
+            <SolidColorBrush x:Key="CardBorderBrush" Color="#333A4653" />
+            <SolidColorBrush x:Key="HairlineBrush" Color="#2E3A4653" />
+
+            <SolidColorBrush x:Key="MsBlueBrush" Color="#4C93EE" />
+            <SolidColorBrush x:Key="ToastBrush" Color="#EBD6DAE1" />
+
+            <LinearGradientBrush x:Key="PrimaryGradientBrush" StartPoint="0%,0%" EndPoint="100%,100%">
+                <GradientStop Color="#2E5C9E" Offset="0" />
+                <GradientStop Color="#1E4787" Offset="1" />
+            </LinearGradientBrush>
+
+            <SolidColorBrush x:Key="SoftLineBrush" Color="#3D4A5566" />
+            <SolidColorBrush x:Key="GlassSurfaceBrush" Color="#E61C212B" />
+
+            <LinearGradientBrush x:Key="TitleGradientBrush" StartPoint="0%,50%" EndPoint="100%,50%">
+                <GradientStop Color="#173A63" Offset="0" />
+                <GradientStop Color="#0F2A4C" Offset="1" />
+            </LinearGradientBrush>
+
+            <LinearGradientBrush x:Key="AppBackdropBrush" StartPoint="20%,0%" EndPoint="80%,100%">
+                <GradientStop Color="#141A24" Offset="0" />
+                <GradientStop Color="#171E2A" Offset="0.38" />
+                <GradientStop Color="#12161E" Offset="1" />
+            </LinearGradientBrush>
+        </ResourceDictionary>
+
+    </ResourceDictionary.ThemeDictionaries>
 </ResourceDictionary>

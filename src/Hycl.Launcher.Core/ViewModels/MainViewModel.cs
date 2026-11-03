@@ -42,6 +42,8 @@ public partial class MainViewModel : ObservableObject
 
     public event EventHandler? CloseRequested;
 
+    public event EventHandler? MinimizeRequested;
+
     public MainViewModel(LauncherServices services)
     {
         Launch = new LaunchPageViewModel(services, ShowToast);
@@ -52,6 +54,17 @@ public partial class MainViewModel : ObservableObject
 
         Download.Installed += (_, instanceId) => _ = Launch.RefreshInstancesAsync(instanceId);
         Launch.CloseRequested += (_, _) => CloseRequested?.Invoke(this, EventArgs.Empty);
+        Launch.LauncherVisibilityChanged += (_, kind) =>
+        {
+            if (kind == 0)
+            {
+                CloseRequested?.Invoke(this, EventArgs.Empty);
+            }
+            else if (kind == 4)
+            {
+                MinimizeRequested?.Invoke(this, EventArgs.Empty);
+            }
+        };
         Launch.NavigateRequested += (_, key) =>
         {
             if (key == "download")

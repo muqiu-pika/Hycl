@@ -80,6 +80,15 @@ public sealed class InfoRowViewModel : SettingRowViewModel
     public string Value { get; }
 }
 
+/// <summary>值可动态更新的信息行（Java 检测结果等异步内容）。</summary>
+public partial class MutableInfoRowViewModel : SettingRowViewModel
+{
+    public MutableInfoRowViewModel(string label, string value) : base(label) => _value = value;
+
+    [ObservableProperty]
+    private string _value;
+}
+
 public partial class ThemeSwatchViewModel : ObservableObject
 {
     public ThemeSwatchViewModel(string id, string colorHex)
@@ -144,6 +153,18 @@ public sealed class LogRowViewModel : SettingRowViewModel
     public LogRowViewModel(string text) : base(string.Empty) => Text = text;
 
     public string Text { get; }
+}
+
+/// <summary>内容可动态刷新的日志行（设置页日志尾部随操作刷新）。</summary>
+public partial class MutableLogRowViewModel : SettingRowViewModel
+{
+    public MutableLogRowViewModel(string text) : base(string.Empty) => _text = text;
+
+    [ObservableProperty]
+    private string _text;
+
+    /// <summary>刷新日志尾部内容。</summary>
+    public void Reload(Func<string> provider) => Text = provider();
 }
 
 public sealed class SettingButtonViewModel

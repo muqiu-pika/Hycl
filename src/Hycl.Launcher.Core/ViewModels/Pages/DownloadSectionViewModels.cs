@@ -202,6 +202,13 @@ public partial class InstallTaskViewModel : ObservableObject
             StageText = "安装完成";
             ProgressPercent = 100;
             _toast?.Invoke($"安装完成：{installedId}");
+            // 安装新实例后自动选定该实例（对应 PCL-CE ToolDownloadAutoSelectVersion）
+            if (_services.Config.AutoSelectInstance)
+            {
+                _services.Config.SelectedVersion = installedId;
+                await _services.ConfigStore.SaveAsync(_cts.Token).ConfigureAwait(true);
+            }
+
             Completed?.Invoke(this, installedId);
         }
         catch (OperationCanceledException)

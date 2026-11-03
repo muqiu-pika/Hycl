@@ -207,20 +207,29 @@ public sealed partial class HomeViewModel : ObservableObject
                 GameDirectory = config.EffectiveGameDirectory,
                 JavaPath = config.JavaPath,
                 MemoryMegabytes = config.GetEffectiveMemoryMegabytes(),
+                InitialMemoryMegabytes = config.InitialMemoryMegabytes,
+                LockMemory = config.LockMemory,
                 WindowType = config.WindowType,
                 WindowWidth = config.WindowWidth,
                 WindowHeight = config.WindowHeight,
                 ExtraJvmArguments = config.ExtraJvmArguments,
                 ExtraGameArguments = config.ExtraGameArguments,
                 PlayerName = account.Name,
-                PlayerUuid = account.Uuid
+                PlayerUuid = account.Uuid,
+                WindowTitle = config.WindowTitle,
+                TypeInfo = config.TypeInfo,
+                LauncherVisibility = config.LauncherVisibility,
+                ProcessPriority = config.ProcessPriority,
+                PreferredIpStack = config.PreferredIpStack,
+                PreLaunchCommand = config.PreLaunchCommand,
+                PreLaunchCommandWait = config.PreLaunchCommandWait
             };
 
             var session = await _services.Launch.LaunchAsync(options, AppendLog).ConfigureAwait(true);
             _session = session;
             LaunchStatus = $"游戏已启动（PID {session.Id}）";
             AppendLog($"[HYCL] 游戏进程已启动，PID={session.Id}");
-            if (config.CloseLauncherAfterLaunch)
+            if (config.LauncherVisibility == 0 || config.CloseLauncherAfterLaunch)
             {
                 CloseRequested?.Invoke(this, EventArgs.Empty);
             }

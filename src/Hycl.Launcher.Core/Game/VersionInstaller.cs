@@ -38,6 +38,9 @@ public sealed partial class VersionInstaller
 
     private readonly string? _cacheDirectory;
 
+    /// <summary>是否对 1.16.5 应用 authlib 2.3.31 修复（对应 PCL-CE ToolFixAuthlib；由设置驱动）。</summary>
+    public bool FixAuthlibEnabled { get; set; } = true;
+
     public VersionInstaller(DownloadClient client, LauncherLogger logger, string? cacheDirectory = null)
         : this(client, logger, cacheDirectory, null)
     {
@@ -281,7 +284,7 @@ public sealed partial class VersionInstaller
             .GetStringAsync(DownloadSources.GetLauncherOrMetaUrls(summary.Url, policy), cancellationToken)
             .ConfigureAwait(false);
         // 1.16.5 的 authlib 2.1.28 存在兼容问题（对应 PCL-CE ToolFixAuthlib，默认开启）
-        if (summary.Id.Equals("1.16.5", StringComparison.Ordinal))
+        if (FixAuthlibEnabled && summary.Id.Equals("1.16.5", StringComparison.Ordinal))
         {
             rawJson = VersionJsonMerger.FixAuthlib(rawJson);
         }

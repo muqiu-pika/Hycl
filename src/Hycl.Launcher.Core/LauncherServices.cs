@@ -103,7 +103,10 @@ public sealed class LauncherServices
         var javaDetector = new JavaDetector(logger);
         var downloadClient = new DownloadClient(logger, configStore.Config.RetryCount);
         var versionResolver = new VersionResolver(logger);
-        var installer = new VersionInstaller(downloadClient, logger, paths.CacheDirectory, javaDetector);
+        var installer = new VersionInstaller(downloadClient, logger, paths.CacheDirectory, javaDetector)
+        {
+            FixAuthlibEnabled = configStore.Config.FixAuthlib
+        };
         var loaderProviders = new Game.Loaders.LoaderProviderRegistry(downloadClient, logger, paths.CacheDirectory);
         var modrinth = new Game.Mods.ModrinthProvider(downloadClient, logger);
         var loaderInstall = new Game.LoaderInstallService(installer, loaderProviders, modrinth, logger);

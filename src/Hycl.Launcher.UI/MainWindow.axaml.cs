@@ -20,6 +20,9 @@ public partial class MainWindow : Window
 
     private Control? _activeView;
 
+    /// <summary>主窗口 ViewModel 就绪回调（供主题等跨切面在启动时应用配置）。</summary>
+    public static event Action<MainViewModel>? ViewModelReady;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -41,6 +44,7 @@ public partial class MainWindow : Window
             }
         };
         _viewModel.CloseRequested += (_, _) => Close();
+        _viewModel.MinimizeRequested += (_, _) => WindowState = WindowState.Minimized;
         ShowPage(_viewModel.CurrentPage);
 
         // 窗口显示后在后台预热其余页面，避免首次切换标签页时再实例化大页面造成卡顿。
@@ -55,6 +59,9 @@ public partial class MainWindow : Window
                 UpdateFrameForState();
             }
         };
+
+        // 构造完成：通知外部（App）应用持久化主题等跨切面配置
+        ViewModelReady?.Invoke(_viewModel);
     }
 
     /// <summary>切换到指定页面；视图实例只创建一次并复用，切换只做可见性翻转。</summary>

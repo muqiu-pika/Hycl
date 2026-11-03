@@ -41,6 +41,33 @@ public sealed class LaunchOptions
     public string PlayerName { get; init; } = "Player";
 
     public string PlayerUuid { get; init; } = "";
+
+    /// <summary>游戏窗口标题；空 = 不修改（Windows 下经 Win32 注入）。</summary>
+    public string WindowTitle { get; init; } = "";
+
+    /// <summary>自定义信息（version_type 参数，显示在游戏左下角与 F3）。</summary>
+    public string TypeInfo { get; init; } = "";
+
+    /// <summary>0 游戏启动后立即关闭 / 4 最小化 / 5 保持不变。</summary>
+    public int LauncherVisibility { get; init; } = 5;
+
+    /// <summary>0 高 / 1 中 / 2 低 / 3 极高 / 4 实时（ProcessPriorityClass 语义见 ApplyPriority）。</summary>
+    public int ProcessPriority { get; init; } = 1;
+
+    /// <summary>0 IPv4 优先 / 1 Java 默认 / 2 IPv6 优先。</summary>
+    public int PreferredIpStack { get; init; } = 0;
+
+    /// <summary>初始内存（-Xms）MB；0 = 自动。</summary>
+    public int InitialMemoryMegabytes { get; init; }
+
+    /// <summary>锁定内存分配：-Xms = -Xmx。</summary>
+    public bool LockMemory { get; init; }
+
+    /// <summary>启动前执行命令；空 = 不执行。</summary>
+    public string PreLaunchCommand { get; init; } = "";
+
+    /// <summary>等待启动前命令执行完成后再继续启动。</summary>
+    public bool PreLaunchCommandWait { get; init; } = true;
 }
 
 public sealed class GameSession : IDisposable
@@ -147,6 +174,13 @@ public sealed class LaunchService
         _logger.Info($"启动 {options.InstanceId}：Java {java.VersionText}（{java.ExecutablePath}）");
 
         var placeholders = BuildPlaceholders(options, resolved, gameDirectory, assetsDirectory, librariesDirectory, classPath);
+
+        // 启动前执行命令（对应 PCL-CE LaunchAdvanceRun）
+        if (!string.IsNullOrWhiteSpace(options.PreLaunchCommand))
+        {
+            await RunPreLaunchCommandAsync(options, placeholders, gameDirectory, cancellationToken).ConfigureAwait(false);
+        }
+
         var jvmArguments = BuildJvmArguments(options, resolved.Info, environment, placeholders, resolved.NativesDirectory, classPath);
         var gameArguments = BuildGameArguments(options, resolved.Info, environment, placeholders);
 
@@ -201,7 +235,14 @@ public sealed class LaunchService
         };
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
+
+        ApplyProcessPriority(process, options.ProcessPriority);
         _logger.Info($"游戏进程已启动，PID={process.Id}");
+
+        if (PlatformInfo.IsWindows && !string.IsNullOrWhiteSpace(options.WindowTitle))
+        {
+            _ = InjectWindowTitleAsync(process, options.WindowTitle, placeholders);
+        }
 
         return new GameSession(process);
     }
@@ -286,6 +327,8 @@ public sealed class LaunchService
         var height = options.WindowType == 3
             ? options.WindowHeight
             : options.WindowType == 2 ? options.LauncherWindowHeight : 480;
+        // 自定义信息覆盖 version_type（显示在游戏主界面左下角与 F3，对应 PCL-CE LaunchArgumentInfo）
+        var versionType = string.IsNullOrWhiteSpace(options.TypeInfo) ? info.Type ?? "release" : options.TypeInfo;
 
         return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -298,7 +341,7 @@ public sealed class LaunchService
             ["auth_uuid"] = uuid.Replace("-", "", StringComparison.Ordinal),
             ["auth_access_token"] = "0",
             ["user_type"] = "legacy",
-            ["version_type"] = info.Type ?? "release",
+            ["version_type"] = versionType,
             ["natives_directory"] = resolved.NativesDirectory,
             ["launcher_name"] = "Hycl",
             ["launcher_version"] = LauncherVersion,
@@ -325,12 +368,36 @@ public sealed class LaunchService
         var arguments = new List<string>
         {
             $"-Xmx{memory}M",
-            $"-Xms{Math.Clamp(memory / 4, 256, 1024)}M",
             "-Dfile.encoding=UTF-8",
             "-Djava.library.path=" + nativesDirectory,
             "-Dminecraft.launcher.brand=Hycl",
             $"-Dminecraft.launcher.version={LauncherVersion}"
         };
+
+        // 初始内存（-Xms）：锁定内存 > 手动初始内存 > 自动（对应 PCL-CE 内存策略）
+        if (options.LockMemory)
+        {
+            arguments.Add($"-Xms{memory}M");
+        }
+        else if (options.InitialMemoryMegabytes > 0)
+        {
+            arguments.Add($"-Xms{Math.Clamp(options.InitialMemoryMegabytes, 256, memory)}M");
+        }
+        else
+        {
+            arguments.Add($"-Xms{Math.Clamp(memory / 4, 256, 1024)}M");
+        }
+
+        // IP 协议偏好（对应 PCL-CE LaunchPreferredIpStack）
+        switch (options.PreferredIpStack)
+        {
+            case 0:
+                arguments.Add("-Djava.net.preferIPv4Stack=true");
+                break;
+            case 2:
+                arguments.Add("-Djava.net.preferIPv6Stack=true");
+                break;
+        }
 
         if (info.Logging?.Client?.File is not null)
         {
@@ -428,6 +495,125 @@ public sealed class LaunchService
             var key = match.Groups[1].Value;
             return placeholders.TryGetValue(key, out var replacement) ? replacement : match.Value;
         });
+    }
+
+    /// <summary>启动前执行命令（对应 PCL-CE LaunchAdvanceRun；占位符与游戏参数一致）。</summary>
+    private async Task RunPreLaunchCommandAsync(
+        LaunchOptions options,
+        IReadOnlyDictionary<string, string> placeholders,
+        string gameDirectory,
+        CancellationToken cancellationToken)
+    {
+        var command = options.PreLaunchCommand.Trim();
+        var arguments = ArgumentTokenizer.Split(Substitute(command, placeholders)).ToList();
+        if (arguments.Count == 0)
+        {
+            return;
+        }
+
+        var info = new ProcessStartInfo(arguments[0])
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = gameDirectory
+        };
+        foreach (var argument in arguments.Skip(1))
+        {
+            info.ArgumentList.Add(argument);
+        }
+
+        _logger.Info($"执行启动前命令：{command}");
+        using var process = Process.Start(info);
+        if (process is null)
+        {
+            _logger.Warn("启动前命令未能创建进程，继续启动流程");
+            return;
+        }
+
+        if (!options.PreLaunchCommandWait)
+        {
+            return;
+        }
+
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+            _logger.Info($"启动前命令已退出（code={process.ExitCode}）");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn($"等待启动前命令失败（继续启动）：{ex.Message}");
+        }
+    }
+
+    /// <summary>应用游戏进程优先级（对应 PCL-CE LaunchArgumentPriority）。</summary>
+    private static void ApplyProcessPriority(Process process, int priority)
+    {
+        try
+        {
+            process.PriorityClass = priority switch
+            {
+                0 => ProcessPriorityClass.AboveNormal,
+                2 => ProcessPriorityClass.BelowNormal,
+                3 => ProcessPriorityClass.High,
+                4 => ProcessPriorityClass.RealTime,
+                _ => ProcessPriorityClass.Normal
+            };
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+        {
+            // 优先级设置失败不影响启动
+        }
+    }
+
+    /// <summary>
+    /// 游戏窗口标题注入（对应 PCL-CE LaunchArgumentTitle）：
+    /// 游戏窗口创建后轮询主窗口句柄并用 SetWindowText 覆写（仅 Windows）。
+    /// </summary>
+    private async Task InjectWindowTitleAsync(
+        Process process,
+        string titleTemplate,
+        IReadOnlyDictionary<string, string> placeholders)
+    {
+        var title = Substitute(titleTemplate, placeholders);
+        for (var attempt = 0; attempt < 90; attempt++)
+        {
+            try
+            {
+                process.Refresh();
+                if (process.HasExited)
+                {
+                    return;
+                }
+
+                var handle = process.MainWindowHandle;
+                if (handle != IntPtr.Zero)
+                {
+                    if (Win32WindowTitle.SetWindowText(handle, title))
+                    {
+                        _logger.Info($"已设置游戏窗口标题：{title}");
+                        return;
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
+            {
+                return;
+            }
+
+            await Task.Delay(1000).ConfigureAwait(false);
+        }
+    }
+
+    private static class Win32WindowTitle
+    {
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+        internal static extern bool SetWindowText(IntPtr hWnd, string text);
     }
 
     private void EnsureNatives(ResolvedVersion resolved, string librariesDirectory)

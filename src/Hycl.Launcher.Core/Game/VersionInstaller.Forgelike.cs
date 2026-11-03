@@ -166,7 +166,7 @@ public partial class VersionInstaller
         VersionJsonMerger.MergeInto(merged, versionJson);
 
         // 1.16.5 的 authlib 修复（对应 PCL-CE _AnalyzeForgelikeLibraries）
-        if (request.GameVersion.Equals("1.16.5", StringComparison.Ordinal))
+        if (FixAuthlibEnabled && request.GameVersion.Equals("1.16.5", StringComparison.Ordinal))
         {
             merged = JsonNode.Parse(VersionJsonMerger.FixAuthlib(merged.ToJsonString(JsonOptions))) as JsonObject
                      ?? throw new DownloadException("install_profile.json 解析失败");
