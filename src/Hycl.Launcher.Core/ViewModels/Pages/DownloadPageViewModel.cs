@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Hycl.Launcher.Core.Download;
 using Hycl.Launcher.Core.Game;
+using Hycl.Launcher.Core.Game.Comp;
 using Hycl.Launcher.Core.Game.Loaders;
 using Hycl.Launcher.Core.Game.Models;
 using Hycl.Launcher.Core.Models;
@@ -39,6 +40,13 @@ public partial class DownloadPageViewModel : ObservableObject
         };
 
         var minecraft = new NavItemViewModel("Minecraft", "grass-block");
+        CompSections = new List<CompSectionViewModel>
+        {
+            new(services, Install, CompResourceType.ModPack, "整合包", "package", "搜索并安装 Modrinth / CurseForge 整合包，自动安装所需原版与加载器", toast),
+            new(services, Install, CompResourceType.Mod, "模组", "forge", "搜索 Modrinth / CurseForge 模组，安装到实例 mods 目录", toast),
+            new(services, Install, CompResourceType.ResourcePack, "资源包", "cobblestone", "搜索并安装资源包（原版可用，无需加载器）", toast),
+            new(services, Install, CompResourceType.Shader, "光影", "gold-block", "搜索 Iris / OptiFine 光影包，安装到 shaderpacks 目录", toast)
+        };
         Groups = new ObservableCollection<NavGroupViewModel>
         {
             new("", [minecraft]),
@@ -54,11 +62,25 @@ public partial class DownloadPageViewModel : ObservableObject
                 new NavItemViewModel("OptiFine", "optifine", CreateLoaderSection("optifine", "OptiFine", "optifine")),
                 new NavItemViewModel("LiteLoader", "liteloader", CreateLoaderSection("liteloader", "LiteLoader", "liteloader")),
                 new NavItemViewModel("LabyMod", "labymod", CreateLoaderSection("labymod", "LabyMod", "labymod"))
+            ]),
+            new("社区资源",
+            [
+                new NavItemViewModel("整合包", "package", CompSections[0]),
+                new NavItemViewModel("模组", "forge", CompSections[1]),
+                new NavItemViewModel("资源包", "cobblestone", CompSections[2]),
+                new NavItemViewModel("光影", "gold-block", CompSections[3])
             ])
         };
 
         SelectedSection = minecraft;
     }
+
+    /// <summary>社区资源分区（与左侧导航一一对应）。</summary>
+    public IReadOnlyList<CompSectionViewModel> CompSections { get; }
+
+    /// <summary>当前选中的社区资源分区（非 null 时显示社区资源界面）。</summary>
+    public CompSectionViewModel? ActiveCompSection =>
+        SelectedSection?.Section as CompSectionViewModel;
 
     public ObservableCollection<NavGroupViewModel> Groups { get; }
 
@@ -68,6 +90,8 @@ public partial class DownloadPageViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsInstallSection))]
+    [NotifyPropertyChangedFor(nameof(IsCompSection))]
+    [NotifyPropertyChangedFor(nameof(ActiveCompSection))]
     private NavItemViewModel? _selectedSection;
 
     [ObservableProperty]
@@ -75,6 +99,9 @@ public partial class DownloadPageViewModel : ObservableObject
 
     /// <summary>安装向导入口（首项）显示向导，其余分区显示加载器版本列表。</summary>
     public bool IsInstallSection => SelectedSection?.Section is null;
+
+    /// <summary>社区资源分区可见性。</summary>
+    public bool IsCompSection => ActiveCompSection is not null;
 
     public bool IsStartButtonVisible => IsInstallSection && Wizard.IsStep2 && !Install.IsInstalling;
 
@@ -123,7 +150,15 @@ public partial class DownloadPageViewModel : ObservableObject
         else
         {
             ActiveSection = null;
-            _ = Wizard.LoadVersionListAsync();
+            if (!IsCompSection)
+            {
+                _ = Wizard.LoadVersionListAsync();
+            }
+        }
+
+        if (ActiveCompSection is { Results.Count: 0 } compSection && !compSection.IsSearching)
+        {
+            _ = compSection.SearchFromStartCommand.ExecuteAsync(null);
         }
 
         OnPropertyChanged(nameof(IsStartButtonVisible));
@@ -139,6 +174,12 @@ public partial class DownloadPageViewModel : ObservableObject
         {
             Wizard.Invalidate();
             await Wizard.LoadVersionListAsync(force: true).ConfigureAwait(true);
+            return;
+        }
+
+        if (ActiveCompSection is not null)
+        {
+            await ActiveCompSection.SearchFromStartCommand.ExecuteAsync(null).ConfigureAwait(true);
             return;
         }
 

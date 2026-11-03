@@ -43,6 +43,14 @@ public partial class SettingsPageViewModel : ObservableObject
         "尽量使用官方源"
     ];
 
+    /// <summary>社区资源源三档（对应 PCL-CE ComboDownloadMod 文案）。</summary>
+    public static readonly string[] CommunitySourceOptions =
+    [
+        "使用镜像源",
+        "优先官方源，失败时使用镜像",
+        "仅官方源"
+    ];
+
     private ComboRowViewModel? _memoryRow;
     private ComboRowViewModel? _windowRow;
     private TextRowViewModel? _gameDirectoryRow;
@@ -50,6 +58,8 @@ public partial class SettingsPageViewModel : ObservableObject
     private TextRowViewModel? _javaPathRow;
     private ComboRowViewModel? _versionListSourceRow;
     private ComboRowViewModel? _fileSourceRow;
+    private ComboRowViewModel? _communitySourceRow;
+    private ToggleRowViewModel? _autoDependenciesRow;
     private ComboRowViewModel? _threadsRow;
     private ComboRowViewModel? _retryRow;
     private ComboRowViewModel? _themeRow;
@@ -193,6 +203,13 @@ public partial class SettingsPageViewModel : ObservableObject
                     "下载文件源",
                     DownloadSourceOptions,
                     DownloadSourceOptions[Math.Clamp(config.FileSource, 0, 2)]),
+                _communitySourceRow = new ComboRowViewModel(
+                    "社区资源源",
+                    CommunitySourceOptions,
+                    CommunitySourceOptions[Math.Clamp(config.CommunitySourceSolution, 0, 2)]),
+                _autoDependenciesRow = new ToggleRowViewModel(
+                    "自动安装前置",
+                    config.CompAutoInstallDependencies),
                 _threadsRow = new ComboRowViewModel(
                     "下载线程数",
                     AddCustom(ThreadOptions, config.DownloadThreads.ToString()),
@@ -201,7 +218,7 @@ public partial class SettingsPageViewModel : ObservableObject
                     "下载重试次数",
                     AddCustom(RetryOptions, config.RetryCount.ToString()),
                     config.RetryCount.ToString()),
-                new TextLineRowViewModel("镜像源（BMCLAPI）适合国内网络；官方优先档会在官方源响应缓慢时自动改用镜像源。")
+                new TextLineRowViewModel("镜像源（BMCLAPI / mcimirror）适合国内网络；社区资源在 CurseForge API Key 未配置时依赖镜像源兜底。")
             ]),
         ]);
 
@@ -425,6 +442,20 @@ public partial class SettingsPageViewModel : ObservableObject
             {
                 config.FileSource = index;
             }
+        }
+
+        if (_communitySourceRow?.SelectedOption is { } communitySource)
+        {
+            var index = Array.IndexOf(CommunitySourceOptions, communitySource);
+            if (index >= 0)
+            {
+                config.CommunitySourceSolution = index;
+            }
+        }
+
+        if (_autoDependenciesRow is not null)
+        {
+            config.CompAutoInstallDependencies = _autoDependenciesRow.IsOn;
         }
 
         if (_threadsRow?.SelectedOption is { } threads)

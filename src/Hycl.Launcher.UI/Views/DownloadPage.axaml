@@ -540,8 +540,227 @@
                     </Panel>
                 </Panel>
 
+                <!-- ── 社区资源分区（整合包 / 模组 / 资源包 / 光影） ── -->
+                <Panel Grid.Row="1" Margin="0,0,0,12" IsVisible="{Binding IsCompSection}">
+                    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel Margin="0,2,8,0" Spacing="8">
+                            <TextBlock Classes="sline"
+                                       Margin="2,0,0,0"
+                                       Text="{Binding ActiveCompSection.Description}" />
+
+                            <!-- 搜索卡（对应 PCL-CE PageComp 筛选卡） -->
+                            <Border Background="{DynamicResource GlassSurfaceBrush}"
+                                    BorderBrush="{DynamicResource SoftLineBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="10"
+                                    Padding="12,9">
+                                <StackPanel Spacing="8">
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                        <TextBox PlaceholderText="搜索社区资源…"
+                                                 Text="{Binding ActiveCompSection.SearchText, Mode=TwoWay}" />
+                                        <Button Grid.Column="1"
+                                                Classes="mc-btn primary"
+                                                Command="{Binding ActiveCompSection.SearchFromStartCommand}">
+                                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                                <c:HyclIcon Kind="search" Width="14" Height="14" />
+                                                <TextBlock Text="搜索" />
+                                            </StackPanel>
+                                        </Button>
+                                    </Grid>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <ComboBox MinWidth="120"
+                                                  ItemsSource="{x:Static vm:CompSectionViewModel.CommonGameVersions}"
+                                                  SelectedItem="{Binding ActiveCompSection.SelectedGameVersion, Mode=TwoWay}" />
+                                        <ComboBox MinWidth="110"
+                                                  ItemsSource="{x:Static vm:CompSectionViewModel.LoaderOptions}"
+                                                  SelectedItem="{Binding ActiveCompSection.SelectedLoader, Mode=TwoWay}" />
+                                        <ComboBox MinWidth="110"
+                                                  ItemsSource="{x:Static vm:CompSectionViewModel.SortOptions}"
+                                                  SelectedItem="{Binding ActiveCompSection.SelectedSort, Mode=TwoWay}" />
+                                        <TextBlock Classes="sline"
+                                                   VerticalAlignment="Center"
+                                                   Text="{Binding ActiveCompSection.ResultSummary}" />
+                                    </StackPanel>
+                                    <TextBlock Classes="sline"
+                                               Foreground="{DynamicResource ErrorBrush}"
+                                               Text="{Binding ActiveCompSection.ErrorText}"
+                                               IsVisible="{Binding ActiveCompSection.ErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                    <c:McLoading Width="120"
+                                                 Height="70"
+                                                 Text="正在搜索"
+                                                 HorizontalAlignment="Left"
+                                                 IsVisible="{Binding ActiveCompSection.IsSearching}" />
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 搜索结果（项目卡片） -->
+                            <ItemsControl ItemsSource="{Binding ActiveCompSection.Results}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:CompProjectItemViewModel">
+                                        <Button Classes="ver-row"
+                                                Margin="0,0,0,2"
+                                                Command="{Binding $parent[UserControl].((vm:DownloadPageViewModel)DataContext).ActiveCompSection.SelectProjectCommand}"
+                                                CommandParameter="{Binding}">
+                                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                                <StackPanel VerticalAlignment="Center" Spacing="1">
+                                                    <StackPanel Orientation="Horizontal" Spacing="7">
+                                                        <TextBlock Text="{Binding Title}"
+                                                                   FontSize="13"
+                                                                   FontWeight="SemiBold"
+                                                                   Foreground="{DynamicResource TextBrush}" />
+                                                        <Border Background="{DynamicResource Primary8Brush}"
+                                                                CornerRadius="4"
+                                                                Padding="5,1"
+                                                                VerticalAlignment="Center">
+                                                            <TextBlock Text="{Binding SourceText}"
+                                                                       FontSize="10.5"
+                                                                       Foreground="{DynamicResource PrimaryDeepBrush}" />
+                                                        </Border>
+                                                    </StackPanel>
+                                                    <TextBlock Text="{Binding Description}"
+                                                               FontSize="11"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               Foreground="{DynamicResource Gray3Brush}" />
+                                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                                        <ItemsControl ItemsSource="{Binding Tags}">
+                                                            <ItemsControl.ItemsPanel>
+                                                                <ItemsPanelTemplate>
+                                                                    <StackPanel Orientation="Horizontal" Spacing="4" />
+                                                                </ItemsPanelTemplate>
+                                                            </ItemsControl.ItemsPanel>
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate>
+                                                                    <Border Background="{DynamicResource Primary8Brush}"
+                                                                            CornerRadius="4"
+                                                                            Padding="5,1">
+                                                                        <TextBlock Text="{Binding}"
+                                                                                   FontSize="10.5"
+                                                                                   Foreground="{DynamicResource PrimaryDeepBrush}" />
+                                                                    </Border>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                        <TextBlock Text="{Binding DownloadText}"
+                                                                   FontSize="10.5"
+                                                                   VerticalAlignment="Center"
+                                                                   Foreground="{DynamicResource Gray3Brush}" />
+                                                    </StackPanel>
+                                                </StackPanel>
+                                                <c:HyclIcon Grid.Column="1"
+                                                            Width="14"
+                                                            Height="14"
+                                                            VerticalAlignment="Center"
+                                                            Foreground="{DynamicResource Gray2Brush}"
+                                                            Kind="chevron-right" />
+                                            </Grid>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <!-- 分页 -->
+                            <StackPanel Orientation="Horizontal"
+                                        HorizontalAlignment="Center"
+                                        Spacing="10"
+                                        IsVisible="{Binding ActiveCompSection.Results.Count}">
+                                <Button Classes="mc-btn"
+                                        MinHeight="0"
+                                        Height="26"
+                                        Content="上一页"
+                                        IsEnabled="{Binding ActiveCompSection.CanGoPrevious}"
+                                        Command="{Binding ActiveCompSection.GoPreviousPageCommand}" />
+                                <Button Classes="mc-btn"
+                                        MinHeight="0"
+                                        Height="26"
+                                        Content="下一页"
+                                        IsEnabled="{Binding ActiveCompSection.CanGoNext}"
+                                        Command="{Binding ActiveCompSection.GoNextPageCommand}" />
+                            </StackPanel>
+
+                            <!-- 项目详情：版本列表 -->
+                            <Border Background="{DynamicResource GlassSurfaceBrush}"
+                                    BorderBrush="{DynamicResource SoftLineBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="10"
+                                    Padding="12,9"
+                                    IsVisible="{Binding ActiveCompSection.SelectedProject, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                <StackPanel Spacing="8">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{Binding ActiveCompSection.SelectedProject.Title}"
+                                                       FontSize="14"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource TextBrush}"
+                                                       VerticalAlignment="Center" />
+                                            <Button Classes="mc-btn danger"
+                                                    MinHeight="0"
+                                                    Height="22"
+                                                    Padding="6,0"
+                                                    FontSize="11"
+                                                    Content="关闭"
+                                                    Command="{Binding ActiveCompSection.CloseDetailCommand}" />
+                                        </StackPanel>
+                                        <c:McLoading Grid.Column="1"
+                                                     Width="60"
+                                                     Height="40"
+                                                     IsVisible="{Binding ActiveCompSection.IsLoadingVersions}" />
+                                    </Grid>
+                                    <TextBlock Classes="sline"
+                                               Foreground="{DynamicResource ErrorBrush}"
+                                               Text="{Binding ActiveCompSection.VersionErrorText}"
+                                               IsVisible="{Binding ActiveCompSection.VersionErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                    <ItemsControl ItemsSource="{Binding ActiveCompSection.VersionFiles}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:CompFileItemViewModel">
+                                                <Button Classes="ver-row"
+                                                        Margin="0,0,0,2"
+                                                        Command="{Binding InstallCommand}">
+                                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                                        <StackPanel VerticalAlignment="Center" Spacing="1">
+                                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                <TextBlock Text="{Binding Title}"
+                                                                           FontSize="12.5"
+                                                                           FontWeight="SemiBold"
+                                                                           Foreground="{DynamicResource TextBrush}" />
+                                                                <Border Background="{DynamicResource Primary8Brush}"
+                                                                        CornerRadius="4"
+                                                                        Padding="5,1"
+                                                                        VerticalAlignment="Center">
+                                                                    <TextBlock Text="{Binding StatusText}"
+                                                                               FontSize="10.5"
+                                                                               Foreground="{DynamicResource PrimaryDeepBrush}" />
+                                                                </Border>
+                                                            </StackPanel>
+                                                            <TextBlock Text="{Binding GameVersionText}"
+                                                                       FontSize="11"
+                                                                       Foreground="{DynamicResource Gray3Brush}" />
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                                            <TextBlock Text="{Binding DateText}"
+                                                                       FontSize="11"
+                                                                       Foreground="{DynamicResource Gray3Brush}" />
+                                                            <TextBlock Text="{Binding SizeText}"
+                                                                       FontSize="11"
+                                                                       Foreground="{DynamicResource Gray3Brush}" />
+                                                            <c:HyclIcon Width="14"
+                                                                        Height="14"
+                                                                        VerticalAlignment="Center"
+                                                                        Foreground="{DynamicResource PrimaryBrush}"
+                                                                        Kind="download" />
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Button>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Panel>
+
                 <!-- ── 安装包分区（客户端 / OptiFine / Forge / …） ── -->
-                <Panel Grid.Row="1" Margin="0,0,0,12" IsVisible="{Binding !IsInstallSection}">
+                <Panel Grid.Row="1" Margin="0,0,0,12" IsVisible="{Binding ActiveSection, Converter={x:Static ObjectConverters.IsNotNull}}">
                     <ScrollViewer HorizontalScrollBarVisibility="Disabled">
                         <StackPanel Margin="0,2,8,0" Spacing="8">
 

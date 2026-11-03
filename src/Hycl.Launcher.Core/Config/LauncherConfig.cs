@@ -45,6 +45,12 @@ public sealed class LauncherConfig
 
     public int RetryCount { get; set; } = 3;
 
+    /// <summary>社区资源源策略：0 镜像优先 / 1 官方优先（失败转镜像）/ 2 仅官方（对应 PCL-CE ToolDownloadMod）。</summary>
+    public int CommunitySourceSolution { get; set; } = 1;
+
+    /// <summary>下载模组时自动解析并安装前置（对应 PCL-CE ToolDownloadAutoInstallDependencies）。</summary>
+    public bool CompAutoInstallDependencies { get; set; } = true;
+
     /// <summary>修复 1.16.5 的 authlib 2.1.28 兼容问题（对应 PCL-CE ToolFixAuthlib，默认开启）。</summary>
     public bool FixAuthlib { get; set; } = true;
 

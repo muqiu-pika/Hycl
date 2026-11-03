@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Hycl.Launcher.Core.Download;
 using Hycl.Launcher.Core.Game;
+using Hycl.Launcher.Core.Game.Comp;
 using Hycl.Launcher.Core.Game.Models;
 
 namespace Hycl.Launcher.Core.ViewModels.Pages;
@@ -149,6 +150,32 @@ public partial class InstallTaskViewModel : ObservableObject
         await RunAsync(
             displayName,
             (progress, token) => _services.LoaderInstall.InstallAsync(plan, progress, token))
+            .ConfigureAwait(true);
+    }
+
+    /// <summary>安装社区资源文件（Mod/资源包/光影/数据包 → 实例对应目录）。</summary>
+    public async Task RunCompFileAsync(CompFile file, string instanceId, string sectionTitle)
+    {
+        await RunAsync(
+            $"{file.DisplayName}（{sectionTitle}）",
+            (progress, token) => _services.CompInstall
+                .InstallFileAsync(file, _services.Config.EffectiveGameDirectory, instanceId, progress, token))
+            .ConfigureAwait(true);
+    }
+
+    /// <summary>安装整合包（下载 → 解析 → 资源落盘 → 自动安装原版与加载器）。</summary>
+    public async Task RunCompModpackAsync(CompFile file, string instanceName)
+    {
+        await RunAsync(
+            $"整合包 {file.DisplayName}",
+            (progress, token) => _services.CompInstall.InstallModpackAsync(
+                file,
+                _services.Config.EffectiveGameDirectory,
+                instanceName,
+                DownloadPolicy.FromConfig(_services.Config),
+                _services.Config.DownloadThreads,
+                progress,
+                token))
             .ConfigureAwait(true);
     }
 
