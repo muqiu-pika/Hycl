@@ -35,12 +35,21 @@ public partial class SettingsPageViewModel : ObservableObject
 
     private static readonly string[] RetryOptions = ["0", "1", "2", "3", "5"];
 
+    /// <summary>下载源三档（对应 PCL-CE 的下载源设置文案）。</summary>
+    public static readonly string[] DownloadSourceOptions =
+    [
+        "尽量使用镜像源",
+        "优先使用官方源，在加载缓慢时换用镜像源",
+        "尽量使用官方源"
+    ];
+
     private ComboRowViewModel? _memoryRow;
     private ComboRowViewModel? _windowRow;
     private TextRowViewModel? _gameDirectoryRow;
     private ToggleRowViewModel? _autoJavaRow;
     private TextRowViewModel? _javaPathRow;
-    private ComboRowViewModel? _sourceRow;
+    private ComboRowViewModel? _versionListSourceRow;
+    private ComboRowViewModel? _fileSourceRow;
     private ComboRowViewModel? _threadsRow;
     private ComboRowViewModel? _retryRow;
     private ComboRowViewModel? _themeRow;
@@ -176,10 +185,14 @@ public partial class SettingsPageViewModel : ObservableObject
         [
             new SettingCardViewModel("下载源",
             [
-                _sourceRow = new ComboRowViewModel(
-                    "下载源",
-                    ["尽量使用镜像源", "尽量使用官方源"],
-                    config.DownloadSource == DownloadSourceKind.Official ? "尽量使用官方源" : "尽量使用镜像源"),
+                _versionListSourceRow = new ComboRowViewModel(
+                    "版本列表源",
+                    DownloadSourceOptions,
+                    DownloadSourceOptions[Math.Clamp(config.VersionListSource, 0, 2)]),
+                _fileSourceRow = new ComboRowViewModel(
+                    "下载文件源",
+                    DownloadSourceOptions,
+                    DownloadSourceOptions[Math.Clamp(config.FileSource, 0, 2)]),
                 _threadsRow = new ComboRowViewModel(
                     "下载线程数",
                     AddCustom(ThreadOptions, config.DownloadThreads.ToString()),
@@ -188,7 +201,7 @@ public partial class SettingsPageViewModel : ObservableObject
                     "下载重试次数",
                     AddCustom(RetryOptions, config.RetryCount.ToString()),
                     config.RetryCount.ToString()),
-                new TextLineRowViewModel("镜像源（BMCLAPI）适合国内网络；官方源在镜像不可用时可作为回退。")
+                new TextLineRowViewModel("镜像源（BMCLAPI）适合国内网络；官方优先档会在官方源响应缓慢时自动改用镜像源。")
             ]),
         ]);
 
@@ -396,11 +409,22 @@ public partial class SettingsPageViewModel : ObservableObject
             config.JavaPath = _javaPathRow.Text.Trim();
         }
 
-        if (_sourceRow?.SelectedOption is { } source)
+        if (_versionListSourceRow?.SelectedOption is { } versionListSource)
         {
-            config.DownloadSource = source == "尽量使用官方源"
-                ? DownloadSourceKind.Official
-                : DownloadSourceKind.Bmclapi;
+            var index = Array.IndexOf(DownloadSourceOptions, versionListSource);
+            if (index >= 0)
+            {
+                config.VersionListSource = index;
+            }
+        }
+
+        if (_fileSourceRow?.SelectedOption is { } fileSource)
+        {
+            var index = Array.IndexOf(DownloadSourceOptions, fileSource);
+            if (index >= 0)
+            {
+                config.FileSource = index;
+            }
         }
 
         if (_threadsRow?.SelectedOption is { } threads)

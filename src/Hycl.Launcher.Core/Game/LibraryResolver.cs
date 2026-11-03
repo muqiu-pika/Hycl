@@ -4,8 +4,8 @@ using Hycl.Launcher.Core.Game.Models;
 
 namespace Hycl.Launcher.Core.Game;
 
-/// <summary>库文件（artifact 或 native）。</summary>
-public sealed record LibraryFile(string RelativePath, string Url, long Size, string? Sha1);
+/// <summary>库文件（artifact 或 native）；Urls 为按下载源策略排序的候选地址。</summary>
+public sealed record LibraryFile(string RelativePath, IReadOnlyList<string> Urls, long Size, string? Sha1);
 
 /// <summary>
 /// Maven 坐标解析与 artifacts/natives 选择。
@@ -35,7 +35,7 @@ public static class LibraryResolver
         return $"{group}/{artifact}/{version}/{artifact}-{version}{classifier}.{extension}";
     }
 
-    public static LibraryFile? ResolveArtifact(LibraryInfo library, RuleEnvironment environment)
+    public static LibraryFile? ResolveArtifact(LibraryInfo library, RuleEnvironment environment, DownloadPolicy policy)
     {
         var download = library.Downloads?.Artifact;
         var relativePath = download?.Path;
@@ -56,16 +56,11 @@ public static class LibraryResolver
             url = baseUrl + relativePath;
         }
 
-        if (string.IsNullOrWhiteSpace(url))
-        {
-            return null;
-        }
-
-        return new LibraryFile(relativePath, url, download?.Size ?? 0, download?.Sha1);
+        return new LibraryFile(relativePath, DownloadSources.GetLibraryUrls(url, policy), download?.Size ?? 0, download?.Sha1);
     }
 
     /// <summary>当前平台对应的 native 分类器（旧版本需要解压到 natives 目录）。</summary>
-    public static LibraryFile? ResolveNative(LibraryInfo library, RuleEnvironment environment)
+    public static LibraryFile? ResolveNative(LibraryInfo library, RuleEnvironment environment, DownloadPolicy policy)
     {
         if (library.Natives is null || library.Natives.Count == 0)
         {
@@ -88,7 +83,7 @@ public static class LibraryResolver
         if (download is not null && download.TryGetValue(classifier, out var exact))
         {
             var path = exact.Path ?? GetPathFromName(library.Name + ":" + classifier);
-            return new LibraryFile(path, exact.Url, exact.Size, exact.Sha1);
+            return new LibraryFile(path, DownloadSources.GetLibraryUrls(exact.Url, policy), exact.Size, exact.Sha1);
         }
 
         var relativePath = GetPathFromName(library.Name + ":" + classifier);
@@ -98,14 +93,14 @@ public static class LibraryResolver
             baseUrl += "/";
         }
 
-        return new LibraryFile(relativePath, baseUrl + relativePath, 0, null);
+        return new LibraryFile(relativePath, DownloadSources.GetLibraryUrls(baseUrl + relativePath, policy), 0, null);
     }
 
-    /// <summary>某版本在指定下载源下需要下载的库文件（去重后）。</summary>
+    /// <summary>某版本在指定下载源策略下需要下载的库文件（去重后）。</summary>
     public static IReadOnlyList<LibraryFile> CollectLibraries(
         VersionInfo version,
         RuleEnvironment environment,
-        DownloadSourceKind source)
+        DownloadPolicy policy)
     {
         var results = new Dictionary<string, LibraryFile>(StringComparer.OrdinalIgnoreCase);
         foreach (var library in version.Libraries)
@@ -115,22 +110,16 @@ public static class LibraryResolver
                 continue;
             }
 
-            var artifact = ResolveArtifact(library, environment);
+            var artifact = ResolveArtifact(library, environment, policy);
             if (artifact is not null && !results.ContainsKey(artifact.RelativePath))
             {
-                results[artifact.RelativePath] = artifact with
-                {
-                    Url = DownloadSources.RewriteResourceUrl(source, artifact.Url)
-                };
+                results[artifact.RelativePath] = artifact;
             }
 
-            var native = ResolveNative(library, environment);
+            var native = ResolveNative(library, environment, policy);
             if (native is not null && !results.ContainsKey(native.RelativePath))
             {
-                results[native.RelativePath] = native with
-                {
-                    Url = DownloadSources.RewriteResourceUrl(source, native.Url)
-                };
+                results[native.RelativePath] = native;
             }
         }
 

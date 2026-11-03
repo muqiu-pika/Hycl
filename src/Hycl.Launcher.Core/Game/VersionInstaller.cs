@@ -27,11 +27,13 @@ public sealed class VersionInstaller
     }
 
     public async Task<IReadOnlyList<VersionSummary>> GetVersionListAsync(
-        DownloadSourceKind source,
+        DownloadPolicy policy,
         CancellationToken cancellationToken = default)
     {
         var manifest = await _client
-            .GetJsonAsync<VersionManifest>(DownloadSources.GetVersionManifestUrl(source), cancellationToken)
+            .GetJsonAsync<VersionManifest>(
+                DownloadSources.GetVersionManifestUrls(policy.VersionListSource, policy.MojangFast),
+                cancellationToken)
             .ConfigureAwait(false);
         return manifest.Versions;
     }
@@ -40,7 +42,7 @@ public sealed class VersionInstaller
     public async Task InstallVanillaAsync(
         string gameDirectory,
         VersionSummary summary,
-        DownloadSourceKind source,
+        DownloadPolicy policy,
         int threads,
         IProgress<InstallProgress>? progress = null,
         CancellationToken cancellationToken = default)
@@ -50,9 +52,9 @@ public sealed class VersionInstaller
         Directory.CreateDirectory(versionDirectory);
 
         reporter.Stage("获取版本信息");
-        _logger.Info($"开始安装 {summary.Id}（源：{source}）");
+        _logger.Info($"开始安装 {summary.Id}（版本列表源 {policy.VersionListSource} / 文件源 {policy.FileSource}）");
         var rawJson = await _client
-            .GetStringAsync(DownloadSources.GetVersionJsonUrl(source, summary.Id, summary.Url), cancellationToken)
+            .GetStringAsync(DownloadSources.GetLauncherOrMetaUrls(summary.Url, policy), cancellationToken)
             .ConfigureAwait(false);
 
         var jsonPath = Path.Combine(versionDirectory, summary.Id + ".json");
@@ -73,10 +75,10 @@ public sealed class VersionInstaller
             reporter.Stage("下载客户端");
             var jarPath = Path.Combine(versionDirectory, summary.Id + ".jar");
             var client = info.Downloads.Client;
-            var url = DownloadSources.GetClientJarUrl(source, summary.Id, client.Url);
+            var urls = DownloadSources.GetLauncherOrMetaUrls(client.Url, policy);
             reporter.BeginFile(summary.Id + ".jar", client.Size);
             await _client.DownloadFileAsync(
-                    url,
+                    urls,
                     jarPath,
                     client.Size > 0 ? client.Size : null,
                     client.Sha1,
@@ -87,7 +89,7 @@ public sealed class VersionInstaller
         }
 
         // 依赖库与 natives
-        var libraries = LibraryResolver.CollectLibraries(info, environment, source);
+        var libraries = LibraryResolver.CollectLibraries(info, environment, policy);
         reporter.Stage("下载依赖库", libraries.Count);
         var librariesDirectory = Path.Combine(gameDirectory, "libraries");
         var nativesDirectory = Path.Combine(versionDirectory, "natives");
@@ -100,7 +102,7 @@ public sealed class VersionInstaller
                 var destination = Path.Combine(librariesDirectory, library.RelativePath.Replace('/', Path.DirectorySeparatorChar));
                 reporter.BeginFile(library.RelativePath, library.Size);
                 await _client.DownloadFileAsync(
-                        library.Url,
+                        library.Urls,
                         destination,
                         library.Size > 0 ? library.Size : null,
                         library.Sha1,
@@ -112,12 +114,12 @@ public sealed class VersionInstaller
             cancellationToken).ConfigureAwait(false);
 
         // 解压 natives（仅旧版本 JSON 带 natives 字段）
-        ExtractAllNatives(info, environment, librariesDirectory, nativesDirectory);
+        ExtractAllNatives(info, environment, policy, librariesDirectory, nativesDirectory);
 
         // 资源索引与资源对象
         if (info.AssetIndex is not null)
         {
-            await InstallAssetsAsync(gameDirectory, source, threads, info.AssetIndex, reporter, cancellationToken)
+            await InstallAssetsAsync(gameDirectory, policy, threads, info.AssetIndex, reporter, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -130,7 +132,7 @@ public sealed class VersionInstaller
                 var logDirectory = Path.Combine(gameDirectory, "assets", "log_configs");
                 var destination = Path.Combine(logDirectory, (logFile.Path ?? logFile.Id ?? "client") + ".xml");
                 await _client.DownloadFileAsync(
-                        logFile.Url,
+                        DownloadSources.GetLauncherOrMetaUrls(logFile.Url, policy),
                         destination,
                         logFile.Size > 0 ? logFile.Size : null,
                         logFile.Sha1,
@@ -152,7 +154,7 @@ public sealed class VersionInstaller
     public async Task<string> InstallFabricAsync(
         string gameDirectory,
         string gameVersion,
-        DownloadSourceKind source,
+        DownloadPolicy policy,
         int threads,
         IProgress<InstallProgress>? progress = null,
         CancellationToken cancellationToken = default)
@@ -162,10 +164,10 @@ public sealed class VersionInstaller
         var baseJson = Path.Combine(gameDirectory, "versions", gameVersion, gameVersion + ".json");
         if (!File.Exists(baseJson))
         {
-            var manifest = await GetVersionListAsync(source, cancellationToken).ConfigureAwait(false);
+            var manifest = await GetVersionListAsync(policy, cancellationToken).ConfigureAwait(false);
             var summary = manifest.FirstOrDefault(x => x.Id.Equals(gameVersion, StringComparison.OrdinalIgnoreCase))
                           ?? throw new DownloadException($"版本清单中找不到 {gameVersion}");
-            await InstallVanillaAsync(gameDirectory, summary, source, threads, progress, cancellationToken)
+            await InstallVanillaAsync(gameDirectory, summary, policy, threads, progress, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -199,7 +201,7 @@ public sealed class VersionInstaller
 
         reporter.Stage("下载 Fabric 依赖");
         var environment = RuleEnvironment.Current(false);
-        var libraries = LibraryResolver.CollectLibraries(profile, environment, source);
+        var libraries = LibraryResolver.CollectLibraries(profile, environment, policy);
         var librariesDirectory = Path.Combine(gameDirectory, "libraries");
         reporter.Stage("下载 Fabric 依赖", libraries.Count);
         await ForEachParallelAsync(
@@ -210,7 +212,7 @@ public sealed class VersionInstaller
                 var destination = Path.Combine(librariesDirectory, library.RelativePath.Replace('/', Path.DirectorySeparatorChar));
                 reporter.BeginFile(library.RelativePath, library.Size);
                 await _client.DownloadFileAsync(
-                        library.Url,
+                        library.Urls,
                         destination,
                         library.Size > 0 ? library.Size : null,
                         library.Sha1,
@@ -228,15 +230,16 @@ public sealed class VersionInstaller
 
     private async Task InstallAssetsAsync(
         string gameDirectory,
-        DownloadSourceKind source,
+        DownloadPolicy policy,
         int threads,
         AssetIndexInfo assetIndex,
         ProgressReporter reporter,
         CancellationToken cancellationToken)
     {
         reporter.Stage("下载资源索引");
-        var indexUrl = DownloadSources.GetAssetIndexUrl(source, assetIndex.Id, assetIndex.Url);
-        var indexJson = await _client.GetStringAsync(indexUrl, cancellationToken).ConfigureAwait(false);
+        var indexJson = await _client
+            .GetStringAsync(DownloadSources.GetLauncherOrMetaUrls(assetIndex.Url, policy), cancellationToken)
+            .ConfigureAwait(false);
         var indexesDirectory = Path.Combine(gameDirectory, "assets", "indexes");
         Directory.CreateDirectory(indexesDirectory);
         var indexPath = Path.Combine(indexesDirectory, assetIndex.Id + ".json");
@@ -263,11 +266,10 @@ public sealed class VersionInstaller
             {
                 var prefix = obj.Hash[..2];
                 var destination = Path.Combine(objectsDirectory, prefix, obj.Hash);
-                var url = source == DownloadSourceKind.Official
-                    ? $"{DownloadSources.OfficialAssets}/{prefix}/{obj.Hash}"
-                    : $"{DownloadSources.BmclapiBase}/assets/{prefix}/{obj.Hash}";
+                var officialUrl = $"{DownloadSources.OfficialAssets}/{prefix}/{obj.Hash}";
+                var urls = DownloadSources.GetAssetUrls(officialUrl, policy);
                 reporter.BeginFile(obj.Hash, obj.Size);
-                await _client.DownloadFileAsync(url, destination, obj.Size, obj.Hash, null, cancellationToken)
+                await _client.DownloadFileAsync(urls, destination, obj.Size, obj.Hash, null, cancellationToken)
                     .ConfigureAwait(false);
                 reporter.FileCompleted(obj.Size);
             },
@@ -300,6 +302,7 @@ public sealed class VersionInstaller
     private void ExtractAllNatives(
         VersionInfo info,
         RuleEnvironment environment,
+        DownloadPolicy policy,
         string librariesDirectory,
         string nativesDirectory)
     {
@@ -310,7 +313,7 @@ public sealed class VersionInstaller
                 continue;
             }
 
-            var nativeFile = LibraryResolver.ResolveNative(library, environment);
+            var nativeFile = LibraryResolver.ResolveNative(library, environment, policy);
             if (nativeFile is null)
             {
                 continue;

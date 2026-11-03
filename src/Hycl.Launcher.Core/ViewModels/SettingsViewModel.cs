@@ -37,7 +37,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         WindowHeight = config.WindowHeight;
         ExtraJvmArguments = config.ExtraJvmArguments;
         ExtraGameArguments = config.ExtraGameArguments;
-        DownloadSourceIndex = config.DownloadSource == DownloadSourceKind.Official ? 0 : 1;
+        VersionListSourceIndex = config.VersionListSource;
+        FileSourceIndex = config.FileSource;
         DownloadThreads = config.DownloadThreads;
         RetryCount = config.RetryCount;
         CloseLauncherAfterLaunch = config.CloseLauncherAfterLaunch;
@@ -78,8 +79,13 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private string _extraGameArguments = "";
 
+    /// <summary>版本列表源索引：0 镜像优先 / 1 官方优先（自动切换）/ 2 仅官方。</summary>
     [ObservableProperty]
-    private int _downloadSourceIndex = 1;
+    private int _versionListSourceIndex = 1;
+
+    /// <summary>下载文件源索引：0 镜像优先 / 1 官方优先（自动切换）/ 2 仅官方。</summary>
+    [ObservableProperty]
+    private int _fileSourceIndex = 1;
 
     [ObservableProperty]
     private decimal _downloadThreads = 16;
@@ -207,7 +213,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         config.WindowHeight = (int)WindowHeight;
         config.ExtraJvmArguments = ExtraJvmArguments.Trim();
         config.ExtraGameArguments = ExtraGameArguments.Trim();
-        config.DownloadSource = DownloadSourceIndex == 0 ? DownloadSourceKind.Official : DownloadSourceKind.Bmclapi;
+        config.VersionListSource = VersionListSourceIndex;
+        config.FileSource = FileSourceIndex;
         config.DownloadThreads = (int)DownloadThreads;
         config.RetryCount = (int)RetryCount;
         config.CloseLauncherAfterLaunch = CloseLauncherAfterLaunch;

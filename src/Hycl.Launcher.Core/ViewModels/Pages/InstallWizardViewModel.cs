@@ -250,14 +250,15 @@ public partial class InstallWizardViewModel : ObservableObject
 
     private IReadOnlyList<VersionSummary> _cachedVersions = [];
 
-    private DownloadSourceKind _cachedSource = (DownloadSourceKind)(-1);
+    private (int VersionList, int File) _cachedSource = (-1, -1);
 
     private VersionItemViewModel? _selectedLoaderItem;
 
     /// <summary>加载 Minecraft 版本列表；已加载且下载源未变化时直接复用缓存。</summary>
     public async Task LoadVersionListAsync(bool force = false)
     {
-        if (!force && _cachedVersions.Count > 0 && _cachedSource == _services.Config.DownloadSource)
+        var config = _services.Config;
+        if (!force && _cachedVersions.Count > 0 && _cachedSource == (config.VersionListSource, config.FileSource))
         {
             return;
         }
@@ -267,10 +268,10 @@ public partial class InstallWizardViewModel : ObservableObject
         try
         {
             var versions = await _services.Installer
-                .GetVersionListAsync(_services.Config.DownloadSource)
+                .GetVersionListAsync(DownloadPolicy.FromConfig(config))
                 .ConfigureAwait(true);
             _cachedVersions = versions;
-            _cachedSource = _services.Config.DownloadSource;
+            _cachedSource = (config.VersionListSource, config.FileSource);
             McGroups.Clear();
             foreach (var group in BuildGroups(versions))
             {

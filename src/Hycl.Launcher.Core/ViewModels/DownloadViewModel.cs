@@ -11,7 +11,7 @@ public sealed partial class DownloadViewModel : ObservableObject
 {
     private readonly LauncherServices _services;
     private List<VersionItem> _allVersions = new();
-    private DownloadSourceKind? _loadedSource;
+    private (int VersionList, int File)? _loadedSource;
     private CancellationTokenSource? _installCts;
 
     public DownloadViewModel(LauncherServices services)
@@ -119,9 +119,26 @@ public sealed partial class DownloadViewModel : ObservableObject
 
     public string SelectedVersionText => SelectedVersion is null ? "未选择版本" : SelectedVersion.Id;
 
-    public string SourceText => _services.Config.DownloadSource == DownloadSourceKind.Bmclapi
-        ? "下载源：BMCLAPI 国内镜像"
-        : "下载源：Mojang 官方（可能较慢）";
+    public string SourceText
+    {
+        get
+        {
+            var config = _services.Config;
+            var listText = config.VersionListSource switch
+            {
+                (int)DownloadSourceMode.MirrorFirst => "镜像优先",
+                (int)DownloadSourceMode.OfficialOnly => "仅官方",
+                _ => "官方优先（自动切换）"
+            };
+            var fileText = config.FileSource switch
+            {
+                (int)DownloadSourceMode.MirrorFirst => "镜像优先",
+                (int)DownloadSourceMode.OfficialOnly => "仅官方",
+                _ => "官方优先（自动切换）"
+            };
+            return $"版本列表源：{listText} · 下载文件源：{fileText}";
+        }
+    }
 
     public string VersionCountText
     {
@@ -143,9 +160,9 @@ public sealed partial class DownloadViewModel : ObservableObject
     /// <summary>进入下载页时调用；仅在首次或下载源变化时拉取清单。</summary>
     public async Task EnsureVersionsAsync(bool force = false)
     {
-        var source = _services.Config.DownloadSource;
+        var source = DownloadPolicy.FromConfig(_services.Config);
         OnPropertyChanged(nameof(SourceText));
-        if (!force && _loadedSource == source && _allVersions.Count > 0)
+        if (!force && _loadedSource == (source.VersionListSource, source.FileSource) && _allVersions.Count > 0)
         {
             ApplyFilter();
             return;
@@ -164,7 +181,7 @@ public sealed partial class DownloadViewModel : ObservableObject
             _allVersions = versions
                 .Select(x => new VersionItem(x, x.Id == latestRelease))
                 .ToList();
-            _loadedSource = source;
+            _loadedSource = (source.VersionListSource, source.FileSource);
             IsLoadingVersions = false;
             InstallStatus = "版本清单已就绪";
             ApplyFilter();
@@ -217,7 +234,7 @@ public sealed partial class DownloadViewModel : ObservableObject
             await _services.Installer.InstallVanillaAsync(
                     config.EffectiveGameDirectory,
                     version.Summary,
-                    config.DownloadSource,
+                    DownloadPolicy.FromConfig(config),
                     config.DownloadThreads,
                     progress,
                     _installCts.Token)
@@ -269,7 +286,7 @@ public sealed partial class DownloadViewModel : ObservableObject
             var installed = await _services.Installer.InstallFabricAsync(
                     config.EffectiveGameDirectory,
                     version.Id,
-                    config.DownloadSource,
+                    DownloadPolicy.FromConfig(config),
                     config.DownloadThreads,
                     progress,
                     _installCts.Token)

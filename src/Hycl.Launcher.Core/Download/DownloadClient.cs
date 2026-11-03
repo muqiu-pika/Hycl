@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Hycl.Launcher.Core.Services;
@@ -7,12 +8,15 @@ using Hycl.Launcher.Core.Services;
 namespace Hycl.Launcher.Core.Download;
 
 /// <summary>
-/// HTTP 下载封装：并发安全、断点式 .part 写入、重试与 SHA-1 校验。
+/// HTTP 下载封装：多源 URL 按序尝试、并发安全、HTTP Range 断点续传（.hycl-dl 临时文件）、
+/// 重试与 SHA-1 校验。URL 列表顺序由 <see cref="DownloadSources"/> 按下载源策略生成。
 /// </summary>
 public sealed class DownloadClient : IDisposable
 {
+    /// <summary>断点续传临时文件后缀（参考 HMCL 的 .part 方案）。</summary>
+    public const string TempSuffix = ".hycl-dl";
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(120);
 
     private readonly HttpClient _httpClient;
     private readonly LauncherLogger _logger;
@@ -30,7 +34,8 @@ public sealed class DownloadClient : IDisposable
             MaxConnectionsPerServer = 64
         })
         {
-            Timeout = RequestTimeout
+            // 头部超时单独控制；流式读取用每次读取超时，避免大文件被整体超时掐断
+            Timeout = Timeout.InfiniteTimeSpan
         };
         _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("HYCL/1.0 (Hyplay Craft Launcher; cross-platform)");
     }
@@ -38,56 +43,79 @@ public sealed class DownloadClient : IDisposable
     public int RetryCount { get; set; }
 
     public async Task<string> GetStringAsync(string url, CancellationToken cancellationToken = default)
+        => await GetStringAsync([url], cancellationToken).ConfigureAwait(false);
+
+    /// <summary>按顺序尝试多个 URL 获取文本。</summary>
+    public async Task<string> GetStringAsync(IReadOnlyList<string> urls, CancellationToken cancellationToken = default)
     {
-        var retryCount = Math.Clamp(RetryCount, 0, 10);
         Exception? lastError = null;
+        var retryCount = Math.Clamp(RetryCount, 0, 10);
         for (var attempt = 0; attempt <= retryCount; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            try
+            foreach (var url in DedupeUrls(urls))
             {
-                using var response = await _httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
-                response.EnsureSuccessStatusCode();
-                return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    using var response = await GetResponseAsync(new HttpRequestMessage(HttpMethod.Get, url), cancellationToken, 30)
+                        .ConfigureAwait(false);
+                    response.EnsureSuccessStatusCode();
+                    return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException)
+                {
+                    lastError = ex;
+                }
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException)
-            {
-                lastError = ex;
-                await DelayBeforeRetryAsync(attempt, retryCount, cancellationToken).ConfigureAwait(false);
-            }
+
+            await DelayBeforeRetryAsync(attempt, retryCount, cancellationToken).ConfigureAwait(false);
         }
 
-        throw new DownloadException($"请求失败：{url}", lastError);
+        throw new DownloadException($"请求失败：{urls.FirstOrDefault()}", lastError);
     }
 
     public async Task<T> GetJsonAsync<T>(string url, CancellationToken cancellationToken = default)
+        => await GetJsonAsync<T>([url], cancellationToken).ConfigureAwait(false);
+
+    public async Task<T> GetJsonAsync<T>(IReadOnlyList<string> urls, CancellationToken cancellationToken = default)
     {
-        var json = await GetStringAsync(url, cancellationToken).ConfigureAwait(false);
+        var json = await GetStringAsync(urls, cancellationToken).ConfigureAwait(false);
         try
         {
             var value = JsonSerializer.Deserialize<T>(json, JsonOptions);
             if (value is null)
             {
-                throw new DownloadException($"接口返回空内容：{url}");
+                throw new DownloadException($"接口返回空内容：{urls.FirstOrDefault()}");
             }
 
             return value;
         }
         catch (JsonException ex)
         {
-            throw new DownloadException($"解析接口数据失败：{url}", ex);
+            throw new DownloadException($"解析接口数据失败：{urls.FirstOrDefault()}", ex);
         }
     }
 
     /// <summary>
     /// 下载文件；若目标已存在且大小匹配则跳过。返回是否真正下载。
+    /// 多个 URL 按优先级依次尝试；中断后保留 .hycl-dl 临时文件，下次经 HTTP Range 续传。
     /// </summary>
     public async Task<bool> DownloadFileAsync(
         string url,
+        string destinationPath,
+        long? expectedSize = null,
+        string? expectedSha1 = null,
+        IProgress<DownloadByteProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+        => await DownloadFileAsync([url], destinationPath, expectedSize, expectedSha1, progress, cancellationToken)
+            .ConfigureAwait(false);
+
+    public async Task<bool> DownloadFileAsync(
+        IReadOnlyList<string> urls,
         string destinationPath,
         long? expectedSize = null,
         string? expectedSha1 = null,
@@ -101,6 +129,11 @@ public sealed class DownloadClient : IDisposable
             {
                 return false;
             }
+
+            if (!string.IsNullOrWhiteSpace(expectedSha1) && ComputeSha1(destinationPath).Equals(expectedSha1, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
         }
 
         var directory = Path.GetDirectoryName(destinationPath);
@@ -109,68 +142,187 @@ public sealed class DownloadClient : IDisposable
             Directory.CreateDirectory(directory);
         }
 
+        var candidateUrls = DedupeUrls(urls);
+        var tempFile = destinationPath + TempSuffix;
         Exception? lastError = null;
         var retryCount = Math.Clamp(RetryCount, 0, 10);
         for (var attempt = 0; attempt <= retryCount; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var partFile = destinationPath + ".part";
-            try
+            var resumeFrom = GetResumeLength(tempFile);
+            foreach (var url in candidateUrls)
             {
-                using var response = await _httpClient
-                    .GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
-                    .ConfigureAwait(false);
-                response.EnsureSuccessStatusCode();
-
-                var total = expectedSize ?? response.Content.Headers.ContentLength ?? 0;
-                var received = 0L;
-
-                await using (var source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
-                await using (var target = new FileStream(partFile, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
+                try
                 {
-                    var buffer = new byte[81920];
-                    int read;
-                    while ((read = await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
+                    var state = new ResumeState(resumeFrom);
+                    var completed = await DownloadWithResumeAsync(
+                            url,
+                            tempFile,
+                            state,
+                            expectedSize,
+                            expectedSha1,
+                            progress,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    resumeFrom = state.Offset;
+                    if (completed)
                     {
-                        await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
-                        received += read;
-                        progress?.Report(new DownloadByteProgress(received, total));
+                        File.Move(tempFile, destinationPath, true);
+                        return true;
                     }
                 }
-
-                if (expectedSize is not null && received != expectedSize)
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
-                    throw new IOException($"文件大小不符（期望 {expectedSize}，实际 {received}）：{url}");
+                    throw;
+                }
+                catch (ValidationFailure)
+                {
+                    // 校验失败时丢弃临时文件重新下载（续传坏数据没有意义）
+                    TryDelete(tempFile);
+                    resumeFrom = 0;
+                    lastError = new IOException($"校验失败：{url}");
+                    _logger.Warn(lastError.Message);
+                }
+                catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException or UnauthorizedAccessException)
+                {
+                    lastError = ex;
+                    _logger.Warn($"下载失败（第 {attempt + 1} 次）：{url} · {ex.Message}");
+                }
+            }
+
+            await DelayBeforeRetryAsync(attempt, retryCount, cancellationToken).ConfigureAwait(false);
+        }
+
+        throw new DownloadException($"下载失败：{candidateUrls.FirstOrDefault()}", lastError);
+    }
+
+    /// <summary>断点续传状态（async 方法无法使用 ref 参数，用可变对象承载）。</summary>
+    private sealed class ResumeState(long offset)
+    {
+        public long Offset { get; set; } = offset;
+    }
+
+    /// <summary>单次下载；返回 true 表示完成并校验通过，false 表示应换下一个 URL。</summary>
+    private async Task<bool> DownloadWithResumeAsync(
+        string url,
+        string tempFile,
+        ResumeState state,
+        long? expectedSize,
+        string? expectedSha1,
+        IProgress<DownloadByteProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        var resumeFrom = state.Offset;
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        if (resumeFrom > 0)
+        {
+            request.Headers.Range = new RangeHeaderValue(resumeFrom, null);
+        }
+
+        using var response = await GetResponseAsync(request, cancellationToken, 45).ConfigureAwait(false);
+        if (response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
+        {
+            // 临时文件已超出真实大小：丢弃重下
+            TryDelete(tempFile);
+            state.Offset = 0;
+            return false;
+        }
+
+        response.EnsureSuccessStatusCode();
+        var appending = response.StatusCode == HttpStatusCode.PartialContent && resumeFrom > 0;
+        if (!appending)
+        {
+            state.Offset = 0;
+        }
+
+        var total = expectedSize
+                    ?? (response.Content.Headers.ContentLength is { } contentLength
+                        ? contentLength + resumeFrom
+                        : 0);
+        var received = resumeFrom;
+
+        await using (var source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
+        await using (var target = new FileStream(
+                         tempFile,
+                         appending ? FileMode.Append : FileMode.Create,
+                         FileAccess.Write,
+                         FileShare.None,
+                         81920,
+                         true))
+        {
+            var buffer = new byte[81920];
+            using var readTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            using var readLinked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, readTimeout.Token);
+            while (true)
+            {
+                int read;
+                try
+                {
+                    read = await source.ReadAsync(buffer, readLinked.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    // 60 秒没有读到任何数据：视为连接假死，交给上层换源/重试
+                    throw new IOException($"读取超时：{url}");
                 }
 
-                if (expectedSha1 is not null && !string.IsNullOrWhiteSpace(expectedSha1))
+                if (read <= 0)
                 {
-                    var actual = ComputeSha1(partFile);
-                    if (!actual.Equals(expectedSha1, StringComparison.OrdinalIgnoreCase))
-                    {
-                        throw new IOException($"SHA-1 校验失败：{url}");
-                    }
+                    break;
                 }
 
-                File.Move(partFile, destinationPath, true);
-                return true;
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                TryDelete(partFile);
-                throw;
-            }
-            catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException or UnauthorizedAccessException)
-            {
-                lastError = ex;
-                TryDelete(partFile);
-                _logger.Warn($"下载失败（第 {attempt + 1} 次）：{url} · {ex.Message}");
-                await DelayBeforeRetryAsync(attempt, retryCount, cancellationToken).ConfigureAwait(false);
+                readTimeout.CancelAfter(TimeSpan.FromSeconds(60));
+                await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                received += read;
+                progress?.Report(new DownloadByteProgress(received, total));
             }
         }
 
-        throw new DownloadException($"下载失败：{url}", lastError);
+        if (expectedSize is not null && received != expectedSize)
+        {
+            TryDelete(tempFile);
+            throw new ValidationFailure($"文件大小不符（期望 {expectedSize}，实际 {received}）：{url}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(expectedSha1))
+        {
+            var actual = ComputeSha1(tempFile);
+            if (!actual.Equals(expectedSha1, StringComparison.OrdinalIgnoreCase))
+            {
+                TryDelete(tempFile);
+                throw new ValidationFailure($"SHA-1 校验失败：{url}");
+            }
+        }
+
+        return true;
     }
+
+    /// <summary>发送请求；headers 超时后取消（内容流由每次读取超时保护）。</summary>
+    private async Task<HttpResponseMessage> GetResponseAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken,
+        int headerTimeoutSeconds)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(headerTimeoutSeconds));
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
+        return await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, linked.Token)
+            .ConfigureAwait(false);
+    }
+
+    private static long GetResumeLength(string tempFile)
+    {
+        try
+        {
+            return File.Exists(tempFile) ? Math.Max(0, new FileInfo(tempFile).Length) : 0;
+        }
+        catch (IOException)
+        {
+            return 0;
+        }
+    }
+
+    private static IReadOnlyList<string> DedupeUrls(IReadOnlyList<string> urls)
+        => urls.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
     public static string ComputeSha1(string filePath)
     {
@@ -203,6 +355,10 @@ public sealed class DownloadClient : IDisposable
         {
             // 忽略临时文件清理失败
         }
+        catch (UnauthorizedAccessException)
+        {
+            // 忽略占用导致的清理失败
+        }
     }
 
     public void Dispose()
@@ -214,6 +370,15 @@ public sealed class DownloadClient : IDisposable
 
         _disposed = true;
         _httpClient.Dispose();
+    }
+
+    /// <summary>内容校验失败（大小/哈希），需要丢弃临时文件重下。</summary>
+    private sealed class ValidationFailure : Exception
+    {
+        public ValidationFailure(string message)
+            : base(message)
+        {
+        }
     }
 }
 

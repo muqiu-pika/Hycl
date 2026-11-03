@@ -271,8 +271,7 @@ public partial class LaunchPageViewModel : ObservableObject
                 ExtraJvmArguments = config.ExtraJvmArguments,
                 ExtraGameArguments = config.ExtraGameArguments,
                 PlayerName = account.Name,
-                PlayerUuid = account.Uuid,
-                DownloadSource = config.DownloadSource
+                PlayerUuid = account.Uuid
             };
 
             var session = await _services.Launch

@@ -118,7 +118,7 @@ public partial class InstallTaskViewModel : ObservableObject
                 await _services.Installer.InstallVanillaAsync(
                         _services.Config.EffectiveGameDirectory,
                         summary,
-                        _services.Config.DownloadSource,
+                        DownloadPolicy.FromConfig(_services.Config),
                         _services.Config.DownloadThreads,
                         progress,
                         token)
@@ -135,7 +135,7 @@ public partial class InstallTaskViewModel : ObservableObject
                 await _services.Installer.InstallFabricAsync(
                         _services.Config.EffectiveGameDirectory,
                         gameVersion,
-                        _services.Config.DownloadSource,
+                        DownloadPolicy.FromConfig(_services.Config),
                         _services.Config.DownloadThreads,
                         progress,
                         token)

@@ -2,16 +2,6 @@ using System.Text.Json.Serialization;
 
 namespace Hycl.Launcher.Core.Config;
 
-/// <summary>下载源。</summary>
-public enum DownloadSourceKind
-{
-    /// <summary>官方（Mojang）。</summary>
-    Official = 0,
-
-    /// <summary>BMCLAPI 国内镜像。</summary>
-    Bmclapi = 1
-}
-
 /// <summary>
 /// 启动器全局配置（对应 PCL-CE 的 PCL.ini 中启动相关项）。
 /// </summary>
@@ -41,7 +31,15 @@ public sealed class LauncherConfig
 
     public string ExtraGameArguments { get; set; } = "";
 
-    public DownloadSourceKind DownloadSource { get; set; } = DownloadSourceKind.Bmclapi;
+    /// <summary>版本列表源：0 镜像优先 / 1 官方优先（缓慢时自动切换）/ 2 仅官方（对应 PCL-CE ToolDownloadVersion）。</summary>
+    public int VersionListSource { get; set; } = (int)Download.DownloadSourceMode.OfficialAuto;
+
+    /// <summary>下载文件源：0 镜像优先 / 1 官方优先（缓慢时自动切换）/ 2 仅官方（对应 PCL-CE ToolDownloadSource）。</summary>
+    public int FileSource { get; set; } = (int)Download.DownloadSourceMode.OfficialAuto;
+
+    /// <summary>旧版配置的单一下载源字段（"Official"/"Bmclapi"），仅用于读取迁移，不再写出。</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DownloadSource { get; set; }
 
     public int DownloadThreads { get; set; } = 16;
 
@@ -83,9 +81,25 @@ public sealed class LauncherConfig
         WindowHeight = Math.Clamp(WindowHeight, 240, 4320);
         DownloadThreads = Math.Clamp(DownloadThreads, 1, 128);
         RetryCount = Math.Clamp(RetryCount, 0, 10);
-        DownloadSource = DownloadSource == DownloadSourceKind.Official
-            ? DownloadSourceKind.Official
-            : DownloadSourceKind.Bmclapi;
+        VersionListSource = Math.Clamp(VersionListSource, 0, 2);
+        FileSource = Math.Clamp(FileSource, 0, 2);
+        // 迁移旧版单一下载源字段：仅在用户尚未改动新字段时生效
+        if (VersionListSource == (int)Download.DownloadSourceMode.OfficialAuto
+            && FileSource == (int)Download.DownloadSourceMode.OfficialAuto)
+        {
+            if (DownloadSource == "Official")
+            {
+                VersionListSource = (int)Download.DownloadSourceMode.OfficialOnly;
+                FileSource = (int)Download.DownloadSourceMode.OfficialOnly;
+            }
+            else if (DownloadSource == "Bmclapi")
+            {
+                VersionListSource = (int)Download.DownloadSourceMode.MirrorFirst;
+                FileSource = (int)Download.DownloadSourceMode.MirrorFirst;
+            }
+        }
+
+        DownloadSource = null;
         if (Theme is not ("light" or "dark"))
         {
             Theme = "light";

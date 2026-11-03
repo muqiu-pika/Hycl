@@ -41,8 +41,6 @@ public sealed class LaunchOptions
     public string PlayerName { get; init; } = "Player";
 
     public string PlayerUuid { get; init; } = "";
-
-    public DownloadSourceKind DownloadSource { get; init; } = DownloadSourceKind.Bmclapi;
 }
 
 public sealed class GameSession : IDisposable
@@ -142,7 +140,7 @@ public sealed class LaunchService
         Directory.CreateDirectory(resolved.NativesDirectory);
         EnsureNatives(resolved, librariesDirectory);
 
-        var libraries = LibraryResolver.CollectLibraries(resolved.Info, environment, options.DownloadSource);
+        var libraries = LibraryResolver.CollectLibraries(resolved.Info, environment, DownloadPolicy.Default);
         var classPath = BuildClassPath(libraries, librariesDirectory, resolved.ClientJarPath);
 
         var java = await ResolveJavaAsync(options, resolved, cancellationToken).ConfigureAwait(false);
@@ -448,7 +446,7 @@ public sealed class LaunchService
                 continue;
             }
 
-            var nativeFile = LibraryResolver.ResolveNative(library, environment);
+            var nativeFile = LibraryResolver.ResolveNative(library, environment, DownloadPolicy.Default);
             if (nativeFile is null)
             {
                 continue;

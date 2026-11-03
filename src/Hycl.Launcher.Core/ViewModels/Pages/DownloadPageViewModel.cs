@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Hycl.Launcher.Core.Download;
 using Hycl.Launcher.Core.Game.Models;
 using Hycl.Launcher.Core.Models;
 
@@ -98,7 +99,7 @@ public partial class DownloadPageViewModel : ObservableObject
     private async Task<IReadOnlyList<VersionGroupViewModel>> LoadClientGroupsAsync()
     {
         var versions = await _services.Installer
-            .GetVersionListAsync(_services.Config.DownloadSource)
+            .GetVersionListAsync(DownloadPolicy.FromConfig(_services.Config))
             .ConfigureAwait(true);
         return InstallWizardViewModel.BuildGroups(versions);
     }
@@ -106,7 +107,7 @@ public partial class DownloadPageViewModel : ObservableObject
     private async Task<IReadOnlyList<VersionGroupViewModel>> LoadFabricGroupsAsync()
     {
         var versions = await _services.Installer
-            .GetVersionListAsync(_services.Config.DownloadSource)
+            .GetVersionListAsync(DownloadPolicy.FromConfig(_services.Config))
             .ConfigureAwait(true);
         var groups = InstallWizardViewModel.BuildGroups(versions);
         return groups
