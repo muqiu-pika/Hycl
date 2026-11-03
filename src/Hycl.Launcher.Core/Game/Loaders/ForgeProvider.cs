@@ -32,6 +32,37 @@ public sealed partial class ForgeProvider(
         return entries;
     }
 
+    /// <summary>Forge 支持的 Minecraft 版本（BMCLAPI forge/minecraft，官方源回退到 index_1.2.4 页面解析）。</summary>
+    public async Task<IReadOnlyList<string>> GetSupportedMcVersionsAsync(
+        DownloadPolicy policy,
+        CancellationToken cancellationToken = default)
+        => await cache.GetOrLoadAsync(
+            "forge:mcversions",
+            async token =>
+            {
+                var json = await client
+                    .GetStringAsync("https://bmclapi2.bangbang93.com/forge/minecraft", token)
+                    .ConfigureAwait(false);
+                using var document = System.Text.Json.JsonDocument.Parse(json);
+                var versions = new List<string>();
+                foreach (var element in document.RootElement.EnumerateArray())
+                {
+                    if (element.ValueKind == System.Text.Json.JsonValueKind.String
+                        && element.GetString() is { Length: > 0 } version)
+                    {
+                        versions.Add(version);
+                    }
+                }
+
+                if (versions.Count < 10)
+                {
+                    throw new LoaderMetadataException("Forge 支持版本列表数据异常");
+                }
+
+                return versions;
+            },
+            cancellationToken).ConfigureAwait(false);
+
     private async Task<IReadOnlyList<LoaderVersionEntry>> FetchEntriesAsync(
         string minecraftVersion,
         DownloadPolicy policy,

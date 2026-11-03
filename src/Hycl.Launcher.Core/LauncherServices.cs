@@ -21,6 +21,8 @@ public sealed class LauncherServices
         DownloadClient downloadClient,
         VersionResolver versionResolver,
         VersionInstaller installer,
+        Game.Loaders.LoaderProviderRegistry loaderProviders,
+        Game.LoaderInstallService loaderInstall,
         InstanceManager instances,
         LaunchService launch,
         SystemService system,
@@ -34,6 +36,8 @@ public sealed class LauncherServices
         DownloadClient = downloadClient;
         VersionResolver = versionResolver;
         Installer = installer;
+        LoaderProviders = loaderProviders;
+        LoaderInstall = loaderInstall;
         Instances = instances;
         Launch = launch;
         System = system;
@@ -57,6 +61,10 @@ public sealed class LauncherServices
     public VersionResolver VersionResolver { get; }
 
     public VersionInstaller Installer { get; }
+
+    public Game.Loaders.LoaderProviderRegistry LoaderProviders { get; }
+
+    public Game.LoaderInstallService LoaderInstall { get; }
 
     public InstanceManager Instances { get; }
 
@@ -87,7 +95,10 @@ public sealed class LauncherServices
         var javaDetector = new JavaDetector(logger);
         var downloadClient = new DownloadClient(logger, configStore.Config.RetryCount);
         var versionResolver = new VersionResolver(logger);
-        var installer = new VersionInstaller(downloadClient, logger, paths.CacheDirectory);
+        var installer = new VersionInstaller(downloadClient, logger, paths.CacheDirectory, javaDetector);
+        var loaderProviders = new Game.Loaders.LoaderProviderRegistry(downloadClient, logger, paths.CacheDirectory);
+        var modrinth = new Game.Mods.ModrinthProvider(downloadClient, logger);
+        var loaderInstall = new Game.LoaderInstallService(installer, loaderProviders, modrinth, logger);
         var instances = new InstanceManager(logger, versionResolver);
         var launch = new LaunchService(versionResolver, javaDetector, logger);
         var system = new SystemService(logger);
@@ -101,6 +112,8 @@ public sealed class LauncherServices
             downloadClient,
             versionResolver,
             installer,
+            loaderProviders,
+            loaderInstall,
             instances,
             launch,
             system,

@@ -14,4 +14,9 @@
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- BMCLAPI headless Forge/NeoForge/Cleanroom 安装引导器（仅 com.bangbang93.ForgeInstaller.class） -->
+    <EmbeddedResource Include="Download\Resources\forge-installer.jar" />
+  </ItemGroup>
+
 </Project>

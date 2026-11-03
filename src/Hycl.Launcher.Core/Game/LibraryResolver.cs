@@ -110,7 +110,10 @@ public static class LibraryResolver
                 continue;
             }
 
-            var artifact = ResolveArtifact(library, environment, policy);
+            // 带 natives 的旧式库只有分类器文件（无分类器 artifact 在 maven 上不存在），跳过 artifact
+            var artifact = library.Natives is { Count: > 0 }
+                ? null
+                : ResolveArtifact(library, environment, policy);
             if (artifact is not null && !results.ContainsKey(artifact.RelativePath))
             {
                 results[artifact.RelativePath] = artifact;

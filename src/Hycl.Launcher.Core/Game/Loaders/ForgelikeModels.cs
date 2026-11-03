@@ -171,13 +171,12 @@ public sealed class NeoForgeEntry : ForgelikeEntry
         }
     }
 
-    /// <summary>安装器下载地址（官方 maven 在前，BMCLAPI 镜像在后）。</summary>
+    /// <summary>安装器下载地址（BMCLAPI 镜像在前：maven.neoforged.net 在部分网络下会拖满超时）。</summary>
     public IReadOnlyList<string> GetInstallerUrls()
         =>
         [
-            UrlBase + "-installer.jar",
+            (UrlBase + "-installer.jar").Replace("https://maven.neoforged.net/releases", "https://bmclapi2.bangbang93.com/maven"),
             UrlBase + "-installer.jar"
-                .Replace("https://maven.neoforged.net/releases", "https://bmclapi2.bangbang93.com/maven")
         ];
 }
 

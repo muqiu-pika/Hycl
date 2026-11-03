@@ -57,6 +57,18 @@ public sealed class FabricLikeProvider(
         return versions.FirstOrDefault(x => x.IsStable) ?? versions.FirstOrDefault();
     }
 
+    /// <summary>meta 声明支持的 Minecraft 版本（game 数组，从新到旧）。</summary>
+    public async Task<IReadOnlyList<string>> GetSupportedMcVersionsAsync(
+        DownloadPolicy policy,
+        CancellationToken cancellationToken = default)
+    {
+        var meta = await cache.GetOrLoadAsync(
+            $"{cacheKey}:meta",
+            async token => await FetchMetaAsync(policy, token).ConfigureAwait(false),
+            cancellationToken).ConfigureAwait(false);
+        return meta.Game?.Select(x => x.Version).ToList() ?? [];
+    }
+
     private async Task<FabricMetaVersions> FetchMetaAsync(DownloadPolicy policy, CancellationToken cancellationToken)
     {
         var preferMirror = mirrorBaseUrl is not null

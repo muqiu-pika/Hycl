@@ -65,7 +65,7 @@ public sealed class DownloadClient : IDisposable
         return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>按顺序尝试多个 URL 获取文本。</summary>
+    /// <summary>按顺序尝试多个 URL 获取文本（整体超时 90 秒，防止响应体停摆挂起）。</summary>
     public async Task<string> GetStringAsync(IReadOnlyList<string> urls, CancellationToken cancellationToken = default)
     {
         Exception? lastError = null;
@@ -77,10 +77,11 @@ public sealed class DownloadClient : IDisposable
             {
                 try
                 {
-                    using var response = await GetResponseAsync(new HttpRequestMessage(HttpMethod.Get, url), cancellationToken, 30)
-                        .ConfigureAwait(false);
+                    using var overall = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    overall.CancelAfter(TimeSpan.FromSeconds(90));
+                    using var response = await SendWithRedirectAsync(url, overall.Token).ConfigureAwait(false);
                     response.EnsureSuccessStatusCode();
-                    return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                    return await response.Content.ReadAsStringAsync(overall.Token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -150,7 +151,7 @@ public sealed class DownloadClient : IDisposable
                 return false;
             }
 
-            if (!string.IsNullOrWhiteSpace(expectedSha1) && ComputeSha1(destinationPath).Equals(expectedSha1, StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(expectedSha1) && ValidateHash(destinationPath, expectedSha1))
             {
                 return false;
             }
@@ -304,17 +305,29 @@ public sealed class DownloadClient : IDisposable
             throw new ValidationFailure($"文件大小不符（期望 {expectedSize}，实际 {received}）：{url}");
         }
 
-        if (!string.IsNullOrWhiteSpace(expectedSha1))
+        if (!string.IsNullOrWhiteSpace(expectedSha1) && !ValidateHash(tempFile, expectedSha1))
         {
-            var actual = ComputeSha1(tempFile);
-            if (!actual.Equals(expectedSha1, StringComparison.OrdinalIgnoreCase))
-            {
-                TryDelete(tempFile);
-                throw new ValidationFailure($"SHA-1 校验失败：{url}");
-            }
+            TryDelete(tempFile);
+            throw new ValidationFailure($"文件校验失败：{url}");
         }
 
         return true;
+    }
+
+    /// <summary>按哈希长度自动识别算法校验（32=MD5、40=SHA-1、64=SHA-256；对应 PCL-CE FileChecker）。</summary>
+    private static bool ValidateHash(string filePath, string expectedHash)
+    {
+        using HashAlgorithm? algorithm = expectedHash.Length switch
+        {
+            32 => MD5.Create(),
+            64 => SHA256.Create(),
+            _ => null
+        };
+        using var stream = File.OpenRead(filePath);
+        var actual = algorithm is null
+            ? Convert.ToHexString(SHA1.HashData(stream))
+            : Convert.ToHexString(algorithm.ComputeHash(stream));
+        return actual.Equals(expectedHash, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>发送请求；headers 超时后取消（内容流由每次读取超时保护）。</summary>
@@ -325,8 +338,50 @@ public sealed class DownloadClient : IDisposable
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(headerTimeoutSeconds));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
-        return await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, linked.Token)
+        return await SendWithRedirectAsync(request, linked.Token)
             .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// GET 请求并手动跟随重定向。HttpClient 默认拒绝 HTTPS→HTTP 降级跳转
+    /// （dl.liteloader.com / 部分 BMCLAPI 路径会 302 到 http://redirector...），这里统一兜底。
+    /// </summary>
+    private async Task<HttpResponseMessage> SendWithRedirectAsync(string url, CancellationToken cancellationToken)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        return await SendWithRedirectAsync(request, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<HttpResponseMessage> SendWithRedirectAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var response = await _httpClient
+            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+            .ConfigureAwait(false);
+        for (var hops = 0;
+             (int)response.StatusCode is 301 or 302 or 307 or 308
+             && response.Headers.Location is { } location
+             && hops < 5;
+             hops++)
+        {
+            var currentUri = request.RequestUri
+                             ?? throw new DownloadException("请求缺少地址");
+            var nextUri = location.IsAbsoluteUri ? location : new Uri(currentUri, location);
+            _logger.Warn($"跟随重定向：{currentUri} → {nextUri}");
+            response.Dispose();
+            var rangeHeader = request.Headers.Range;
+            request.Dispose();
+            request = new HttpRequestMessage(HttpMethod.Get, nextUri);
+            if (rangeHeader is not null)
+            {
+                request.Headers.Range = rangeHeader;
+            }
+
+            response = await _httpClient
+                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return response;
     }
 
     private static long GetResumeLength(string tempFile)

@@ -29,6 +29,17 @@ public sealed partial class OptiFineProvider(
         return all.Where(x => x.Inherit == minecraftVersion).ToList();
     }
 
+    public async Task<IReadOnlyList<string>> GetSupportedMcVersionsAsync(
+        DownloadPolicy policy,
+        CancellationToken cancellationToken = default)
+    {
+        var all = await cache.GetOrLoadAsync(
+            "optifine:all",
+            async token => await FetchAllAsync(policy, token).ConfigureAwait(false),
+            cancellationToken).ConfigureAwait(false);
+        return all.Select(x => x.Inherit).Distinct(StringComparer.Ordinal).ToList();
+    }
+
     public async Task<IReadOnlyList<LoaderVersionEntry>> GetAllAsync(
         DownloadPolicy policy,
         CancellationToken cancellationToken = default)
@@ -236,6 +247,17 @@ public sealed class LiteLoaderProvider(
         return all.Where(x => x.Inherit == minecraftVersion).ToList();
     }
 
+    public async Task<IReadOnlyList<string>> GetSupportedMcVersionsAsync(
+        DownloadPolicy policy,
+        CancellationToken cancellationToken = default)
+    {
+        var all = await cache.GetOrLoadAsync(
+            "liteloader:all",
+            async token => await FetchAllAsync(policy, token).ConfigureAwait(false),
+            cancellationToken).ConfigureAwait(false);
+        return all.Select(x => x.Inherit!).Distinct(StringComparer.Ordinal).ToList();
+    }
+
     public async Task<IReadOnlyList<LoaderVersionEntry>> GetAllAsync(
         DownloadPolicy policy,
         CancellationToken cancellationToken = default)
@@ -386,6 +408,19 @@ public sealed class LabyModProvider(
             IsStable = !entry.IsSnapshot,
             Payload = entry
         }).ToList();
+    }
+
+    /// <summary>manifest 声明支持的 Minecraft 版本（production 渠道的 tag/version 并集）。</summary>
+    public async Task<IReadOnlyList<string>> GetSupportedMcVersionsAsync(
+        DownloadPolicy policy,
+        CancellationToken cancellationToken = default)
+    {
+        var channels = await cache.GetOrLoadAsync(
+            "labymod:channels",
+            async token => await FetchChannelsAsync(token).ConfigureAwait(false),
+            cancellationToken).ConfigureAwait(false);
+        var production = channels.FirstOrDefault(x => x.Channel == "production") ?? channels.FirstOrDefault();
+        return production?.SupportedVersions.ToList() ?? [];
     }
 
     private async Task<List<LabyModEntry>> FetchChannelsAsync(CancellationToken cancellationToken)

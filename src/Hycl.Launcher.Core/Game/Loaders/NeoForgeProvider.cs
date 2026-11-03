@@ -40,6 +40,14 @@ public sealed partial class NeoForgeProvider(
             async token => await FetchAllAsync(policy, token).ConfigureAwait(false),
             cancellationToken).ConfigureAwait(false);
 
+    public async Task<IReadOnlyList<string>> GetSupportedMcVersionsAsync(
+        DownloadPolicy policy,
+        CancellationToken cancellationToken = default)
+    {
+        var all = await GetAllAsync(policy, cancellationToken).ConfigureAwait(false);
+        return all.Select(x => x.Inherit).Distinct(StringComparer.Ordinal).ToList();
+    }
+
     private async Task<IReadOnlyList<LoaderVersionEntry>> FetchAllAsync(
         DownloadPolicy policy,
         CancellationToken cancellationToken)
@@ -140,6 +148,11 @@ public sealed class CleanroomProvider(
         var all = await GetAllAsync(cancellationToken).ConfigureAwait(false);
         return all.Where(x => x.Inherit == minecraftVersion).ToList();
     }
+
+    public Task<IReadOnlyList<string>> GetSupportedMcVersionsAsync(
+        DownloadPolicy policy,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<string>>(["1.12.2"]);
 
     public async Task<IReadOnlyList<LoaderVersionEntry>> GetAllAsync(CancellationToken cancellationToken = default)
         => await cache.GetOrLoadAsync(

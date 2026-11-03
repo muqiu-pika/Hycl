@@ -14,7 +14,7 @@ namespace Hycl.Launcher.Core.Game;
 /// 版本安装：原版（客户端、依赖库、资源、日志配置）与加载器。
 /// 这是 PCL-CE 下载模块的跨平台重写，不依赖 Windows API。
 /// </summary>
-public sealed class VersionInstaller
+public sealed partial class VersionInstaller
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -33,12 +33,26 @@ public sealed class VersionInstaller
     private readonly DownloadClient _client;
     private readonly LauncherLogger _logger;
     private readonly VersionListCache? _versionListCache;
+    private readonly Java.JavaDetector _javaDetector;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
 
+    private readonly string? _cacheDirectory;
+
     public VersionInstaller(DownloadClient client, LauncherLogger logger, string? cacheDirectory = null)
+        : this(client, logger, cacheDirectory, null)
+    {
+    }
+
+    public VersionInstaller(
+        DownloadClient client,
+        LauncherLogger logger,
+        string? cacheDirectory,
+        Java.JavaDetector? javaDetector)
     {
         _client = client;
         _logger = logger;
+        _cacheDirectory = cacheDirectory;
+        _javaDetector = javaDetector ?? new Java.JavaDetector(logger);
         _versionListCache = cacheDirectory is null ? null : new VersionListCache(cacheDirectory);
     }
 
@@ -409,22 +423,15 @@ public sealed class VersionInstaller
 
         // 1) 确保原版已安装
         reporter.Stage("检查原版");
-        var vanillaJsonPath = Path.Combine(gameDirectory, "versions", gameVersion, gameVersion + ".json");
-        if (!File.Exists(vanillaJsonPath))
-        {
-            var manifest = await GetVersionListAsync(policy, cancellationToken).ConfigureAwait(false);
-            var summary = manifest.FirstOrDefault(x => x.Id.Equals(gameVersion, StringComparison.OrdinalIgnoreCase))
-                          ?? throw new DownloadException($"版本清单中找不到 {gameVersion}");
-            await InstallVanillaAsync(
-                    gameDirectory,
-                    summary,
-                    policy,
-                    threads,
-                    progress,
-                    cancellationToken,
-                    downloadAssets)
-                .ConfigureAwait(false);
-        }
+        var vanillaJsonPath = await EnsureVanillaAsync(
+                gameDirectory,
+                gameVersion,
+                policy,
+                threads,
+                progress,
+                cancellationToken,
+                downloadAssets)
+            .ConfigureAwait(false);
 
         // 2) 选择 loader 版本
         string version;
@@ -508,8 +515,55 @@ public sealed class VersionInstaller
                       ?? throw new DownloadException("加载器 profile 解析失败");
         var environment = RuleEnvironment.Current(false);
         var libraries = LibraryResolver.CollectLibraries(profile, environment, policy);
-        var librariesDirectory = Path.Combine(gameDirectory, "libraries");
         reporter.Stage("下载加载器依赖", libraries.Count);
+        await DownloadLibrariesAsync(libraries, gameDirectory, threads, reporter, cancellationToken)
+            .ConfigureAwait(false);
+
+        reporter.Stage("安装完成");
+        _logger.Info($"{kind} {version}（{gameVersion}）安装完成：{displayName}");
+        return displayName;
+    }
+
+    /// <summary>确保某 MC 版本的原版文件就绪；返回其版本 json 路径。</summary>
+    private async Task<string> EnsureVanillaAsync(
+        string gameDirectory,
+        string gameVersion,
+        DownloadPolicy policy,
+        int threads,
+        IProgress<InstallProgress>? progress,
+        CancellationToken cancellationToken,
+        bool downloadAssets = true)
+    {
+        var vanillaJsonPath = Path.Combine(gameDirectory, "versions", gameVersion, gameVersion + ".json");
+        if (File.Exists(vanillaJsonPath))
+        {
+            return vanillaJsonPath;
+        }
+
+        var manifest = await GetVersionListAsync(policy, cancellationToken).ConfigureAwait(false);
+        var summary = manifest.FirstOrDefault(x => x.Id.Equals(gameVersion, StringComparison.OrdinalIgnoreCase))
+                      ?? throw new DownloadException($"版本清单中找不到 {gameVersion}");
+        await InstallVanillaAsync(
+                gameDirectory,
+                summary,
+                policy,
+                threads,
+                progress,
+                cancellationToken,
+                downloadAssets)
+            .ConfigureAwait(false);
+        return vanillaJsonPath;
+    }
+
+    /// <summary>并行下载库文件（已存在且大小匹配的自动跳过）。</summary>
+    private async Task DownloadLibrariesAsync(
+        IReadOnlyList<LibraryFile> libraries,
+        string gameDirectory,
+        int threads,
+        ProgressReporter reporter,
+        CancellationToken cancellationToken)
+    {
+        var librariesDirectory = Path.Combine(gameDirectory, "libraries");
         await ForEachParallelAsync(
             libraries,
             threads,
@@ -528,10 +582,6 @@ public sealed class VersionInstaller
                 reporter.FileCompleted(library.Size > 0 ? library.Size : 0);
             },
             cancellationToken).ConfigureAwait(false);
-
-        reporter.Stage("安装完成");
-        _logger.Info($"{kind} {version}（{gameVersion}）安装完成：{displayName}");
-        return displayName;
     }
 
     /// <summary>拉取 Fabric 系 meta 的 loader 列表并取最新稳定版。</summary>

@@ -2,6 +2,8 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Hycl.Launcher.Core.Download;
+using Hycl.Launcher.Core.Game;
+using Hycl.Launcher.Core.Game.Loaders;
 using Hycl.Launcher.Core.Game.Models;
 using Hycl.Launcher.Core.Models;
 
@@ -9,7 +11,7 @@ namespace Hycl.Launcher.Core.ViewModels.Pages;
 
 /// <summary>
 /// 下载页 ViewModel：左侧分区导航 + 安装向导 + 底部安装条。
-/// 界面结构来自 Hycl (2)，网络与安装动作全部调用当前 Core 的 VersionInstaller。
+/// 界面结构来自 Hycl (2)，网络与安装动作全部调用 Core 的加载器安装门面。
 /// </summary>
 public partial class DownloadPageViewModel : ObservableObject
 {
@@ -43,14 +45,15 @@ public partial class DownloadPageViewModel : ObservableObject
             new("安装包",
             [
                 new NavItemViewModel("Minecraft 客户端", "vanilla", CreateClientSection()),
-                new NavItemViewModel("OptiFine", "optifine", CreateUnsupportedSection("OptiFine")),
-                new NavItemViewModel("Forge", "forge", CreateUnsupportedSection("Forge")),
-                new NavItemViewModel("NeoForge", "neoforge", CreateUnsupportedSection("NeoForge")),
-                new NavItemViewModel("Cleanroom", "cleanroom", CreateUnsupportedSection("Cleanroom")),
-                new NavItemViewModel("Fabric", "fabric", CreateFabricSection()),
-                new NavItemViewModel("Legacy Fabric", "legacyfabric", CreateUnsupportedSection("Legacy Fabric")),
-                new NavItemViewModel("LabyMod", "labymod", CreateUnsupportedSection("LabyMod")),
-                new NavItemViewModel("LiteLoader", "liteloader", CreateUnsupportedSection("LiteLoader"))
+                new NavItemViewModel("Forge", "forge", CreateLoaderSection("forge", "Forge", "anvil")),
+                new NavItemViewModel("NeoForge", "neoforge", CreateLoaderSection("neoforge", "NeoForge", "neoforge")),
+                new NavItemViewModel("Cleanroom", "cleanroom", CreateLoaderSection("cleanroom", "Cleanroom", "cleanroom")),
+                new NavItemViewModel("Fabric", "fabric", CreateLoaderSection("fabric", "Fabric", "fabric")),
+                new NavItemViewModel("Quilt", "quilt", CreateLoaderSection("quilt", "Quilt", "quilt")),
+                new NavItemViewModel("Legacy Fabric", "legacyfabric", CreateLoaderSection("legacyfabric", "Legacy Fabric", "fabric")),
+                new NavItemViewModel("OptiFine", "optifine", CreateLoaderSection("optifine", "OptiFine", "optifine")),
+                new NavItemViewModel("LiteLoader", "liteloader", CreateLoaderSection("liteloader", "LiteLoader", "liteloader")),
+                new NavItemViewModel("LabyMod", "labymod", CreateLoaderSection("labymod", "LabyMod", "labymod"))
             ])
         };
 
@@ -83,18 +86,11 @@ public partial class DownloadPageViewModel : ObservableObject
         "点击版本可直接安装原版客户端；安装进度显示在底部。",
         LoadClientGroupsAsync);
 
-    private LoaderSectionViewModel CreateFabricSection() => new(
-        "Fabric",
-        "Fabric",
-        "点击 Minecraft 版本可为该版本安装 Fabric 加载器（自动选择最新稳定版）。",
-        LoadFabricGroupsAsync);
-
-    private LoaderSectionViewModel CreateUnsupportedSection(string name) => new(
-        name,
-        name,
-        $"该分区依赖 Hycl (2) 的下载实现，当前工程尚未迁移；现有 Core 仅支持原版与 Fabric。",
-        () => Task.FromException<IReadOnlyList<VersionGroupViewModel>>(
-            new NotSupportedException($"{name} 的下载实现尚未迁移，当前仅支持原版与 Fabric。")));
+    private LoaderSectionViewModel CreateLoaderSection(string kind, string title, string iconKey) => new(
+        kind,
+        title,
+        $"点击 Minecraft 版本可为该版本安装 {title} 的最新稳定版；具体加载器版本请在向导中选择。",
+        () => LoadLoaderGroupsAsync(kind, iconKey));
 
     private async Task<IReadOnlyList<VersionGroupViewModel>> LoadClientGroupsAsync()
     {
@@ -104,24 +100,12 @@ public partial class DownloadPageViewModel : ObservableObject
         return InstallWizardViewModel.BuildGroups(versions);
     }
 
-    private async Task<IReadOnlyList<VersionGroupViewModel>> LoadFabricGroupsAsync()
+    private async Task<IReadOnlyList<VersionGroupViewModel>> LoadLoaderGroupsAsync(string kind, string iconKey)
     {
-        var versions = await _services.Installer
-            .GetVersionListAsync(DownloadPolicy.FromConfig(_services.Config))
-            .ConfigureAwait(true);
-        var groups = InstallWizardViewModel.BuildGroups(versions);
-        return groups
-            .Select(group => new VersionGroupViewModel(
-                group.Title,
-                group.Items.Select(item => new VersionItemViewModel(
-                    item.Title,
-                    item.Info,
-                    "fabric",
-                    item.Tags,
-                    item.Payload,
-                    item.IsSelected)).ToList(),
-                group.IsExpanded))
-            .ToList();
+        var policy = DownloadPolicy.FromConfig(_services.Config);
+        var provider = _services.LoaderProviders.Get(Enum.Parse<LoaderKind>(kind, true));
+        var mcVersions = await provider.GetSupportedMcVersionsAsync(policy).ConfigureAwait(true);
+        return InstallWizardViewModel.BuildMcVersionGroups(mcVersions, iconKey);
     }
 
     partial void OnSelectedSectionChanged(NavItemViewModel? value)
@@ -160,6 +144,7 @@ public partial class DownloadPageViewModel : ObservableObject
 
         if (ActiveSection is not null)
         {
+            _services.LoaderProviders.Cache.Clear();
             await ActiveSection.RefreshAsync(force: true).ConfigureAwait(true);
         }
     }
@@ -167,18 +152,43 @@ public partial class DownloadPageViewModel : ObservableObject
     [RelayCommand]
     private async Task ActivateSectionItemAsync(VersionItemViewModel? item)
     {
-        if (item?.Payload is not VersionSummary summary || Install.IsInstalling)
+        if (item?.Payload is not VersionSummary summary || Install.IsInstalling || ActiveSection is null)
         {
             return;
         }
 
-        if (ActiveSection?.Kind == "Fabric")
+        var kind = ActiveSection.Kind.ToLowerInvariant();
+        if (kind is "client")
         {
-            await Install.RunFabricAsync(summary.Id, $"{summary.Id} · Fabric").ConfigureAwait(true);
+            await Install.RunVanillaAsync(summary, summary.Id).ConfigureAwait(true);
             return;
         }
 
-        await Install.RunVanillaAsync(summary, summary.Id).ConfigureAwait(true);
+        // 加载器分区：安装该加载器在所选 MC 版本下的最新稳定版
+        var targetName = kind switch
+        {
+            "optifine" => $"{summary.Id}-optifine",
+            "liteloader" => $"{summary.Id}-liteloader",
+            _ => $"{summary.Id}-{kind}"
+        };
+        var companionModSlug = kind switch
+        {
+            "fabric" => "fabric-api",
+            "legacyfabric" => "legacy-fabric-api",
+            _ => null
+        };
+        var plan = new LoaderInstallPlan
+        {
+            Kind = kind,
+            GameDirectory = _services.Config.EffectiveGameDirectory,
+            GameVersion = summary.Id,
+            TargetName = targetName,
+            CompanionModSlug = companionModSlug,
+            Policy = DownloadPolicy.FromConfig(_services.Config),
+            Threads = _services.Config.DownloadThreads,
+            JavaPath = _services.Config.JavaPath
+        };
+        await Install.RunPlanAsync(plan, $"{summary.Id} · {ActiveSection.Title}").ConfigureAwait(true);
     }
 
     [RelayCommand]

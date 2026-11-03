@@ -50,4 +50,9 @@ public interface ILoaderVersionProvider
         string minecraftVersion,
         DownloadPolicy policy,
         CancellationToken cancellationToken = default);
+
+    /// <summary>该加载器支持的 Minecraft 版本列表（从新到旧）。</summary>
+    Task<IReadOnlyList<string>> GetSupportedMcVersionsAsync(
+        DownloadPolicy policy,
+        CancellationToken cancellationToken = default);
 }

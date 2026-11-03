@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Hycl.Launcher.Core.Download;
+using Hycl.Launcher.Core.Game;
 using Hycl.Launcher.Core.Game.Models;
 
 namespace Hycl.Launcher.Core.ViewModels.Pages;
@@ -140,6 +141,15 @@ public partial class InstallTaskViewModel : ObservableObject
                         progress,
                         token)
                     .ConfigureAwait(true)).ConfigureAwait(true);
+    }
+
+    /// <summary>执行完整的加载器安装计划（主加载器 + 附属内容 + 前置 Mod）。</summary>
+    public async Task RunPlanAsync(LoaderInstallPlan plan, string displayName)
+    {
+        await RunAsync(
+            displayName,
+            (progress, token) => _services.LoaderInstall.InstallAsync(plan, progress, token))
+            .ConfigureAwait(true);
     }
 
     private async Task RunAsync(
