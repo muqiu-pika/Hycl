@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.IO.Compression;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Hycl.Launcher.Core.Config;
 using Hycl.Launcher.Core.Download;
 using Hycl.Launcher.Core.Game.Models;
@@ -253,7 +254,8 @@ public sealed class VersionInstaller
         DownloadPolicy policy,
         int threads,
         IProgress<InstallProgress>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool downloadAssets = true)
     {
         var reporter = new ProgressReporter(progress);
         var versionDirectory = Path.Combine(gameDirectory, "versions", summary.Id);
@@ -264,6 +266,11 @@ public sealed class VersionInstaller
         var rawJson = await _client
             .GetStringAsync(DownloadSources.GetLauncherOrMetaUrls(summary.Url, policy), cancellationToken)
             .ConfigureAwait(false);
+        // 1.16.5 的 authlib 2.1.28 存在兼容问题（对应 PCL-CE ToolFixAuthlib，默认开启）
+        if (summary.Id.Equals("1.16.5", StringComparison.Ordinal))
+        {
+            rawJson = VersionJsonMerger.FixAuthlib(rawJson);
+        }
 
         var jsonPath = Path.Combine(versionDirectory, summary.Id + ".json");
         await File.WriteAllTextAsync(jsonPath, rawJson, cancellationToken).ConfigureAwait(false);
@@ -325,7 +332,7 @@ public sealed class VersionInstaller
         ExtractAllNatives(info, environment, policy, librariesDirectory, nativesDirectory);
 
         // 资源索引与资源对象
-        if (info.AssetIndex is not null)
+        if (downloadAssets && info.AssetIndex is not null)
         {
             await InstallAssetsAsync(gameDirectory, policy, threads, info.AssetIndex, reporter, cancellationToken)
                 .ConfigureAwait(false);
@@ -358,60 +365,151 @@ public sealed class VersionInstaller
         _logger.Info($"版本 {summary.Id} 安装完成");
     }
 
-    /// <summary>安装 Fabric（自动确保对应原版已安装）。</summary>
-    public async Task<string> InstallFabricAsync(
+    /// <summary>安装 Fabric（自动确保对应原版已安装；选择最新稳定 loader）。</summary>
+    public Task<string> InstallFabricAsync(
         string gameDirectory,
         string gameVersion,
         DownloadPolicy policy,
         int threads,
         IProgress<InstallProgress>? progress = null,
         CancellationToken cancellationToken = default)
+        => InstallFabricLikeAsync(
+            gameDirectory,
+            "fabric",
+            gameVersion,
+            null,
+            null,
+            policy,
+            threads,
+            progress,
+            cancellationToken);
+
+    /// <summary>
+    /// 安装 Fabric 系加载器（Fabric / Quilt / LegacyFabric）：profile json 与原版 json 深合并，
+    /// 生成自包含的最终版本 JSON 并下载加载器依赖库（对应 PCL-CE MergeJson 思路）。
+    /// </summary>
+    /// <param name="kind">fabric / quilt / legacyfabric。</param>
+    /// <param name="gameVersion">Minecraft 版本。</param>
+    /// <param name="loaderVersion">加载器版本；null 表示自动选择最新稳定版。</param>
+    /// <param name="targetName">实例目录名；null 默认 {mc}-{kind}。</param>
+    public async Task<string> InstallFabricLikeAsync(
+        string gameDirectory,
+        string kind,
+        string gameVersion,
+        string? loaderVersion,
+        string? targetName,
+        DownloadPolicy policy,
+        int threads,
+        IProgress<InstallProgress>? progress = null,
+        CancellationToken cancellationToken = default,
+        bool downloadAssets = true)
     {
         var reporter = new ProgressReporter(progress);
+        kind = kind.ToLowerInvariant();
+
+        // 1) 确保原版已安装
         reporter.Stage("检查原版");
-        var baseJson = Path.Combine(gameDirectory, "versions", gameVersion, gameVersion + ".json");
-        if (!File.Exists(baseJson))
+        var vanillaJsonPath = Path.Combine(gameDirectory, "versions", gameVersion, gameVersion + ".json");
+        if (!File.Exists(vanillaJsonPath))
         {
             var manifest = await GetVersionListAsync(policy, cancellationToken).ConfigureAwait(false);
             var summary = manifest.FirstOrDefault(x => x.Id.Equals(gameVersion, StringComparison.OrdinalIgnoreCase))
                           ?? throw new DownloadException($"版本清单中找不到 {gameVersion}");
-            await InstallVanillaAsync(gameDirectory, summary, policy, threads, progress, cancellationToken)
+            await InstallVanillaAsync(
+                    gameDirectory,
+                    summary,
+                    policy,
+                    threads,
+                    progress,
+                    cancellationToken,
+                    downloadAssets)
                 .ConfigureAwait(false);
         }
 
-        reporter.Stage("获取 Fabric 版本");
-        var loaderJson = await _client.GetStringAsync(
-                $"https://meta.fabricmc.net/v2/versions/loader/{Uri.EscapeDataString(gameVersion)}",
+        // 2) 选择 loader 版本
+        string version;
+        if (!string.IsNullOrWhiteSpace(loaderVersion))
+        {
+            version = loaderVersion;
+        }
+        else
+        {
+            reporter.Stage($"获取 {kind} 版本");
+            version = kind switch
+            {
+                "quilt" => await GetLatestFabricLikeVersionAsync(
+                        "https://meta.quiltmc.org/v3/versions/loader/",
+                        gameVersion,
+                        cancellationToken).ConfigureAwait(false),
+                "legacyfabric" => await GetLatestFabricLikeVersionAsync(
+                        "https://meta.legacyfabric.net/v2/versions/loader/",
+                        gameVersion,
+                        cancellationToken).ConfigureAwait(false),
+                _ => await GetLatestFabricLikeVersionAsync(
+                        "https://meta.fabricmc.net/v2/versions/loader/",
+                        gameVersion,
+                        cancellationToken).ConfigureAwait(false)
+            };
+        }
+
+        // 3) 获取 profile json（Fabric：BMCLAPI 在前，官方在后；Quilt/LegacyFabric 仅官方）
+        reporter.Stage("获取加载器 profile");
+        var safeName = gameVersion.Replace("∞", "infinite");
+        var profileUrls = kind switch
+        {
+            "fabric" => new[]
+            {
+                $"https://bmclapi2.bangbang93.com/fabric-meta/v2/versions/loader/{safeName}/{version}/profile/json",
+                $"https://meta.fabricmc.net/v2/versions/loader/{safeName}/{version}/profile/json"
+            },
+            "quilt" => new[]
+            {
+                $"https://meta.quiltmc.org/v3/versions/loader/{safeName}/{version}/profile/json"
+            },
+            "legacyfabric" => new[]
+            {
+                $"https://meta.legacyfabric.net/v2/versions/loader/{safeName}/{version}/profile/json"
+            },
+            _ => throw new ArgumentException($"未知的 Fabric 系加载器：{kind}", nameof(kind))
+        };
+        var profileJsonText = await _client.GetStringAsync(profileUrls, cancellationToken).ConfigureAwait(false);
+        var profileJson = JsonNode.Parse(profileJsonText) as JsonObject
+                          ?? throw new DownloadException("加载器 profile 解析失败");
+
+        // 4) 与原版 json 深合并，生成自包含版本 json
+        var displayName = targetName;
+        if (string.IsNullOrWhiteSpace(displayName))
+        {
+            displayName = kind == "fabric" ? $"{gameVersion}-fabric" : $"{gameVersion}-{kind}";
+        }
+
+        var versionDirectory = Path.Combine(gameDirectory, "versions", displayName);
+        Directory.CreateDirectory(versionDirectory);
+        var vanillaJsonText = await File.ReadAllTextAsync(vanillaJsonPath, cancellationToken).ConfigureAwait(false);
+        var vanillaJson = JsonNode.Parse(vanillaJsonText) as JsonObject
+                          ?? throw new DownloadException($"原版版本 JSON 解析失败：{gameVersion}");
+        var merged = VersionJsonMerger.Merge(displayName, vanillaJson, profileJson);
+        await File.WriteAllTextAsync(
+                Path.Combine(versionDirectory, displayName + ".json"),
+                merged.ToJsonString(JsonOptions),
                 cancellationToken)
             .ConfigureAwait(false);
-        var loaders = JsonSerializer.Deserialize<List<FabricLoaderEntry>>(loaderJson, JsonOptions) ?? new List<FabricLoaderEntry>();
-        var loader = loaders.FirstOrDefault(x => x.Loader?.Stable == true)?.Loader ?? loaders.FirstOrDefault()?.Loader;
-        if (loader is null || string.IsNullOrWhiteSpace(loader.Version))
+
+        // 5) 复制原版客户端 jar（合并后 json 的 jar 项已被移除）
+        var vanillaJarPath = Path.Combine(gameDirectory, "versions", gameVersion, gameVersion + ".jar");
+        var outputJarPath = Path.Combine(versionDirectory, displayName + ".jar");
+        if (File.Exists(vanillaJarPath) && !File.Exists(outputJarPath))
         {
-            throw new DownloadException($"找不到 {gameVersion} 可用的 Fabric Loader");
+            File.Copy(vanillaJarPath, outputJarPath, true);
         }
 
-        var profileUrl = $"https://meta.fabricmc.net/v2/versions/loader/{Uri.EscapeDataString(gameVersion)}/{Uri.EscapeDataString(loader.Version)}/profile/json";
-        var profileJson = await _client.GetStringAsync(profileUrl, cancellationToken).ConfigureAwait(false);
-        var profile = JsonSerializer.Deserialize<VersionInfo>(profileJson, JsonOptions)
-                      ?? throw new DownloadException("Fabric profile 解析失败");
-        var profileId = profile.Id;
-        if (string.IsNullOrWhiteSpace(profileId))
-        {
-            profileId = $"fabric-loader-{loader.Version}-{gameVersion}";
-            profile.Id = profileId;
-        }
-
-        var versionDirectory = Path.Combine(gameDirectory, "versions", profileId);
-        Directory.CreateDirectory(versionDirectory);
-        await File.WriteAllTextAsync(Path.Combine(versionDirectory, profileId + ".json"), profileJson, cancellationToken)
-            .ConfigureAwait(false);
-
-        reporter.Stage("下载 Fabric 依赖");
+        // 6) 下载 profile 声明的加载器依赖库（原版库已就位，重复合并项由去重跳过）
+        var profile = JsonSerializer.Deserialize<VersionInfo>(profileJson.ToJsonString(JsonOptions), JsonOptions)
+                      ?? throw new DownloadException("加载器 profile 解析失败");
         var environment = RuleEnvironment.Current(false);
         var libraries = LibraryResolver.CollectLibraries(profile, environment, policy);
         var librariesDirectory = Path.Combine(gameDirectory, "libraries");
-        reporter.Stage("下载 Fabric 依赖", libraries.Count);
+        reporter.Stage("下载加载器依赖", libraries.Count);
         await ForEachParallelAsync(
             libraries,
             threads,
@@ -432,8 +530,29 @@ public sealed class VersionInstaller
             cancellationToken).ConfigureAwait(false);
 
         reporter.Stage("安装完成");
-        _logger.Info($"Fabric {loader.Version}（{gameVersion}）安装完成");
-        return profileId;
+        _logger.Info($"{kind} {version}（{gameVersion}）安装完成：{displayName}");
+        return displayName;
+    }
+
+    /// <summary>拉取 Fabric 系 meta 的 loader 列表并取最新稳定版。</summary>
+    private async Task<string> GetLatestFabricLikeVersionAsync(
+        string loaderUrlPrefix,
+        string gameVersion,
+        CancellationToken cancellationToken)
+    {
+        var loaderJson = await _client
+            .GetStringAsync(loaderUrlPrefix + Uri.EscapeDataString(gameVersion), cancellationToken)
+            .ConfigureAwait(false);
+        var loaders = JsonSerializer.Deserialize<List<FabricLoaderEntry>>(loaderJson, JsonOptions)
+                      ?? new List<FabricLoaderEntry>();
+        var loader = loaders.FirstOrDefault(x => x.Loader?.Stable == true)?.Loader
+                     ?? loaders.FirstOrDefault()?.Loader;
+        if (loader is null || string.IsNullOrWhiteSpace(loader.Version))
+        {
+            throw new DownloadException($"找不到 {gameVersion} 可用的加载器版本");
+        }
+
+        return loader.Version;
     }
 
     private async Task InstallAssetsAsync(

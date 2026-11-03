@@ -45,6 +45,9 @@ public sealed class LauncherConfig
 
     public int RetryCount { get; set; } = 3;
 
+    /// <summary>修复 1.16.5 的 authlib 2.1.28 兼容问题（对应 PCL-CE ToolFixAuthlib，默认开启）。</summary>
+    public bool FixAuthlib { get; set; } = true;
+
     public bool CloseLauncherAfterLaunch { get; set; }
 
     public bool ShowGameOutput { get; set; } = true;
