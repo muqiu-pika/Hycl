@@ -10,32 +10,240 @@ using Hycl.Launcher.Core.Services;
 namespace Hycl.Launcher.Core.Game;
 
 /// <summary>
-/// 版本安装：原版（客户端、依赖库、资源、日志配置）与 Fabric。
+/// 版本安装：原版（客户端、依赖库、资源、日志配置）与加载器。
 /// 这是 PCL-CE 下载模块的跨平台重写，不依赖 Windows API。
 /// </summary>
 public sealed class VersionInstaller
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+    /// <summary>版本列表磁盘缓存的有效期。</summary>
+    public static readonly TimeSpan VersionListCacheTtl = TimeSpan.FromHours(24);
+
+    /// <summary>列表竞速：副源加入等待（对应 PCL-CE 双源竞速，Hycl 收紧为 5 秒）。</summary>
+    public static readonly TimeSpan RaceJoinDelay = TimeSpan.FromSeconds(5);
+
+    /// <summary>列表单源超时（不重试）。</summary>
+    public static readonly TimeSpan ListTimeout = TimeSpan.FromSeconds(8);
+
+    private const string UnlistedVersionsUrl =
+        "https://alist.8mi.tech/d/mirror/unlisted-versions-of-minecraft/Auto/version_manifest.json";
+
     private readonly DownloadClient _client;
     private readonly LauncherLogger _logger;
+    private readonly VersionListCache? _versionListCache;
+    private readonly SemaphoreSlim _refreshLock = new(1, 1);
 
-    public VersionInstaller(DownloadClient client, LauncherLogger logger)
+    public VersionInstaller(DownloadClient client, LauncherLogger logger, string? cacheDirectory = null)
     {
         _client = client;
         _logger = logger;
+        _versionListCache = cacheDirectory is null ? null : new VersionListCache(cacheDirectory);
     }
 
+    /// <summary>
+    /// 获取版本列表：磁盘缓存（24h TTL）命中即回，并触发后台静默刷新；
+    /// 否则按下载源策略双源竞速（主源立即，副源延迟 5 秒加入，单源 8 秒超时不重试）。
+    /// </summary>
     public async Task<IReadOnlyList<VersionSummary>> GetVersionListAsync(
         DownloadPolicy policy,
         CancellationToken cancellationToken = default)
     {
-        var manifest = await _client
-            .GetJsonAsync<VersionManifest>(
-                DownloadSources.GetVersionManifestUrls(policy.VersionListSource, policy.MojangFast),
-                cancellationToken)
-            .ConfigureAwait(false);
+        var effectivePolicy = policy with { MojangFast = policy.MojangFast || DownloadSourceMonitor.MojangFast };
+        if (_versionListCache is not null)
+        {
+            var cached = await _versionListCache.TryReadAsync(cancellationToken).ConfigureAwait(false);
+            if (cached is not null && DateTimeOffset.Now - cached.Value.FetchedAt < VersionListCacheTtl)
+            {
+                _ = RefreshVersionListQuietlyAsync(effectivePolicy);
+                return cached.Value.Manifest.Versions;
+            }
+        }
+
+        var manifest = await FetchVersionListAsync(effectivePolicy, cancellationToken).ConfigureAwait(false);
         return manifest.Versions;
+    }
+
+    /// <summary>后台静默刷新版本列表缓存（失败忽略）。</summary>
+    private async Task RefreshVersionListQuietlyAsync(DownloadPolicy policy)
+    {
+        if (_versionListCache is null || !await _refreshLock.WaitAsync(0).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        try
+        {
+            var manifest = await FetchVersionListAsync(policy, CancellationToken.None).ConfigureAwait(false);
+            await _versionListCache.WriteAsync(manifest, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is DownloadException or IOException or InvalidOperationException or HttpRequestException or TaskCanceledException)
+        {
+            _logger.Warn($"版本列表后台刷新失败（可忽略）：{ex.Message}");
+        }
+        finally
+        {
+            _refreshLock.Release();
+        }
+    }
+
+    /// <summary>竞速获取并解析版本清单，随后尽力合并 UVMC 未收录版本。</summary>
+    private async Task<VersionManifest> FetchVersionListAsync(DownloadPolicy policy, CancellationToken cancellationToken)
+    {
+        var urls = DownloadSources.GetVersionManifestUrls(policy.VersionListSource, policy.MojangFast);
+        var primaryUrl = urls[0];
+        var secondaryUrl = urls.Count > 1 ? urls[1] : null;
+        var primaryIsMojang = primaryUrl.Contains("mojang.com", StringComparison.Ordinal);
+
+        var rawJson = await RaceFetchAsync(primaryUrl, secondaryUrl, cancellationToken)
+            .ConfigureAwait(false);
+        var manifest = JsonSerializer.Deserialize<VersionManifest>(rawJson, JsonOptions)
+                       ?? throw new DownloadException("版本清单解析失败");
+        if (manifest.Versions.Count < 200)
+        {
+            // 与 PCL-CE 一致：清单异常缩水视为无效，交由另一源重取
+            throw new DownloadException($"版本清单条目异常（{manifest.Versions.Count}）：{primaryUrl}");
+        }
+
+        _logger.Info($"版本清单已获取：{manifest.Versions.Count} 个版本（主源：{(primaryIsMojang ? "官方" : "镜像")}）");
+        await MergeUnlistedVersionsAsync(manifest, cancellationToken).ConfigureAwait(false);
+
+        if (_versionListCache is not null)
+        {
+            await _versionListCache.WriteAsync(manifest, cancellationToken).ConfigureAwait(false);
+        }
+
+        return manifest;
+    }
+
+    /// <summary>双源竞速：主源立即开始，副源延迟 5 秒加入，先成功者胜出。</summary>
+    private async Task<string> RaceFetchAsync(
+        string primaryUrl,
+        string? secondaryUrl,
+        CancellationToken cancellationToken)
+    {
+        if (secondaryUrl is null)
+        {
+            return await _client.GetStringOnceAsync(primaryUrl, ListTimeout, cancellationToken).ConfigureAwait(false);
+        }
+
+        var completion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var failures = new CountdownFailures(2, completion);
+        _ = RunListFetchAsync(primaryUrl, TimeSpan.Zero, failures, cancellationToken);
+        _ = RunListFetchAsync(secondaryUrl, RaceJoinDelay, failures, cancellationToken);
+
+        return await completion.Task.ConfigureAwait(false);
+    }
+
+    private async Task RunListFetchAsync(
+        string url,
+        TimeSpan delay,
+        CountdownFailures failures,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (delay > TimeSpan.Zero)
+            {
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+            }
+
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var text = await _client.GetStringOnceAsync(url, ListTimeout, cancellationToken).ConfigureAwait(false);
+            watch.Stop();
+            if (url.Contains("mojang.com", StringComparison.Ordinal))
+            {
+                // 官方延迟探测：4 秒内应答则"官方优先(自动)"档在有效期内优先官方
+                DownloadSourceMonitor.NotifyMojangLatency(watch.Elapsed);
+                _logger.Info($"官方源延迟 {watch.ElapsedMilliseconds} ms");
+            }
+
+            failures.TrySetResult(text);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            failures.TryCancel(cancellationToken);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidOperationException or TaskCanceledException or DownloadException)
+        {
+            failures.TryFail(ex);
+        }
+    }
+
+    /// <summary>合并 UVMC 未收录版本（失败忽略；对应 PCL-CE _MergeUnlistedVersions）。</summary>
+    private async Task MergeUnlistedVersionsAsync(VersionManifest manifest, CancellationToken cancellationToken)
+    {
+        if (_versionListCache is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var cachedJson = await _versionListCache
+                .TryReadTextAsync(_versionListCache.UnlistedCachePath, TimeSpan.FromDays(1), cancellationToken)
+                .ConfigureAwait(false);
+            if (cachedJson is null)
+            {
+                cachedJson = await _client
+                    .GetStringOnceAsync(UnlistedVersionsUrl, ListTimeout, cancellationToken)
+                    .ConfigureAwait(false);
+                await _versionListCache
+                    .WriteTextAsync(_versionListCache.UnlistedCachePath, cachedJson, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            var unlisted = JsonSerializer.Deserialize<VersionManifest>(cachedJson, JsonOptions);
+            if (unlisted?.Versions is not { Count: > 0 })
+            {
+                return;
+            }
+
+            var knownIds = manifest.Versions.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var merged = 0;
+            foreach (var version in unlisted.Versions)
+            {
+                if (knownIds.Add(version.Id))
+                {
+                    manifest.Versions.Add(version);
+                    merged++;
+                }
+            }
+
+            if (merged > 0)
+            {
+                _logger.Info($"已合并 {merged} 个未收录版本（UVMC）");
+            }
+        }
+        catch (Exception ex) when (ex is DownloadException or HttpRequestException or IOException or InvalidOperationException or TaskCanceledException or JsonException)
+        {
+            _logger.Warn($"未收录版本合并失败（可忽略）：{ex.Message}");
+        }
+    }
+
+    /// <summary>竞速失败计数：全部失败时把首个异常交给等待方。</summary>
+    private sealed class CountdownFailures(int total, TaskCompletionSource<string> completion) : IDisposable
+    {
+        private int _remaining = total;
+        private Exception? _firstError;
+
+        public void TrySetResult(string text) => completion.TrySetResult(text);
+
+        public void TryCancel(CancellationToken cancellationToken)
+            => completion.TrySetCanceled(cancellationToken);
+
+        public void TryFail(Exception error)
+        {
+            Interlocked.CompareExchange(ref _firstError, error, null);
+            if (Interlocked.Decrement(ref _remaining) == 0)
+            {
+                completion.TrySetException(_firstError ?? new DownloadException("版本清单获取失败"));
+            }
+        }
+
+        public void Dispose()
+        {
+        }
     }
 
     /// <summary>安装某一原版版本（已存在的文件会跳过）。</summary>

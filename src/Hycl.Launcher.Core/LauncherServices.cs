@@ -87,7 +87,7 @@ public sealed class LauncherServices
         var javaDetector = new JavaDetector(logger);
         var downloadClient = new DownloadClient(logger, configStore.Config.RetryCount);
         var versionResolver = new VersionResolver(logger);
-        var installer = new VersionInstaller(downloadClient, logger);
+        var installer = new VersionInstaller(downloadClient, logger, paths.CacheDirectory);
         var instances = new InstanceManager(logger, versionResolver);
         var launch = new LaunchService(versionResolver, javaDetector, logger);
         var system = new SystemService(logger);

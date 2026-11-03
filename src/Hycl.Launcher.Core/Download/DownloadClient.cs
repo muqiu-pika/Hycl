@@ -45,6 +45,21 @@ public sealed class DownloadClient : IDisposable
     public async Task<string> GetStringAsync(string url, CancellationToken cancellationToken = default)
         => await GetStringAsync([url], cancellationToken).ConfigureAwait(false);
 
+    /// <summary>单次请求（不重试），用于列表竞速等需要自行控制超时的场景。</summary>
+    public async Task<string> GetStringOnceAsync(
+        string url,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default)
+    {
+        using var timeoutCts = new CancellationTokenSource(timeout);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+        using var response = await _httpClient
+            .SendAsync(new HttpRequestMessage(HttpMethod.Get, url), HttpCompletionOption.ResponseHeadersRead, linked.Token)
+            .ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>按顺序尝试多个 URL 获取文本。</summary>
     public async Task<string> GetStringAsync(IReadOnlyList<string> urls, CancellationToken cancellationToken = default)
     {

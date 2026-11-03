@@ -33,5 +33,5 @@ public sealed record DownloadPolicy(int VersionListSource, int FileSource, bool 
         || (VersionListSource == (int)DownloadSourceMode.OfficialAuto && MojangFast);
 
     public static DownloadPolicy FromConfig(Config.LauncherConfig config, bool mojangFast = false) =>
-        new(config.VersionListSource, config.FileSource, mojangFast);
+        new(config.VersionListSource, config.FileSource, mojangFast || DownloadSourceMonitor.MojangFast);
 }
