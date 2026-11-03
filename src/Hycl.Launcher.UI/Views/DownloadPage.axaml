@@ -308,7 +308,7 @@
                                     </StackPanel>
                                 </Panel>
 
-                                <!-- 前置 Mod 卡片（选中 Fabric / Legacy Fabric 后出现，可选） -->
+                                <!-- 附属安装包卡片（OptiFine / LiteLoader / 前置 Mod；按互斥规则显示） -->
                                 <ItemsControl ItemsSource="{Binding Wizard.CompanionCards}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="vm:LoaderCardViewModel">
@@ -317,7 +317,8 @@
                                                     BorderThickness="1"
                                                     CornerRadius="10"
                                                     Padding="12,9"
-                                                    Margin="0,0,0,2">
+                                                    Margin="0,0,0,2"
+                                                    IsVisible="{Binding IsAvailable}">
                                                 <StackPanel>
                                                     <Button Background="Transparent"
                                                             BorderThickness="0"
