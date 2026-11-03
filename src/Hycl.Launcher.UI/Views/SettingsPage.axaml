@@ -8,7 +8,7 @@
              x:CompileBindings="True">
 
     <!-- 对应网页版 SettingsView：左侧分区导航 + 右侧数据驱动的设置卡片 -->
-    <Grid ColumnDefinitions="168,*">
+    <Grid ColumnDefinitions="186,*">
         <Border Classes="page-divider">
             <ScrollViewer HorizontalScrollBarVisibility="Disabled">
                 <ItemsControl Margin="14,8,14,12" ItemsSource="{Binding Groups}">

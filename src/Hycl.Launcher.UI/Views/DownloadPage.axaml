@@ -8,7 +8,7 @@
              x:CompileBindings="True">
 
     <!-- 对应 PCL-CE 的 PageDownloadInstall：安装新版本 → 选游戏版本 → 选需要安装的内容 → 命名安装 -->
-    <Grid ColumnDefinitions="168,*">
+    <Grid ColumnDefinitions="186,*">
 
         <!-- ── 左侧导航 ─────────────────────────────────────── -->
         <Border Classes="page-divider">
@@ -239,6 +239,7 @@
                                                IsVisible="{Binding Wizard.LoaderError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                                Text="{Binding Wizard.LoaderError}" />
                                     <StackPanel Spacing="8" IsVisible="{Binding !Wizard.IsLoaderLoading}">
+                                        <!-- 主加载器与附属卡在加载期间一并隐藏，避免残留半页内容 -->
                                         <ItemsControl ItemsSource="{Binding Wizard.LoaderCards}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="vm:LoaderCardViewModel">
@@ -305,8 +306,6 @@
                                         <TextBlock Classes="sline"
                                                    Margin="2,4,0,0"
                                                    Text="点击加载器进入版本选择；不选择任何加载器则安装原版。" />
-                                    </StackPanel>
-                                </Panel>
 
                                 <!-- 附属安装包卡片（OptiFine / LiteLoader / 前置 Mod；按互斥规则显示） -->
                                 <ItemsControl ItemsSource="{Binding Wizard.CompanionCards}">
@@ -413,15 +412,17 @@
                                                                                         IsVisible="{Binding IsSelected}" />
                                                                         </Grid>
                                                                     </Button>
-                                                                </DataTemplate>
-                                                            </ItemsControl.ItemTemplate>
-                                                        </ItemsControl>
-                                                    </StackPanel>
-                                                </StackPanel>
-                                            </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
+                                </StackPanel>
+                            </Panel>
                             </StackPanel>
                         </ScrollViewer>
 

@@ -127,10 +127,8 @@ public partial class LoaderCardViewModel : ObservableObject
     [ObservableProperty]
     private bool _isAvailable = true;
 
-    [ObservableProperty]
-    private string _selectedTitle = "";
-
-    public string CountText => $"{Items.Count}";
+    /// <summary>列表加载总超时：超时后给出错误提示，避免不支持的版本长时间转圈。</summary>
+    private static readonly TimeSpan LoadTimeout = TimeSpan.FromSeconds(20);
 
     public async Task EnsureLoadedAsync()
     {
@@ -143,7 +141,15 @@ public partial class LoaderCardViewModel : ObservableObject
         ErrorText = "";
         try
         {
-            var items = await _loader().ConfigureAwait(true);
+            var loadTask = _loader();
+            var completed = await Task.WhenAny(loadTask, Task.Delay(LoadTimeout)).ConfigureAwait(true);
+            if (completed != loadTask)
+            {
+                throw new Hycl.Launcher.Core.Game.Loaders.LoaderMetadataException(
+                    "获取超时：该加载器可能不支持此版本，或当前网络不佳");
+            }
+
+            var items = await loadTask.ConfigureAwait(true);
             Items.Clear();
             foreach (var item in items)
             {
@@ -161,6 +167,11 @@ public partial class LoaderCardViewModel : ObservableObject
             IsLoading = false;
         }
     }
+
+    [ObservableProperty]
+    private string _selectedTitle = "";
+
+    public string CountText => $"{Items.Count}";
 
     public void ResetSelection()
     {
@@ -268,7 +279,14 @@ public partial class InstallWizardViewModel : ObservableObject
 
     private LoaderCardViewModel? _legacyFabricApiCard;
 
+    private LoaderCardViewModel? _optiFineCard;
+
+    private LoaderCardViewModel? _liteLoaderCard;
+
     private string? _companionModSlug;
+
+    /// <summary>向导代际：切换 MC 版本或返回时自增，使陈旧的加载器列表请求作废。</summary>
+    private int _wizardGeneration;
 
     /// <summary>加载 Minecraft 版本列表；已加载且下载源未变化时直接复用缓存。</summary>
     public async Task LoadVersionListAsync(bool force = false)
@@ -417,6 +435,8 @@ public partial class InstallWizardViewModel : ObservableObject
             return;
         }
 
+        // 新的向导会话：作废所有陈旧的加载器列表请求
+        _wizardGeneration++;
         _selectedMc = summary;
         SelectedMcId = summary.Id;
         TargetName = summary.Id;
@@ -425,6 +445,7 @@ public partial class InstallWizardViewModel : ObservableObject
         _selectedOptiFineItem = null;
         _selectedLiteLoaderItem = null;
         _companionModSlug = null;
+        ActiveLoaderCard = null;
         IsLoaderLoading = true;
         LoaderError = "";
         try
@@ -501,7 +522,7 @@ public partial class InstallWizardViewModel : ObservableObject
             () => _services.LoaderProviders.LabyMod.GetVersionsForAsync(SelectedMcId, DownloadPolicy.FromConfig(_services.Config)));
 
         // 附属安装包
-        var optiFineCard = new LoaderCardViewModel(
+        _optiFineCard = new LoaderCardViewModel(
             "OptiFine",
             "optifine",
             "光影前置与性能优化；与 Forge 共存时以 Mod 形式装入 mods",
@@ -510,6 +531,8 @@ public partial class InstallWizardViewModel : ObservableObject
             async () => (await _services.LoaderProviders.OptiFine
                     .GetVersionsForAsync(SelectedMcId, DownloadPolicy.FromConfig(_services.Config))
                     .ConfigureAwait(true))
+                .Where(entry => _selectedLoaderItem?.Payload is not LoaderChoice { Payload: ForgeEntry forge }
+                                || LoaderCompat.IsOptiFineSuitableForForge((OptiFineEntry)entry.Payload!, forge))
                 .Select(entry => new VersionItemViewModel(
                     entry.VersionName,
                     BuildLoaderEntryInfo(entry),
@@ -517,10 +540,10 @@ public partial class InstallWizardViewModel : ObservableObject
                     entry.IsStable ? [] : ["测试版"],
                     entry.Payload))
                 .ToList());
-        var liteLoaderCard = new LoaderCardViewModel(
+        _liteLoaderCard = new LoaderCardViewModel(
             "LiteLoader",
             "liteloader",
-            "旧版轻量加载器（1.7–1.12）；仅可与原版或 Forge 搭配",
+            "旧版轻量加载器（1.7–1.12）；可与原版、Forge 或 Fabric 搭配",
             "liteloader",
             true,
             async () => (await _services.LoaderProviders.LiteLoader
@@ -533,8 +556,8 @@ public partial class InstallWizardViewModel : ObservableObject
                     entry.IsStable ? [] : ["测试版"],
                     entry.Payload))
                 .ToList());
-        CompanionCards.Add(optiFineCard);
-        CompanionCards.Add(liteLoaderCard);
+        CompanionCards.Add(_optiFineCard);
+        CompanionCards.Add(_liteLoaderCard);
 
         // 前置 Mod 卡（Fabric / Legacy Fabric 选中后推荐对应 API）
         _fabricApiCard = new LoaderCardViewModel(
@@ -596,20 +619,33 @@ public partial class InstallWizardViewModel : ObservableObject
             return;
         }
 
+        // 记录代际：等待期间用户切换版本/返回时，本次结果作废（防止陈旧列表页劫持界面）
+        var generation = _wizardGeneration;
         IsLoaderLoading = true;
         LoaderError = "";
         try
         {
             await card.EnsureLoadedAsync().ConfigureAwait(true);
+            if (generation != _wizardGeneration || !LoaderCards.Contains(card))
+            {
+                return;
+            }
+
             ActiveLoaderCard = card;
         }
         catch (Exception ex)
         {
-            LoaderError = ex.Message;
+            if (generation == _wizardGeneration)
+            {
+                LoaderError = ex.Message;
+            }
         }
         finally
         {
-            IsLoaderLoading = false;
+            if (generation == _wizardGeneration)
+            {
+                IsLoaderLoading = false;
+            }
         }
     }
 
@@ -621,14 +657,34 @@ public partial class InstallWizardViewModel : ObservableObject
             return;
         }
 
+        // 主加载器单选（对应 PCL-CE _selectedLoaderType）：清除其它主卡的选择
+        foreach (var other in LoaderCards)
+        {
+            if (!ReferenceEquals(other, ActiveLoaderCard))
+            {
+                other.ResetSelection();
+            }
+        }
+
         ActiveLoaderCard.ResetSelection();
         item.IsSelected = true;
         ActiveLoaderCard.HasSelection = true;
         ActiveLoaderCard.SelectedTitle = item.Title;
         _selectedLoaderItem = item;
         SelectedLoaderName = item.Title;
-        var kind = (item.Payload as LoaderChoice)?.Kind ?? "";
+        var choice = item.Payload as LoaderChoice;
+        var kind = choice?.Kind ?? "";
         TargetName = $"{SelectedMcId}-{kind}";
+
+        // 已选 OptiFine 与新选的 Forge 不适配时清除 OptiFine（对应 PCL-CE Forge_Selected）
+        if (choice?.Payload is ForgeEntry forge
+            && _selectedOptiFineItem?.Payload is OptiFineEntry optiFine
+            && !LoaderCompat.IsOptiFineSuitableForForge(optiFine, forge))
+        {
+            ClearCompanionCard(_optiFineCard);
+            _toast?.Invoke($"已取消附属 OptiFine：与 Forge {forge.VersionName} 不适配");
+        }
+
         ActiveLoaderCard = null;
         RefreshCompanionAvailability();
     }
@@ -659,6 +715,15 @@ public partial class InstallWizardViewModel : ObservableObject
         if (item?.Payload is null)
         {
             return;
+        }
+
+        // OptiFine 与已选 Forge 不适配时清除 Forge（对应 PCL-CE OptiFine_Selected）
+        if (item.Payload is OptiFineEntry optiFine
+            && _selectedLoaderItem?.Payload is LoaderChoice { Payload: ForgeEntry forge }
+            && !LoaderCompat.IsOptiFineSuitableForForge(optiFine, forge))
+        {
+            ClearCardSelection(LoaderCards.FirstOrDefault(c => c.Kind == "forge"));
+            _toast?.Invoke($"已取消 Forge：与 OptiFine {optiFine.NameVersion} 不适配");
         }
 
         foreach (var card in CompanionCards)
@@ -703,19 +768,21 @@ public partial class InstallWizardViewModel : ObservableObject
         }
     }
 
-    /// <summary>按互斥规则刷新附属卡可用性（对应 PCL-CE：NeoForge/Cleanroom/LabyMod 与 OptiFine 互斥）。</summary>
+    /// <summary>
+    /// 按兼容矩阵刷新附属卡可用性（移植自 PCL-CE Load*GetError）：
+    /// OptiFine 与 NeoForge/LabyMod/Cleanroom 互斥、与 Fabric 需 MC ≤ 1.20.4、与 Forge 需 1.13 之外；
+    /// LiteLoader 与 NeoForge/LegacyFabric/LabyMod/Cleanroom 互斥。
+    /// </summary>
     private void RefreshCompanionAvailability()
     {
-        var kind = (_selectedLoaderItem?.Payload as LoaderChoice)?.Kind?.ToLowerInvariant();
-        var optiFineAllowed = kind is null or "vanilla" or "forge";
-        var liteLoaderAllowed = kind is null or "vanilla" or "forge";
+        var kind = (_selectedLoaderItem?.Payload as LoaderChoice)?.Kind;
 
         foreach (var card in CompanionCards)
         {
             card.IsAvailable = card.Kind switch
             {
-                "optifine" => optiFineAllowed,
-                "liteloader" => liteLoaderAllowed,
+                "optifine" => LoaderCompat.IsOptiFineCompatibleWith(kind, SelectedMcId),
+                "liteloader" => LoaderCompat.IsLiteLoaderCompatibleWith(kind),
                 "fabric-api" => kind is "fabric" or "quilt",
                 "legacyfabric-api" => kind is "legacyfabric",
                 _ => card.IsAvailable
@@ -731,12 +798,17 @@ public partial class InstallWizardViewModel : ObservableObject
     [RelayCommand]
     private void BackToMcList()
     {
+        _wizardGeneration++;
         Step = 1;
         ActiveLoaderCard = null;
     }
 
     [RelayCommand]
-    private void BackToLoaderCards() => ActiveLoaderCard = null;
+    private void BackToLoaderCards()
+    {
+        _wizardGeneration++;
+        ActiveLoaderCard = null;
+    }
 
     [RelayCommand]
     private async Task StartInstallAsync()
