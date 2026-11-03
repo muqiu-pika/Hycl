@@ -1,0 +1,14 @@
+# 构建产物
+bin/
+obj/
+*.user
+*.suo
+
+# IDE 与本地配置
+.vs/
+.idea/
+
+# 运行日志与临时文件
+*.log
+run-out.log
+run-err.log

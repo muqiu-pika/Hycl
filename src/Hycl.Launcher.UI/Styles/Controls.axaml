@@ -1,0 +1,844 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- ============================================================
+         按钮（对应网页版 McButton）
+         ============================================================ -->
+
+    <Style Selector="Button.mc-btn">
+        <Setter Property="MinHeight" Value="34" />
+        <Setter Property="Padding" Value="17,6" />
+        <Setter Property="CornerRadius" Value="7" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Background" Value="{DynamicResource GlassSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Primary5Brush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.mc-btn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
+    </Style>
+    <Style Selector="Button.mc-btn:pointerover">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+    </Style>
+    <Style Selector="Button.mc-btn:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Primary7Brush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Primary5Brush}" />
+    </Style>
+    <Style Selector="Button.mc-btn:pressed">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+    </Style>
+    <Style Selector="Button.mc-btn:disabled">
+        <Setter Property="Opacity" Value="0.45" />
+    </Style>
+
+    <!-- 主按钮：主色渐变，避免一整块纯色显得沉闷 -->
+    <Style Selector="Button.mc-btn.primary">
+        <Setter Property="Background" Value="{DynamicResource PrimaryGradientBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="Foreground" Value="White" />
+    </Style>
+    <Style Selector="Button.mc-btn.primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource PrimaryLightBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
+    </Style>
+    <Style Selector="Button.mc-btn.primary:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
+    </Style>
+
+    <!-- 蓝色线条按钮：主题色细描边 + 主题色文字/图标（启动游戏、管理实例） -->
+    <Style Selector="Button.line-btn">
+        <Setter Property="MinHeight" Value="36" />
+        <Setter Property="Padding" Value="14,6" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.line-btn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
+    </Style>
+    <Style Selector="Button.line-btn:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Primary7Brush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
+    </Style>
+    <Style Selector="Button.line-btn:disabled">
+        <Setter Property="Opacity" Value="0.5" />
+    </Style>
+
+    <!-- 启动游戏按钮：沿用 PCL-CE 的 54 高、双层文字（标题 + 版本） -->
+    <Style Selector="Button.launch-btn">
+        <Setter Property="Height" Value="54" />
+        <!-- 上下内边距保持对称，让标题 + 版本副标题整体垂直居中 -->
+        <Setter Property="Padding" Value="20,0" />
+        <Setter Property="CornerRadius" Value="5" />
+        <Setter Property="FontSize" Value="17" />
+    </Style>
+
+    <!-- 危险按钮 -->
+    <Style Selector="Button.mc-btn.danger">
+        <Setter Property="Background" Value="#73FFFFFF" />
+        <Setter Property="BorderBrush" Value="{DynamicResource ErrorBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
+    </Style>
+    <Style Selector="Button.mc-btn.danger:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="#FDECEC" />
+        <Setter Property="BorderBrush" Value="{DynamicResource ErrorDarkBrush}" />
+    </Style>
+    <Style Selector="Button.mc-btn.danger:pointerover">
+        <Setter Property="Foreground" Value="{DynamicResource ErrorDarkBrush}" />
+    </Style>
+
+    <!-- ============================================================
+         标题栏窗口按钮
+         ============================================================ -->
+
+    <Style Selector="Button.winbtn">
+        <Setter Property="Width" Value="28" />
+        <Setter Property="Height" Value="28" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="CornerRadius" Value="999" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.winbtn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="#33FFFFFF" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.winbtn.close:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource ErrorBrush}" />
+    </Style>
+
+    <!-- ============================================================
+         标题栏标签页（胶囊形）
+         ============================================================ -->
+
+    <Style Selector="ListBox.tb-tabs">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Margin" Value="0" />
+    </Style>
+    <Style Selector="ListBox.tb-tabs ListBoxItem">
+        <Setter Property="Margin" Value="5,0" />
+        <Setter Property="Padding" Value="12,0" />
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Opacity" Value="0.86" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border x:Name="root"
+                        Background="Transparent"
+                        CornerRadius="999"
+                        Height="27"
+                        Padding="{TemplateBinding Padding}">
+                    <ContentPresenter x:Name="TabContent"
+                                      Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center" />
+                </Border>
+            </ControlTemplate>
+        </Setter>
+    </Style>
+    <Style Selector="ListBox.tb-tabs ListBoxItem:pointerover /template/ Border#root">
+        <Setter Property="Background" Value="#33EAF2FE" />
+    </Style>
+    <Style Selector="ListBox.tb-tabs ListBoxItem:pointerover">
+        <Setter Property="Opacity" Value="1" />
+    </Style>
+    <!-- 选中态只让整个胶囊变白、文字/图标变深色；内层内容区不得出现默认主题的蓝色选中底 -->
+    <Style Selector="ListBox.tb-tabs ListBoxItem /template/ ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="ListBox.tb-tabs ListBoxItem:selected /template/ ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="ListBox.tb-tabs ListBoxItem:selected /template/ Border#root">
+        <Setter Property="Background" Value="White" />
+    </Style>
+    <Style Selector="ListBox.tb-tabs ListBoxItem:selected">
+        <Setter Property="Opacity" Value="1" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+    </Style>
+    <Style Selector="ListBox.tb-tabs ListBoxItem:selected:pointerover /template/ Border#root">
+        <Setter Property="Background" Value="White" />
+    </Style>
+    <Style Selector="ListBox.tb-tabs ListBoxItem:selected:pointerover">
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="Opacity" Value="1" />
+    </Style>
+
+    <!-- ============================================================
+         侧边导航（对应网页版 SideNav）
+         ============================================================ -->
+
+    <Style Selector="TextBlock.side-cat">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Opacity" Value="0.55" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="Margin" Value="6,8,6,3" />
+    </Style>
+
+    <Style Selector="Button.side-item">
+        <Setter Property="Width" Value="140" />
+        <Setter Property="Height" Value="36" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border x:Name="root"
+                        Background="{TemplateBinding Background}"
+                        CornerRadius="6"
+                        ClipToBounds="True">
+                    <Grid ColumnDefinitions="3,*">
+                        <Rectangle x:Name="accent"
+                                   Grid.Column="0"
+                                   Fill="{DynamicResource PrimaryBrush}"
+                                   RadiusX="2"
+                                   RadiusY="2"
+                                   Margin="0,7"
+                                   IsVisible="False" />
+                        <ContentPresenter Grid.Column="1"
+                                          Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          Margin="10,0"
+                                          HorizontalAlignment="Stretch"
+                                          VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+            </ControlTemplate>
+        </Setter>
+    </Style>
+    <Style Selector="Button.side-item:pointerover /template/ Border#root">
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+    </Style>
+    <Style Selector="Button.side-item.active /template/ Border#root">
+        <Setter Property="Background" Value="{DynamicResource Primary7Brush}" />
+    </Style>
+    <Style Selector="Button.side-item.active:pointerover /template/ Border#root">
+        <Setter Property="Background" Value="{DynamicResource Primary7Brush}" />
+    </Style>
+    <Style Selector="Button.side-item.active /template/ Rectangle#accent">
+        <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <Style Selector="Button.side-item.active">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <!-- ============================================================
+         页面标题 / 正文
+         ============================================================ -->
+
+    <Style Selector="TextBlock.page-heading">
+        <Setter Property="FontSize" Value="19" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="Margin" Value="2,0,0,14" />
+    </Style>
+
+    <Style Selector="Border.page-divider">
+        <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+        <Setter Property="BorderThickness" Value="0,0,1,0" />
+    </Style>
+
+    <!-- ============================================================
+         快捷方式行
+         ============================================================ -->
+
+    <Style Selector="Button.quick-row">
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="Padding" Value="12,9" />
+        <Setter Property="Margin" Value="0,0,0,3" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.quick-row:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
+
+    <!-- 快捷方式行左侧的图标底座，与下载卡/工具卡保持同一套视觉语言 -->
+    <Style Selector="Border.quick-icon">
+        <Setter Property="Width" Value="32" />
+        <Setter Property="Height" Value="32" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+    </Style>
+
+    <!-- ============================================================
+         搜索框（胶囊形）
+         ============================================================ -->
+
+    <Style Selector="Border.search-box">
+        <Setter Property="Background" Value="{DynamicResource GlassSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Primary6Brush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="13,5" />
+        <Setter Property="Width" Value="280" />
+    </Style>
+    <Style Selector="Border.search-box TextBox">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Padding" Value="0,2" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <!-- ============================================================
+         下拉框（对应网页版 McComboBox）
+         ============================================================ -->
+
+    <Style Selector="Button.combo-trigger">
+        <Setter Property="Height" Value="32" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Padding" Value="8,0,10,0" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Background" Value="{DynamicResource GlassSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Primary6Brush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.combo-trigger:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Primary5Brush}" />
+    </Style>
+
+    <Style Selector="Border.combo-pop">
+        <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Primary6Brush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="5" />
+        <Setter Property="BoxShadow" Value="0 8 22 0 #2E343D4A" />
+    </Style>
+
+    <Style Selector="ListBox.combo-list">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="MaxHeight" Value="220" />
+        <Setter Property="FontSize" Value="13" />
+    </Style>
+    <Style Selector="ListBox.combo-list ListBoxItem">
+        <Setter Property="Margin" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border x:Name="itemRoot" Background="Transparent" CornerRadius="6" Padding="10,7">
+                    <ContentPresenter Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      VerticalAlignment="Center" />
+                </Border>
+            </ControlTemplate>
+        </Setter>
+    </Style>
+    <Style Selector="ListBox.combo-list ListBoxItem:pointerover /template/ Border#itemRoot">
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+    </Style>
+    <Style Selector="ListBox.combo-list ListBoxItem:selected /template/ Border#itemRoot">
+        <Setter Property="Background" Value="{DynamicResource Primary7Brush}" />
+    </Style>
+    <Style Selector="ListBox.combo-list ListBoxItem:selected">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <!-- ============================================================
+         开关（对应网页版 McToggle）
+         ============================================================ -->
+
+    <Style Selector="ToggleButton.mc-toggle">
+        <Setter Property="Width" Value="40" />
+        <Setter Property="Height" Value="22" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border x:Name="track"
+                        Width="40"
+                        Height="22"
+                        CornerRadius="999"
+                        Background="#E7ECF4"
+                        BorderBrush="#C3CFE0"
+                        BorderThickness="1">
+                    <Border.Transitions>
+                        <Transitions>
+                            <BrushTransition Property="Background" Duration="0:0:0.18" />
+                            <BrushTransition Property="BorderBrush" Duration="0:0:0.18" />
+                        </Transitions>
+                    </Border.Transitions>
+                    <Border x:Name="knob"
+                            Width="16"
+                            Height="16"
+                            CornerRadius="999"
+                            Background="White"
+                            BoxShadow="0 1 3 0 #40000000"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center"
+                            Margin="2,0,0,0">
+                        <Border.Transitions>
+                            <Transitions>
+                                <ThicknessTransition Property="Margin" Duration="0:0:0.18" />
+                            </Transitions>
+                        </Border.Transitions>
+                    </Border>
+                </Border>
+            </ControlTemplate>
+        </Setter>
+    </Style>
+    <Style Selector="ToggleButton.mc-toggle:checked /template/ Border#track">
+        <Setter Property="Background" Value="{DynamicResource PrimaryBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
+    </Style>
+    <Style Selector="ToggleButton.mc-toggle:checked /template/ Border#knob">
+        <Setter Property="Margin" Value="20,0,0,0" />
+    </Style>
+
+    <!-- ============================================================
+         玩家卡：动作按钮 / 档案行 / 类型圆点
+         ============================================================ -->
+
+    <Style Selector="Button.pa-btn">
+        <Setter Property="Width" Value="36" />
+        <Setter Property="Height" Value="32" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Background" Value="{DynamicResource WhiteGlassBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Gray5Brush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.pa-btn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Primary7Brush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Primary5Brush}" />
+    </Style>
+
+    <Style Selector="Button.profile-row">
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="Padding" Value="8,8" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Margin" Value="0,0,0,3" />
+    </Style>
+    <Style Selector="Button.profile-row:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+    </Style>
+    <Style Selector="Button.profile-row.active /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Primary6Brush}" />
+    </Style>
+
+    <Style Selector="Border.pr-avatar">
+        <Setter Property="Width" Value="34" />
+        <Setter Property="Height" Value="34" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Background" Value="{DynamicResource Gray8Brush}" />
+        <Setter Property="ClipToBounds" Value="True" />
+    </Style>
+
+    <Style Selector="Ellipse.type-dot">
+        <Setter Property="Width" Value="7" />
+        <Setter Property="Height" Value="7" />
+        <Setter Property="Fill" Value="{DynamicResource Gray4Brush}" />
+    </Style>
+    <Style Selector="Ellipse.type-dot.ms">
+        <Setter Property="Fill" Value="{DynamicResource MsBlueBrush}" />
+    </Style>
+
+    <Style Selector="Button.back-btn">
+        <Setter Property="Height" Value="26" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Padding" Value="5,0,8,0" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Foreground" Value="{DynamicResource Gray2Brush}" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="HorizontalAlignment" Value="Left" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Margin" Value="0,0,0,8" />
+    </Style>
+    <Style Selector="Button.back-btn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.back-btn:pointerover">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+    </Style>
+
+    <Style Selector="Button.new-profile">
+        <Setter Property="Height" Value="32" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{DynamicResource Gray2Brush}" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Margin" Value="0,9,0,0" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Panel>
+                    <Border x:Name="bg" Background="{TemplateBinding Background}" CornerRadius="8" />
+                    <Rectangle x:Name="dash"
+                               Stroke="{DynamicResource Gray5Brush}"
+                               StrokeThickness="1"
+                               StrokeDashArray="4,3"
+                               RadiusX="8"
+                               RadiusY="8" />
+                    <ContentPresenter Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center" />
+                </Panel>
+            </ControlTemplate>
+        </Setter>
+    </Style>
+    <Style Selector="Button.new-profile:pointerover /template/ Border#bg">
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+    </Style>
+    <Style Selector="Button.new-profile:pointerover /template/ Rectangle#dash">
+        <Setter Property="Stroke" Value="{DynamicResource Primary5Brush}" />
+    </Style>
+    <Style Selector="Button.new-profile:pointerover">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+    </Style>
+
+    <!-- ============================================================
+         下载卡片 / 工具卡片
+         ============================================================ -->
+
+    <Style Selector="Button.dl-card">
+        <Setter Property="Width" Value="290" />
+        <Setter Property="MinHeight" Value="78" />
+        <Setter Property="Padding" Value="13" />
+        <Setter Property="Background" Value="{DynamicResource GlassSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource SoftLineBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Margin" Value="0,0,12,12" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border x:Name="root"
+                        Background="{TemplateBinding Background}"
+                        BorderBrush="{TemplateBinding BorderBrush}"
+                        BorderThickness="{TemplateBinding BorderThickness}"
+                        CornerRadius="10"
+                        Padding="{TemplateBinding Padding}"
+                        BoxShadow="0 2 6 0 #14243D4A">
+                    <Border.Transitions>
+                        <Transitions>
+                            <BoxShadowsTransition Property="BoxShadow" Duration="0:0:0.18" />
+                            <BrushTransition Property="Background" Duration="0:0:0.18" />
+                            <BrushTransition Property="BorderBrush" Duration="0:0:0.18" />
+                        </Transitions>
+                    </Border.Transitions>
+                    <ContentPresenter Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      HorizontalAlignment="Stretch"
+                                      VerticalAlignment="Center" />
+                </Border>
+            </ControlTemplate>
+        </Setter>
+    </Style>
+    <Style Selector="Button.dl-card:pointerover /template/ Border#root">
+        <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Primary5Brush}" />
+        <Setter Property="BoxShadow" Value="0 8 22 0 #334890F5" />
+    </Style>
+
+    <Style Selector="Button.tool-card">
+        <Setter Property="Width" Value="240" />
+        <Setter Property="Height" Value="182" />
+        <Setter Property="Padding" Value="16" />
+        <Setter Property="Background" Value="{DynamicResource GlassSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource SoftLineBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="VerticalContentAlignment" Value="Stretch" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Margin" Value="0,0,14,14" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border x:Name="root"
+                        Background="{TemplateBinding Background}"
+                        BorderBrush="{TemplateBinding BorderBrush}"
+                        BorderThickness="{TemplateBinding BorderThickness}"
+                        CornerRadius="10"
+                        Padding="{TemplateBinding Padding}"
+                        BoxShadow="0 2 6 0 #14243D4A">
+                    <Border.Transitions>
+                        <Transitions>
+                            <BoxShadowsTransition Property="BoxShadow" Duration="0:0:0.18" />
+                            <BrushTransition Property="Background" Duration="0:0:0.18" />
+                            <BrushTransition Property="BorderBrush" Duration="0:0:0.18" />
+                        </Transitions>
+                    </Border.Transitions>
+                    <ContentPresenter Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      HorizontalAlignment="Stretch"
+                                      VerticalAlignment="Stretch" />
+                </Border>
+            </ControlTemplate>
+        </Setter>
+    </Style>
+    <Style Selector="Button.tool-card:pointerover /template/ Border#root">
+        <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Primary5Brush}" />
+        <Setter Property="BoxShadow" Value="0 8 22 0 #334890F5" />
+    </Style>
+
+    <Style Selector="Border.card-icon-box">
+        <Setter Property="Width" Value="38" />
+        <Setter Property="Height" Value="38" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Background" Value="{DynamicResource PrimaryGradientBrush}" />
+        <Setter Property="BoxShadow" Value="0 3 8 0 #261370F3" />
+        <Setter Property="HorizontalAlignment" Value="Left" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <Style Selector="Border.tool-icon-box">
+        <Setter Property="Width" Value="42" />
+        <Setter Property="Height" Value="42" />
+        <Setter Property="CornerRadius" Value="12" />
+        <Setter Property="Background" Value="{DynamicResource PrimaryGradientBrush}" />
+        <Setter Property="BoxShadow" Value="0 4 10 0 #2E1370F3" />
+        <Setter Property="HorizontalAlignment" Value="Left" />
+    </Style>
+
+    <!-- 卡片底部的“伪按钮”：与普通按钮同一套浅底 + 细边框，避免整块蓝色过于抢眼 -->
+    <Style Selector="Border.tool-btn">
+        <Setter Property="Background" Value="{DynamicResource GlassSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Primary5Brush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="7" />
+        <Setter Property="MinHeight" Value="32" />
+        <Setter Property="Padding" Value="16,4" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Border.tool-btn TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="HorizontalAlignment" Value="Center" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.tool-card:pointerover Border.tool-btn">
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
+    </Style>
+
+    <!-- ============================================================
+         设置行（对应网页版 SettingsView 的通用行）
+         ============================================================ -->
+
+    <Style Selector="TextBlock.srow-label">
+        <Setter Property="Width" Value="150" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="TextBlock.srow-value">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{DynamicResource Gray2Brush}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.sline">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{DynamicResource Gray2Brush}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Setter Property="Margin" Value="0,2" />
+    </Style>
+    <Style Selector="TextBlock.dl-empty">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{DynamicResource Gray3Brush}" />
+        <Setter Property="HorizontalAlignment" Value="Center" />
+        <Setter Property="Margin" Value="0,24" />
+    </Style>
+
+    <Style Selector="Border.srow-divider">
+        <Setter Property="Height" Value="1" />
+        <Setter Property="Background" Value="{DynamicResource Gray6Brush}" />
+        <Setter Property="Opacity" Value="0.85" />
+        <Setter Property="VerticalAlignment" Value="Bottom" />
+    </Style>
+
+    <Style Selector="TextBox.stext">
+        <Setter Property="Width" Value="300" />
+        <Setter Property="MinHeight" Value="32" />
+        <Setter Property="Padding" Value="10,4" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="Background" Value="{DynamicResource GlassSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Primary6Brush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="6" />
+    </Style>
+    <Style Selector="TextBox.stext:focus">
+        <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
+    </Style>
+
+    <Style Selector="Border.slog">
+        <Setter Property="Background" Value="{DynamicResource Gray8Brush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Gray6Brush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="12,10" />
+    </Style>
+    <Style Selector="Border.slog TextBlock">
+        <Setter Property="FontFamily" Value="Consolas, Cascadia Code, monospace" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{DynamicResource Gray2Brush}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <Style Selector="Button.swatch">
+        <Setter Property="Width" Value="24" />
+        <Setter Property="Height" Value="24" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border x:Name="ring"
+                        Width="24"
+                        Height="24"
+                        CornerRadius="999"
+                        BorderThickness="2"
+                        BorderBrush="Transparent"
+                        Padding="2">
+                    <ContentPresenter Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      HorizontalAlignment="Stretch"
+                                      VerticalAlignment="Stretch" />
+                </Border>
+            </ControlTemplate>
+        </Setter>
+    </Style>
+    <Style Selector="Button.swatch.on /template/ Border#ring">
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
+    </Style>
+
+    <!-- ============================================================
+         安装向导的版本列表行（对应 PCL-CE 的 MyListItem：图标 + 标题 + 右侧信息）
+         ============================================================ -->
+
+    <Style Selector="Button.ver-row">
+        <Setter Property="MinHeight" Value="42" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Padding" Value="10,6" />
+        <Setter Property="Margin" Value="0,0,0,2" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.ver-row:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+    </Style>
+    <Style Selector="Button.ver-row.selected /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Primary7Brush}" />
+    </Style>
+
+    <!-- ============================================================
+         安装向导的加载器版本行（对应 PCL-CE 安装页的选中列表项）
+         ============================================================ -->
+
+    <Style Selector="Button.loader-item:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+    </Style>
+    <Style Selector="Button.loader-item.selected /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Primary5Brush}" />
+    </Style>
+
+    <!-- ============================================================
+         轻提示（Toast）
+         ============================================================ -->
+
+    <Style Selector="Border.toast">
+        <Setter Property="Background" Value="{DynamicResource ToastBrush}" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="16,9" />
+        <Setter Property="BoxShadow" Value="0 8 22 0 #3D1E304E" />
+        <Setter Property="IsHitTestVisible" Value="False" />
+    </Style>
+    <Style Selector="Border.toast TextBlock">
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="FontSize" Value="12" />
+    </Style>
+</Styles>

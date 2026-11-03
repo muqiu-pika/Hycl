@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Hycl.Launcher.Core</RootNamespace>
+    <AssemblyName>Hycl.Launcher.Core</AssemblyName>
+    <Product>Hyplay Craft Launcher</Product>
+    <Company>Hyplay Craft Launcher</Company>
+    <AssemblyTitle>Hyplay Craft Launcher</AssemblyTitle>
+    <Description>Hyplay Craft Launcher（HYCL）核心业务层</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+  </ItemGroup>
+
+</Project>

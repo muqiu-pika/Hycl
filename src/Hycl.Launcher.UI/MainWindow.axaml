@@ -1,0 +1,116 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:c="clr-namespace:Hycl.Launcher.UI.Controls"
+        xmlns:v="clr-namespace:Hycl.Launcher.UI.Views"
+        xmlns:vm="clr-namespace:Hycl.Launcher.Core.ViewModels;assembly=Hycl.Launcher.Core"
+        xmlns:pages="clr-namespace:Hycl.Launcher.Core.ViewModels.Pages;assembly=Hycl.Launcher.Core"
+        x:Class="Hycl.Launcher.UI.MainWindow"
+        x:DataType="vm:MainViewModel"
+        x:CompileBindings="True"
+        Title="Hyplay Craft Launcher"
+        Width="900" Height="570"
+        MinWidth="860" MinHeight="520"
+        WindowStartupLocation="CenterScreen"
+        Icon="avares://Hycl.Launcher.UI/Assets/hycl.png"
+        FontFamily="Microsoft YaHei UI, Segoe UI, sans-serif"
+        Background="Transparent"
+        WindowDecorations="None"
+        TransparencyLevelHint="Transparent">
+
+    <!-- 窗口外框：四周留出 18px 用于阴影与缩放手柄，内部卡片圆角裁切 -->
+    <Grid Name="RootFrame">
+        <Border Name="MainFrame"
+                Margin="18"
+                CornerRadius="12"
+                ClipToBounds="True"
+                Background="{DynamicResource AppBackdropBrush}"
+                BoxShadow="0 10 32 0 #330B5BCB">
+            <Grid RowDefinitions="48,*">
+                <!-- ===== 标题栏：品牌 + 居中胶囊标签 + 窗口控制 ===== -->
+                <Border Background="{DynamicResource TitleGradientBrush}"
+                        PointerPressed="OnTitleBarPointerPressed">
+                    <Grid ColumnDefinitions="*,Auto,*" Margin="19,0,10,0">
+                        <StackPanel Orientation="Horizontal"
+                                    Spacing="9"
+                                    IsHitTestVisible="False"
+                                    VerticalAlignment="Center">
+                            <Image Width="26" Height="26" Source="avares://Hycl.Launcher.UI/Assets/hycl.png" />
+                            <TextBlock Text="Hyplay Craft Launcher"
+                                       FontSize="15"
+                                       FontWeight="SemiBold"
+                                       Foreground="White"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+
+                        <ListBox Grid.Column="1"
+                                 Name="TabBar"
+                                 Classes="tb-tabs"
+                                 VerticalAlignment="Center"
+                                 SelectedIndex="{Binding SelectedTabIndex, Mode=TwoWay}"
+                                 ItemsSource="{Binding Tabs}">
+                            <ListBox.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ListBox.ItemsPanel>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:TabItemViewModel">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <c:HyclIcon Kind="{Binding IconKey}" Width="16" Height="16" />
+                                        <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <StackPanel Grid.Column="2"
+                                    Orientation="Horizontal"
+                                    Spacing="2"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Center">
+                            <Button Classes="winbtn" ToolTip.Tip="帮助" Click="OnHelpClick">
+                                <c:HyclIcon Kind="help" Width="16" Height="16" Foreground="White" />
+                            </Button>
+                            <Button Classes="winbtn" ToolTip.Tip="最小化" Click="OnMinimizeClick">
+                                <c:HyclIcon Kind="minus" Width="16" Height="16" Foreground="White" />
+                            </Button>
+                            <Button Classes="winbtn close" ToolTip.Tip="关闭" Click="OnCloseClick">
+                                <c:HyclIcon Kind="close" Width="16" Height="16" Foreground="White" />
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- ===== 页面内容 + 轻提示 ===== -->
+                <Grid Grid.Row="1">
+                    <!--
+                        四个页面一次性挂到这里，之后只切换 IsVisible：
+                        与“每次替换 Content”相比，避免了重新挂载导致的样式重算与模板重建。
+                    -->
+                    <Panel Name="PageHost" ClipToBounds="True" />
+
+                    <!-- 轻提示 -->
+                    <Border Classes="toast"
+                            IsVisible="{Binding IsToastVisible}"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Bottom"
+                            Margin="0,0,0,40">
+                        <TextBlock Text="{Binding ToastMessage}" />
+                    </Border>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- 无边框窗口的缩放手柄（位于卡片外围的阴影留白中） -->
+        <Grid RowDefinitions="14,*,14" ColumnDefinitions="14,*,14">
+            <Border Name="rzTopLeft" Grid.Row="0" Grid.Column="0" Background="Transparent" Cursor="TopLeftCorner" />
+            <Border Name="rzTop" Grid.Row="0" Grid.Column="1" Background="Transparent" Cursor="TopSide" />
+            <Border Name="rzTopRight" Grid.Row="0" Grid.Column="2" Background="Transparent" Cursor="TopRightCorner" />
+            <Border Name="rzLeft" Grid.Row="1" Grid.Column="0" Background="Transparent" Cursor="LeftSide" />
+            <Border Name="rzRight" Grid.Row="1" Grid.Column="2" Background="Transparent" Cursor="RightSide" />
+            <Border Name="rzBottomLeft" Grid.Row="2" Grid.Column="0" Background="Transparent" Cursor="BottomLeftCorner" />
+            <Border Name="rzBottom" Grid.Row="2" Grid.Column="1" Background="Transparent" Cursor="BottomSide" />
+            <Border Name="rzBottomRight" Grid.Row="2" Grid.Column="2" Background="Transparent" Cursor="BottomRightCorner" />
+        </Grid>
+    </Grid>
+</Window>

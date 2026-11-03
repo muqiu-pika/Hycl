@@ -1,0 +1,77 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:c="clr-namespace:Hycl.Launcher.UI.Controls">
+
+    <!-- 对应网页版 .mc-card：半透明白卡片 + 悬停高亮 + 可折叠标题 -->
+    <ControlTheme x:Key="{x:Type c:McCard}" TargetType="c:McCard">
+        <Setter Property="Background" Value="{DynamicResource CardBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource SoftLineBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="16,14,16,16" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border x:Name="root"
+                        Background="{TemplateBinding Background}"
+                        BorderBrush="{TemplateBinding BorderBrush}"
+                        BorderThickness="{TemplateBinding BorderThickness}"
+                        CornerRadius="{TemplateBinding CornerRadius}"
+                        Padding="{TemplateBinding Padding}"
+                        BoxShadow="0 3 10 0 #1F243D4A">
+                    <Border.Transitions>
+                        <Transitions>
+                            <BoxShadowsTransition Property="BoxShadow" Duration="0:0:0.18" />
+                            <BrushTransition Property="BorderBrush" Duration="0:0:0.18" />
+                        </Transitions>
+                    </Border.Transitions>
+                    <Grid RowDefinitions="Auto,*">
+                        <Grid x:Name="header" ColumnDefinitions="*,Auto" Background="Transparent">
+                            <TextBlock x:Name="cardTitle"
+                                       Text="{TemplateBinding Title}"
+                                       FontSize="13"
+                                       FontWeight="Bold"
+                                       Foreground="{DynamicResource TextBrush}"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis" />
+                            <Path x:Name="chevron"
+                                  Grid.Column="1"
+                                  Data="M6 9l6 6 6-6"
+                                  Width="16"
+                                  Height="16"
+                                  Margin="8,0,0,0"
+                                  Stroke="{DynamicResource TextBrush}"
+                                  StrokeThickness="2"
+                                  StrokeJoin="Round"
+                                  StrokeLineCap="Round"
+                                  Stretch="Uniform"
+                                  VerticalAlignment="Center"
+                                  IsVisible="{TemplateBinding AllowCollapse}"
+                                  RenderTransformOrigin="50%,50%"
+                                  RenderTransform="rotate(180deg)" />
+                        </Grid>
+                        <ContentPresenter x:Name="body"
+                                          Grid.Row="1"
+                                          Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          Margin="0,10,0,0"
+                                          IsVisible="{TemplateBinding IsExpanded}" />
+                    </Grid>
+                </Border>
+            </ControlTemplate>
+        </Setter>
+
+        <Style Selector="^:pointerover /template/ Border#root">
+            <Setter Property="BoxShadow" Value="0 10 26 0 #334890F5" />
+            <Setter Property="BorderBrush" Value="#404890F5" />
+        </Style>
+        <Style Selector="^:pointerover /template/ TextBlock#cardTitle">
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+        </Style>
+        <Style Selector="^:pointerover /template/ Path#chevron">
+            <Setter Property="Stroke" Value="{DynamicResource PrimaryDeepBrush}" />
+        </Style>
+        <Style Selector="^:expanded /template/ Path#chevron">
+            <Setter Property="RenderTransform" Value="rotate(0deg)" />
+        </Style>
+    </ControlTheme>
+</ResourceDictionary>

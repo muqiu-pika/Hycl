@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Hycl.Launcher.UI": {
+      "commandName": "Project",
+      "nativeDebugging": false
+    }
+  }
+}

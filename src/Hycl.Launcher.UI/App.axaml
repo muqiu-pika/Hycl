@@ -1,0 +1,26 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="clr-namespace:Hycl.Launcher.UI.Converters"
+             x:Class="Hycl.Launcher.UI.App"
+             RequestedThemeVariant="Light">
+
+    <Application.Styles>
+        <FluentTheme />
+        <StyleInclude Source="avares://Hycl.Launcher.UI/Styles/Controls.axaml" />
+    </Application.Styles>
+
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceInclude Source="avares://Hycl.Launcher.UI/Styles/Colors.axaml" />
+                <ResourceInclude Source="avares://Hycl.Launcher.UI/Themes/McCard.axaml" />
+                <ResourceInclude Source="avares://Hycl.Launcher.UI/Themes/McComboBox.axaml" />
+                <ResourceInclude Source="avares://Hycl.Launcher.UI/Themes/HyclIcon.axaml" />
+                <ResourceInclude Source="avares://Hycl.Launcher.UI/Themes/BlockIcon.axaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- 十六进制颜色 → 画刷（设置页主题色板使用） -->
+            <conv:HexBrushConverter x:Key="HexBrush" />
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

@@ -1,0 +1,71 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:Hycl.Launcher.UI.Controls"
+             xmlns:m="clr-namespace:Hycl.Launcher.Core.Models;assembly=Hycl.Launcher.Core"
+             xmlns:vm="clr-namespace:Hycl.Launcher.Core.ViewModels.Pages;assembly=Hycl.Launcher.Core"
+             x:Class="Hycl.Launcher.UI.Views.ToolsPage"
+             x:DataType="vm:ToolsPageViewModel"
+             x:CompileBindings="True">
+
+    <Grid RowDefinitions="Auto,Auto,*">
+        <TextBlock Classes="page-heading" Text="工具" Margin="22,18,18,0" />
+
+        <Border Grid.Row="1"
+                Margin="22,10,18,0"
+                Padding="14,10"
+                CornerRadius="8"
+                Background="{DynamicResource GlassSurfaceBrush}"
+                BorderBrush="{DynamicResource CardBorderBrush}"
+                BorderThickness="1">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <c:HyclIcon Kind="download" Width="15" Height="15" VerticalAlignment="Center" />
+                <TextBlock Text="{Binding DownloadStatus}"
+                           FontSize="12"
+                           Foreground="{DynamicResource Gray2Brush}"
+                           VerticalAlignment="Center" />
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer Grid.Row="2" Margin="22,14,18,18">
+            <ItemsControl ItemsSource="{Binding Tools}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="m:ToolItemViewModel">
+                        <Button Classes="tool-card"
+                                Command="{Binding $parent[UserControl].((vm:ToolsPageViewModel)DataContext).InvokeToolCommand}"
+                                CommandParameter="{Binding}">
+                            <Grid RowDefinitions="Auto,Auto,*,Auto">
+                                <Border Classes="tool-icon-box">
+                                    <c:HyclIcon Kind="{Binding IconKey}"
+                                                Width="20"
+                                                Height="20"
+                                                Foreground="White"
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Center" />
+                                </Border>
+                                <TextBlock Grid.Row="1"
+                                           Text="{Binding Title}"
+                                           FontSize="15"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextBrush}"
+                                           Margin="0,10,0,4" />
+                                <TextBlock Grid.Row="2"
+                                           Text="{Binding Description}"
+                                           FontSize="12"
+                                           Foreground="{DynamicResource Gray2Brush}"
+                                           TextWrapping="Wrap" />
+                                <Border Grid.Row="3" Classes="tool-btn">
+                                    <TextBlock Text="{Binding ButtonLabel}" />
+                                </Border>
+                            </Grid>
+                        </Button>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

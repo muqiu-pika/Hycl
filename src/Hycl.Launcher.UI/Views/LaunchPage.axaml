@@ -1,0 +1,298 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:Hycl.Launcher.UI.Controls"
+             xmlns:m="clr-namespace:Hycl.Launcher.Core.Models;assembly=Hycl.Launcher.Core"
+             xmlns:vm="clr-namespace:Hycl.Launcher.Core.ViewModels.Pages;assembly=Hycl.Launcher.Core"
+             x:Class="Hycl.Launcher.UI.Views.LaunchPage"
+             x:DataType="vm:LaunchPageViewModel"
+             x:CompileBindings="True">
+
+    <!-- 对应网页版 LaunchView：左栏玩家 / 档案（互斥切换），右栏启动 + 快捷方式
+         页面固定铺满、不滚动：左侧玩家卡拉伸到整列高度 -->
+    <Grid ColumnDefinitions="300,*" Margin="18">
+            <!-- ================= 左栏 ================= -->
+            <Grid Margin="0,0,15,0">
+                <!-- 玩家卡 -->
+                <c:McCard Title="玩家" IsVisible="{Binding IsPlayerPanel}">
+                    <Grid RowDefinitions="*,Auto">
+                        <!-- 玩家信息在剩余空间内垂直居中，底部固定启动按钮 -->
+                        <StackPanel VerticalAlignment="Center">
+                        <Panel Height="178">
+                            <Ellipse Width="168" Height="168"
+                                     HorizontalAlignment="Center"
+                                     VerticalAlignment="Top">
+                                <Ellipse.Fill>
+                                    <RadialGradientBrush>
+                                        <GradientStop Color="#FFE0EAFD" Offset="0" />
+                                        <GradientStop Color="#00EAF2FE" Offset="0.7" />
+                                    </RadialGradientBrush>
+                                </Ellipse.Fill>
+                            </Ellipse>
+                            <Ellipse Width="104" Height="20"
+                                     HorizontalAlignment="Center"
+                                     VerticalAlignment="Bottom"
+                                     Margin="0,0,0,4">
+                                <Ellipse.Fill>
+                                    <RadialGradientBrush>
+                                        <GradientStop Color="#2E343D4A" Offset="0" />
+                                        <GradientStop Color="#00343D4A" Offset="0.7" />
+                                    </RadialGradientBrush>
+                                </Ellipse.Fill>
+                            </Ellipse>
+                            <c:McSkin SkinKey="{Binding ActiveProfile.SkinKey}"
+                                      Scale="5"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Bottom"
+                                      Margin="0,0,0,12" />
+                        </Panel>
+
+                        <TextBlock Text="{Binding ActiveProfile.Name}"
+                                   FontSize="18"
+                                   FontWeight="ExtraBold"
+                                   Foreground="{DynamicResource TextBrush}"
+                                   HorizontalAlignment="Center"
+                                   Margin="0,4,0,0" />
+
+                        <StackPanel Orientation="Horizontal"
+                                    Spacing="5"
+                                    HorizontalAlignment="Center"
+                                    Margin="0,5,0,0">
+                            <Ellipse Classes="type-dot"
+                                     Classes.ms="{Binding ActiveProfile.IsMicrosoft}"
+                                     VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding ActiveProfile.AccountType}"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource Gray3Brush}" />
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal"
+                                    Spacing="8"
+                                    HorizontalAlignment="Center"
+                                    Margin="0,14,0,0">
+                            <Button Classes="pa-btn" ToolTip.Tip="更换皮肤" Command="{Binding ChangeSkinCommand}">
+                                <c:HyclIcon Kind="shirt" Width="16" Height="16" />
+                            </Button>
+                            <Button Classes="pa-btn" ToolTip.Tip="编辑档案" Command="{Binding EditProfileCommand}">
+                                <c:HyclIcon Kind="pencil" Width="16" Height="16" />
+                            </Button>
+                            <Button Classes="pa-btn" ToolTip.Tip="切换档案" Command="{Binding OpenProfilesCommand}">
+                                <c:HyclIcon Kind="arrow-right-left" Width="16" Height="16" />
+                            </Button>
+                        </StackPanel>
+                        </StackPanel>
+
+                        <!-- 启动按钮固定在玩家栏底部（蓝色线条框 + 主题色图标/文字） -->
+                        <Button Grid.Row="1"
+                                Classes="line-btn launch-btn"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Bottom"
+                                Margin="0,16,0,0"
+                                Command="{Binding LaunchCommand}"
+                                IsEnabled="{Binding !IsLaunching}">
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal"
+                                            Spacing="8"
+                                            HorizontalAlignment="Center">
+                                    <c:HyclIcon Kind="play"
+                                                Width="17"
+                                                Height="17"
+                                                Foreground="{DynamicResource PrimaryBrush}"
+                                                VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding LaunchText}"
+                                               FontSize="17"
+                                               FontWeight="Bold"
+                                               Foreground="{DynamicResource PrimaryDeepBrush}"
+                                               VerticalAlignment="Center" />
+                                </StackPanel>
+                                <TextBlock Text="{Binding VersionSummary}"
+                                           FontSize="11"
+                                           Foreground="{DynamicResource PrimaryBrush}"
+                                           Opacity="0.8"
+                                           HorizontalAlignment="Center"
+                                           Margin="0,3,0,0" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                </c:McCard>
+
+                <!-- 档案卡（点击「切换档案」后替换玩家卡） -->
+                <c:McCard Title="档案" IsVisible="{Binding !IsPlayerPanel}">
+                    <StackPanel>
+                        <Button Classes="back-btn" Command="{Binding CloseProfilesCommand}">
+                            <StackPanel Orientation="Horizontal" Spacing="3">
+                                <c:HyclIcon Kind="chevron-left" Width="15" Height="15" />
+                                <TextBlock Text="返回玩家" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+
+                        <ItemsControl ItemsSource="{Binding Profiles}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="m:PlayerProfileViewModel">
+                                    <Button Classes="profile-row"
+                                            Classes.active="{Binding IsActive}"
+                                            Command="{Binding $parent[UserControl].((vm:LaunchPageViewModel)DataContext).SelectProfileCommand}"
+                                            CommandParameter="{Binding}">
+                                        <Grid ColumnDefinitions="Auto,*,Auto">
+                                            <Border Classes="pr-avatar">
+                                                <c:McSkin SkinKey="{Binding SkinKey}"
+                                                          Mode="Head"
+                                                          Scale="4"
+                                                          HorizontalAlignment="Center"
+                                                          VerticalAlignment="Center" />
+                                            </Border>
+                                            <StackPanel Grid.Column="1" Margin="10,0" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Name}"
+                                                           FontSize="13"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="{DynamicResource TextBrush}"
+                                                           TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="{Binding AccountType}"
+                                                           FontSize="11"
+                                                           Foreground="{DynamicResource Gray3Brush}"
+                                                           Margin="0,1,0,0" />
+                                            </StackPanel>
+                                            <c:HyclIcon Grid.Column="2"
+                                                        Kind="check"
+                                                        Width="16"
+                                                        Height="16"
+                                                        Foreground="{DynamicResource PrimaryBrush}"
+                                                        IsVisible="{Binding IsActive}"
+                                                        VerticalAlignment="Center" />
+                                        </Grid>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <Button Classes="new-profile" Command="{Binding NewProfileCommand}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <c:HyclIcon Kind="user-plus" Width="15" Height="15" />
+                                <TextBlock Text="创建新档案" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </c:McCard>
+            </Grid>
+
+            <!-- ================= 右栏 ================= -->
+            <Grid Grid.Column="1" RowDefinitions="Auto,*">
+                <!-- 当前版本：仿照 PCL-CE 的版本信息项（图标 + 标签 + 值），只展示版本真实属性 -->
+                <c:McCard Title="当前版本" Margin="0,0,0,15">
+                    <StackPanel>
+                    <Grid ColumnDefinitions="*,*,*">
+                        <Grid ColumnDefinitions="Auto,*">
+                            <c:HyclIcon Kind="{Binding LoaderIconKey}"
+                                        Width="26"
+                                        Height="26"
+                                        Foreground="{Binding LoaderColor, Converter={StaticResource HexBrush}}"
+                                        VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Text="Minecraft"
+                                           FontSize="11"
+                                           Foreground="{DynamicResource Gray3Brush}" />
+                                <TextBlock Text="{Binding CurrentVersion}"
+                                           FontSize="14"
+                                           FontWeight="Bold"
+                                           Foreground="{DynamicResource TextBrush}"
+                                           Margin="0,2,0,0" />
+                            </StackPanel>
+                        </Grid>
+
+                        <Grid Grid.Column="1" ColumnDefinitions="Auto,*">
+                            <c:HyclIcon Kind="bookmark"
+                                        Width="24"
+                                        Height="24"
+                                        Foreground="{DynamicResource PrimaryBrush}"
+                                        VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Text="版本类型"
+                                           FontSize="11"
+                                           Foreground="{DynamicResource Gray3Brush}" />
+                                <TextBlock Text="{Binding CurrentVersionTag}"
+                                           FontSize="14"
+                                           FontWeight="Bold"
+                                           Foreground="{DynamicResource TextBrush}"
+                                           Margin="0,2,0,0" />
+                            </StackPanel>
+                        </Grid>
+
+                        <Grid Grid.Column="2" ColumnDefinitions="Auto,*">
+                            <c:HyclIcon Kind="power"
+                                        Width="24"
+                                        Height="24"
+                                        Foreground="{DynamicResource Gray3Brush}"
+                                        VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Text="启动次数"
+                                           FontSize="11"
+                                           Foreground="{DynamicResource Gray3Brush}" />
+                                <TextBlock Text="{Binding LaunchCountText}"
+                                           FontSize="14"
+                                           FontWeight="Bold"
+                                           Foreground="{DynamicResource TextBrush}"
+                                           Margin="0,2,0,0" />
+                            </StackPanel>
+                        </Grid>
+                    </Grid>
+
+                    <!-- 管理实例：蓝色线条框 + 主题色图标/文字 -->
+                    <Button Classes="line-btn"
+                            Height="38"
+                            HorizontalAlignment="Stretch"
+                            Margin="0,14,0,0"
+                            Command="{Binding ManageInstanceCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <c:HyclIcon Kind="settings"
+                                        Width="15"
+                                        Height="15"
+                                        Foreground="{DynamicResource PrimaryBrush}"
+                                        VerticalAlignment="Center" />
+                            <TextBlock Text="管理实例" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    </StackPanel>
+                </c:McCard>
+
+                <c:McCard Grid.Row="1" Title="快捷方式">
+                    <ItemsControl ItemsSource="{Binding QuickLinks}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:QuickLinkViewModel">
+                                <Button Classes="quick-row"
+                                        Command="{Binding $parent[UserControl].((vm:LaunchPageViewModel)DataContext).ShowQuickLinkCommand}"
+                                        CommandParameter="{Binding}">
+                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                        <Border Classes="quick-icon" VerticalAlignment="Center">
+                                            <c:HyclIcon Kind="{Binding IconKey}"
+                                                        Width="17"
+                                                        Height="17"
+                                                        Foreground="{DynamicResource PrimaryBrush}"
+                                                        HorizontalAlignment="Center"
+                                                        VerticalAlignment="Center" />
+                                        </Border>
+                                        <StackPanel Grid.Column="1"
+                                                    Margin="11,0"
+                                                    VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Title}"
+                                                       FontSize="13"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource TextBrush}" />
+                                            <TextBlock Text="{Binding Subtitle}"
+                                                       FontSize="11"
+                                                       Foreground="{DynamicResource Gray3Brush}"
+                                                       Margin="0,1,0,0" />
+                                        </StackPanel>
+                                        <c:HyclIcon Grid.Column="2"
+                                                    Kind="chevron-right"
+                                                    Width="16"
+                                                    Height="16"
+                                                    Foreground="{DynamicResource Gray4Brush}"
+                                                    VerticalAlignment="Center" />
+                                    </Grid>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </c:McCard>
+            </Grid>
+    </Grid>
+</UserControl>

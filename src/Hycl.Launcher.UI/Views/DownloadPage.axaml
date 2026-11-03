@@ -1,0 +1,740 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:Hycl.Launcher.UI.Controls"
+             xmlns:m="clr-namespace:Hycl.Launcher.Core.Models;assembly=Hycl.Launcher.Core"
+             xmlns:vm="clr-namespace:Hycl.Launcher.Core.ViewModels.Pages;assembly=Hycl.Launcher.Core"
+             x:Class="Hycl.Launcher.UI.Views.DownloadPage"
+             x:DataType="vm:DownloadPageViewModel"
+             x:CompileBindings="True">
+
+    <!-- 对应 PCL-CE 的 PageDownloadInstall：安装新版本 → 选游戏版本 → 选需要安装的内容 → 命名安装 -->
+    <Grid ColumnDefinitions="168,*">
+
+        <!-- ── 左侧导航 ─────────────────────────────────────── -->
+        <Border Classes="page-divider">
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                <ItemsControl Margin="14,8,14,12" ItemsSource="{Binding Groups}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="m:NavGroupViewModel">
+                            <StackPanel Margin="0,0,0,6">
+                                <TextBlock Classes="side-cat"
+                                           Text="{Binding Title}"
+                                           IsVisible="{Binding HasTitle}" />
+                                <ItemsControl ItemsSource="{Binding Items}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="m:NavItemViewModel">
+                                            <Button Classes="side-item"
+                                                    Classes.active="{Binding IsActive}"
+                                                    Command="{Binding $parent[UserControl].((vm:DownloadPageViewModel)DataContext).SelectSectionCommand}"
+                                                    CommandParameter="{Binding}">
+                                                <Grid ColumnDefinitions="Auto,*">
+                                                    <c:HyclIcon Kind="{Binding IconKey}"
+                                                                Width="16"
+                                                                Height="16"
+                                                                Margin="0,0,9,0"
+                                                                VerticalAlignment="Center" />
+                                                    <TextBlock Grid.Column="1"
+                                                               Text="{Binding Title}"
+                                                               FontSize="13"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               VerticalAlignment="Center" />
+                                                </Grid>
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Border>
+
+        <Panel Grid.Column="1" Margin="22,18,18,0">
+
+            <Grid RowDefinitions="Auto,*,Auto">
+
+                <!-- ── 标题与工具行 ─────────────────────────────── -->
+                <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,10">
+                    <TextBlock Text="{Binding SelectedSection.Title}"
+                               FontSize="19"
+                               FontWeight="Bold"
+                               Foreground="{DynamicResource TextBrush}"
+                               VerticalAlignment="Center" />
+                    <Button Grid.Column="1"
+                            Classes="mc-btn"
+                            Padding="9,4"
+                            Command="{Binding RefreshCommand}"
+                            ToolTip.Tip="刷新版本列表">
+                        <c:HyclIcon Kind="refresh" Width="15" Height="15" />
+                    </Button>
+                </Grid>
+
+                <!-- ── 安装向导 ────────────────────────────────── -->
+                <Panel Grid.Row="1" Margin="0,0,0,12" IsVisible="{Binding IsInstallSection}">
+
+                    <!-- 步骤 1：选择游戏版本 -->
+                    <ScrollViewer IsVisible="{Binding Wizard.IsStep1}"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <Panel>
+                            <c:McLoading Width="120"
+                                         Height="80"
+                                         Text="正在获取版本列表"
+                                         HorizontalAlignment="Center"
+                                         VerticalAlignment="Center"
+                                         IsVisible="{Binding Wizard.IsMcListLoading}" />
+                            <StackPanel HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        IsVisible="{Binding Wizard.McListError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                <c:HyclIcon Kind="info"
+                                            Width="28"
+                                            Height="28"
+                                            HorizontalAlignment="Center"
+                                            Foreground="{DynamicResource ErrorBrush}" />
+                                <TextBlock Classes="dl-empty" Text="{Binding Wizard.McListError}" />
+                                <Button Classes="mc-btn"
+                                        Content="重试"
+                                        HorizontalAlignment="Center"
+                                        Command="{Binding RefreshCommand}" />
+                            </StackPanel>
+
+                            <!-- 版本分组卡片（PCL-CE：默认折叠、展开才渲染条目） -->
+                            <ItemsControl Margin="0,2,8,8" ItemsSource="{Binding Wizard.McGroups}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:VersionGroupViewModel">
+                                        <Border Background="{DynamicResource GlassSurfaceBrush}"
+                                                BorderBrush="{DynamicResource SoftLineBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="10"
+                                                Padding="6,6"
+                                                Margin="0,0,0,10">
+                                            <StackPanel>
+                                                <Button Classes="ver-row"
+                                                        Command="{Binding ToggleCommand}">
+                                                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                                                        <TextBlock Text="{Binding Title}"
+                                                                   FontSize="14"
+                                                                   FontWeight="SemiBold"
+                                                                   VerticalAlignment="Center"
+                                                                   Foreground="{DynamicResource TextBrush}" />
+                                                        <TextBlock Grid.Column="1"
+                                                                   Text="{Binding CountText}"
+                                                                   FontSize="12"
+                                                                   VerticalAlignment="Center"
+                                                                   Foreground="{DynamicResource Gray3Brush}" />
+                                                        <c:HyclIcon Grid.Column="2"
+                                                                    Width="14"
+                                                                    Height="14"
+                                                                    VerticalAlignment="Center"
+                                                                    Foreground="{DynamicResource Gray2Brush}"
+                                                                    Kind="chevron-down"
+                                                                    IsVisible="{Binding IsExpanded}" />
+                                                        <c:HyclIcon Grid.Column="2"
+                                                                    Width="14"
+                                                                    Height="14"
+                                                                    VerticalAlignment="Center"
+                                                                    Foreground="{DynamicResource Gray2Brush}"
+                                                                    Kind="chevron-right"
+                                                                    IsVisible="{Binding !IsExpanded}" />
+                                                    </Grid>
+                                                </Button>
+                                                <ItemsControl Margin="2,4,0,2" ItemsSource="{Binding VisibleItems}">
+                                                    <ItemsControl.ItemsPanel>
+                                                        <ItemsPanelTemplate>
+                                                            <WrapPanel />
+                                                        </ItemsPanelTemplate>
+                                                    </ItemsControl.ItemsPanel>
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate x:DataType="vm:VersionItemViewModel">
+                                                            <Button Classes="ver-row"
+                                                                    Width="246"
+                                                                    Command="{Binding $parent[UserControl].((vm:DownloadPageViewModel)DataContext).Wizard.SelectMcCommand}"
+                                                                    CommandParameter="{Binding}">
+                                                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                                                                    <c:BlockIcon Kind="{Binding IconKey}"
+                                                                                 Width="24"
+                                                                                 Height="24"
+                                                                                 VerticalAlignment="Center" />
+                                                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                                                                        <TextBlock Text="{Binding Title}"
+                                                                                   FontSize="13"
+                                                                                   FontWeight="SemiBold"
+                                                                                   TextTrimming="CharacterEllipsis"
+                                                                                   Foreground="{DynamicResource TextBrush}" />
+                                                                        <TextBlock Text="{Binding Info}"
+                                                                                   FontSize="11"
+                                                                                   TextTrimming="CharacterEllipsis"
+                                                                                   Foreground="{DynamicResource Gray3Brush}" />
+                                                                    </StackPanel>
+                                                                    <c:HyclIcon Grid.Column="2"
+                                                                                Width="14"
+                                                                                Height="14"
+                                                                                VerticalAlignment="Center"
+                                                                                Foreground="{DynamicResource PrimaryBrush}"
+                                                                                Kind="chevron-right" />
+                                                                </Grid>
+                                                            </Button>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Panel>
+                    </ScrollViewer>
+
+                    <!-- 步骤 2：选择需要安装的内容 -->
+                    <Panel IsVisible="{Binding Wizard.IsStep2}">
+
+                        <!-- 页 A：加载器卡片 + 前置 Mod（对应 PCL-CE 的 PanSelect） -->
+                        <ScrollViewer IsVisible="{Binding !Wizard.IsLoaderPage}"
+                                      HorizontalScrollBarVisibility="Disabled">
+                            <StackPanel Margin="0,0,8,0" Spacing="9">
+
+                                <!-- 顶卡：返回 + 版本图标 + 实例名输入 -->
+                                <Border Background="{DynamicResource GlassSurfaceBrush}"
+                                        BorderBrush="{DynamicResource SoftLineBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="10"
+                                        Padding="10,9">
+                                    <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="12">
+                                        <Button Classes="back-btn"
+                                                MinHeight="0"
+                                                Margin="0"
+                                                VerticalAlignment="Center"
+                                                Command="{Binding Wizard.BackToMcListCommand}">
+                                            <c:HyclIcon Kind="chevron-left" Width="15" Height="15" />
+                                        </Button>
+                                        <c:BlockIcon Grid.Column="1"
+                                                     Kind="grass-block"
+                                                     Width="30"
+                                                     Height="30"
+                                                     VerticalAlignment="Center" />
+                                        <TextBox Grid.Column="2"
+                                                 MinHeight="30"
+                                                 Padding="2,3"
+                                                 FontSize="14"
+                                                 MaxLength="70"
+                                                 VerticalAlignment="Center"
+                                                 PlaceholderText="版本名称"
+                                                 Text="{Binding Wizard.TargetName, Mode=TwoWay}" />
+                                        <TextBlock Grid.Column="3"
+                                                   FontSize="12.5"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource Gray2Brush}">
+                                            <Run Text="{Binding Wizard.SelectedLoaderName}" />
+                                        </TextBlock>
+                                    </Grid>
+                                </Border>
+
+                                <Panel>
+                                    <c:McLoading Width="120"
+                                                 Height="80"
+                                                 Text="正在检查可用加载器"
+                                                 HorizontalAlignment="Center"
+                                                 IsVisible="{Binding Wizard.IsLoaderLoading}" />
+                                    <TextBlock Classes="dl-empty"
+                                               IsVisible="{Binding Wizard.LoaderError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                               Text="{Binding Wizard.LoaderError}" />
+                                    <StackPanel Spacing="8" IsVisible="{Binding !Wizard.IsLoaderLoading}">
+                                        <ItemsControl ItemsSource="{Binding Wizard.LoaderCards}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:LoaderCardViewModel">
+                                                    <Border Background="{DynamicResource GlassSurfaceBrush}"
+                                                            BorderBrush="{DynamicResource SoftLineBrush}"
+                                                            BorderThickness="1"
+                                                            CornerRadius="10"
+                                                            Padding="12,9"
+                                                            Margin="0,0,0,2">
+                                                        <Button Background="Transparent"
+                                                                BorderThickness="0"
+                                                                Padding="0"
+                                                                HorizontalAlignment="Stretch"
+                                                                HorizontalContentAlignment="Stretch"
+                                                                Cursor="Hand"
+                                                                Command="{Binding $parent[UserControl].((vm:DownloadPageViewModel)DataContext).Wizard.OpenLoaderCardCommand}"
+                                                                CommandParameter="{Binding}">
+                                                            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                                                                <c:BlockIcon Kind="{Binding IconKey}"
+                                                                             Width="22"
+                                                                             Height="22"
+                                                                             VerticalAlignment="Center" />
+                                                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                                                                    <TextBlock Text="{Binding Title}"
+                                                                               FontSize="13.5"
+                                                                               FontWeight="SemiBold"
+                                                                               Foreground="{DynamicResource TextBrush}" />
+                                                                    <TextBlock Text="{Binding Description}"
+                                                                               FontSize="11.5"
+                                                                               TextTrimming="CharacterEllipsis"
+                                                                               Foreground="{DynamicResource Gray3Brush}" />
+                                                                </StackPanel>
+                                                                <StackPanel Grid.Column="2"
+                                                                            Orientation="Horizontal"
+                                                                            Spacing="6"
+                                                                            VerticalAlignment="Center"
+                                                                            IsVisible="{Binding HasSelection}">
+                                                                    <TextBlock Text="{Binding SelectedTitle}"
+                                                                               FontSize="12.5"
+                                                                               FontWeight="SemiBold"
+                                                                               VerticalAlignment="Center"
+                                                                               Foreground="{DynamicResource PrimaryDeepBrush}" />
+                                                                    <Button Classes="mc-btn danger"
+                                                                            MinHeight="0"
+                                                                            Height="22"
+                                                                            Padding="6,0"
+                                                                            FontSize="11"
+                                                                            Content="取消选择"
+                                                                            Command="{Binding $parent[UserControl].((vm:DownloadPageViewModel)DataContext).Wizard.ClearCardSelectionCommand}"
+                                                                            CommandParameter="{Binding}" />
+                                                                </StackPanel>
+                                                                <c:HyclIcon Grid.Column="3"
+                                                                            Width="14"
+                                                                            Height="14"
+                                                                            VerticalAlignment="Center"
+                                                                            Foreground="{DynamicResource Gray2Brush}"
+                                                                            Kind="chevron-right" />
+                                                            </Grid>
+                                                        </Button>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <TextBlock Classes="sline"
+                                                   Margin="2,4,0,0"
+                                                   Text="点击加载器进入版本选择；不选择任何加载器则安装原版。" />
+                                    </StackPanel>
+                                </Panel>
+
+                                <!-- 前置 Mod 卡片（选中 Fabric / Legacy Fabric 后出现，可选） -->
+                                <ItemsControl ItemsSource="{Binding Wizard.CompanionCards}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:LoaderCardViewModel">
+                                            <Border Background="{DynamicResource GlassSurfaceBrush}"
+                                                    BorderBrush="{DynamicResource SoftLineBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="10"
+                                                    Padding="12,9"
+                                                    Margin="0,0,0,2">
+                                                <StackPanel>
+                                                    <Button Background="Transparent"
+                                                            BorderThickness="0"
+                                                            Padding="0"
+                                                            HorizontalAlignment="Stretch"
+                                                            HorizontalContentAlignment="Stretch"
+                                                            Cursor="Hand"
+                                                            Command="{Binding ToggleCommand}">
+                                                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                                                            <c:BlockIcon Kind="{Binding IconKey}"
+                                                                         Width="22"
+                                                                         Height="22"
+                                                                         VerticalAlignment="Center" />
+                                                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                                                                <TextBlock Text="{Binding Title}"
+                                                                           FontSize="13.5"
+                                                                           FontWeight="SemiBold"
+                                                                           Foreground="{DynamicResource TextBrush}" />
+                                                                <TextBlock Text="{Binding Description}"
+                                                                           FontSize="11.5"
+                                                                           TextTrimming="CharacterEllipsis"
+                                                                           Foreground="{DynamicResource Gray3Brush}" />
+                                                            </StackPanel>
+                                                            <StackPanel Grid.Column="2"
+                                                                        Orientation="Horizontal"
+                                                                        Spacing="6"
+                                                                        VerticalAlignment="Center"
+                                                                        IsVisible="{Binding HasSelection}">
+                                                                <TextBlock Text="{Binding SelectedTitle}"
+                                                                           FontSize="12.5"
+                                                                           FontWeight="SemiBold"
+                                                                           VerticalAlignment="Center"
+                                                                           Foreground="{DynamicResource PrimaryDeepBrush}" />
+                                                                <Button Classes="mc-btn danger"
+                                                                        MinHeight="0"
+                                                                        Height="22"
+                                                                        Padding="6,0"
+                                                                        FontSize="11"
+                                                                        Content="取消选择"
+                                                                        Command="{Binding $parent[UserControl].((vm:DownloadPageViewModel)DataContext).Wizard.ClearCompanionCardCommand}"
+                                                                        CommandParameter="{Binding}" />
+                                                            </StackPanel>
+                                                            <c:HyclIcon Grid.Column="3"
+                                                                        Width="14"
+                                                                        Height="14"
+                                                                        VerticalAlignment="Center"
+                                                                        Foreground="{DynamicResource Gray2Brush}"
+                                                                        Kind="chevron-down"
+                                                                        IsVisible="{Binding IsExpanded}" />
+                                                            <c:HyclIcon Grid.Column="3"
+                                                                        Width="14"
+                                                                        Height="14"
+                                                                        VerticalAlignment="Center"
+                                                                        Foreground="{DynamicResource Gray2Brush}"
+                                                                        Kind="chevron-right"
+                                                                        IsVisible="{Binding !IsExpanded}" />
+                                                        </Grid>
+                                                    </Button>
+                                                    <StackPanel IsVisible="{Binding IsExpanded}" Margin="4,8,0,0">
+                                                        <c:McLoading Width="60"
+                                                                     Height="50"
+                                                                     IsVisible="{Binding IsLoading}"
+                                                                     HorizontalAlignment="Left" />
+                                                        <TextBlock FontSize="12"
+                                                                   Margin="4,2"
+                                                                   Foreground="{DynamicResource ErrorBrush}"
+                                                                   Text="{Binding ErrorText}"
+                                                                   IsVisible="{Binding ErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                                        <ItemsControl ItemsSource="{Binding Items}">
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate x:DataType="vm:VersionItemViewModel">
+                                                                    <Button Classes="ver-row"
+                                                                            Classes.selected="{Binding IsSelected}"
+                                                                            Command="{Binding $parent[UserControl].((vm:DownloadPageViewModel)DataContext).Wizard.SelectCompanionItemCommand}"
+                                                                            CommandParameter="{Binding}">
+                                                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                                                            <StackPanel VerticalAlignment="Center" Spacing="1">
+                                                                                <TextBlock Text="{Binding Title}"
+                                                                                           FontSize="12.5"
+                                                                                           FontWeight="SemiBold"
+                                                                                           Foreground="{DynamicResource TextBrush}" />
+                                                                                <TextBlock Text="{Binding Info}"
+                                                                                           FontSize="11"
+                                                                                           Foreground="{DynamicResource Gray3Brush}" />
+                                                                            </StackPanel>
+                                                                            <c:HyclIcon Grid.Column="1"
+                                                                                        Width="14"
+                                                                                        Height="14"
+                                                                                        VerticalAlignment="Center"
+                                                                                        Foreground="{DynamicResource PrimaryBrush}"
+                                                                                        Kind="check"
+                                                                                        IsVisible="{Binding IsSelected}" />
+                                                                        </Grid>
+                                                                    </Button>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </ScrollViewer>
+
+                        <!-- 页 B：加载器版本选择页（选完自动返回，对应 PCL-CE 的交互） -->
+                        <Grid IsVisible="{Binding Wizard.IsLoaderPage}" RowDefinitions="Auto,*">
+                            <Button Grid.Row="0"
+                                    Classes="back-btn"
+                                    HorizontalAlignment="Left"
+                                    Command="{Binding Wizard.BackToLoaderCardsCommand}">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <c:HyclIcon Kind="chevron-left" Width="13" Height="13" />
+                                    <TextBlock Text="返回选择加载器" />
+                                </StackPanel>
+                            </Button>
+
+                            <ScrollViewer Grid.Row="1"
+                                          HorizontalScrollBarVisibility="Disabled"
+                                          Margin="0,4,8,0">
+                                <StackPanel Spacing="8">
+                                    <Border Background="{DynamicResource GlassSurfaceBrush}"
+                                            BorderBrush="{DynamicResource SoftLineBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="10"
+                                            Padding="12,9">
+                                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                                            <c:BlockIcon Kind="{Binding Wizard.ActiveLoaderCard.IconKey}"
+                                                         Width="24"
+                                                         Height="24"
+                                                         VerticalAlignment="Center" />
+                                            <StackPanel VerticalAlignment="Center" Spacing="1">
+                                                <TextBlock Text="{Binding Wizard.ActiveLoaderCard.Title}"
+                                                           FontSize="14"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="{DynamicResource TextBrush}" />
+                                                <TextBlock Text="{Binding Wizard.ActiveLoaderCard.Description}"
+                                                           FontSize="11.5"
+                                                           Foreground="{DynamicResource Gray3Brush}" />
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="2"
+                                                       FontSize="12"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource Gray3Brush}"
+                                                       Text="{Binding Wizard.ActiveLoaderCard.CountText}" />
+                                        </Grid>
+                                    </Border>
+
+                                    <Border Background="{DynamicResource GlassSurfaceBrush}"
+                                            BorderBrush="{DynamicResource SoftLineBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="10"
+                                            Padding="8,6">
+                                        <StackPanel>
+                                            <c:McLoading Width="60"
+                                                         Height="50"
+                                                         IsVisible="{Binding Wizard.ActiveLoaderCard.IsLoading}"
+                                                         HorizontalAlignment="Left" />
+                                            <TextBlock FontSize="12"
+                                                       Margin="4,2"
+                                                       Foreground="{DynamicResource ErrorBrush}"
+                                                       Text="{Binding Wizard.ActiveLoaderCard.ErrorText}"
+                                                       IsVisible="{Binding Wizard.ActiveLoaderCard.ErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                            <ItemsControl ItemsSource="{Binding Wizard.ActiveLoaderCard.Items}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate x:DataType="vm:VersionItemViewModel">
+                                                        <Button Classes="ver-row"
+                                                                Classes.selected="{Binding IsSelected}"
+                                                                Command="{Binding $parent[UserControl].((vm:DownloadPageViewModel)DataContext).Wizard.SelectLoaderItemCommand}"
+                                                                CommandParameter="{Binding}">
+                                                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                                                <StackPanel VerticalAlignment="Center" Spacing="1">
+                                                                    <TextBlock Text="{Binding Title}"
+                                                                               FontSize="12.5"
+                                                                               FontWeight="SemiBold"
+                                                                               Foreground="{DynamicResource TextBrush}" />
+                                                                    <TextBlock Text="{Binding Info}"
+                                                                               FontSize="11"
+                                                                               Foreground="{DynamicResource Gray3Brush}" />
+                                                                </StackPanel>
+                                                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                                                    <ItemsControl ItemsSource="{Binding Tags}">
+                                                                        <ItemsControl.ItemsPanel>
+                                                                            <ItemsPanelTemplate>
+                                                                                <StackPanel Orientation="Horizontal" Spacing="4" />
+                                                                            </ItemsPanelTemplate>
+                                                                        </ItemsControl.ItemsPanel>
+                                                                        <ItemsControl.ItemTemplate>
+                                                                            <DataTemplate>
+                                                                                <Border Background="{DynamicResource Primary8Brush}"
+                                                                                        CornerRadius="4"
+                                                                                        Padding="5,1">
+                                                                                    <TextBlock Text="{Binding}"
+                                                                                               FontSize="10.5"
+                                                                                               Foreground="{DynamicResource PrimaryDeepBrush}" />
+                                                                                </Border>
+                                                                            </DataTemplate>
+                                                                        </ItemsControl.ItemTemplate>
+                                                                    </ItemsControl>
+                                                                    <c:HyclIcon Width="14"
+                                                                                Height="14"
+                                                                                VerticalAlignment="Center"
+                                                                                Foreground="{DynamicResource PrimaryBrush}"
+                                                                                Kind="check"
+                                                                                IsVisible="{Binding IsSelected}" />
+                                                                </StackPanel>
+                                                            </Grid>
+                                                        </Button>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Grid>
+                    </Panel>
+                </Panel>
+
+                <!-- ── 安装包分区（客户端 / OptiFine / Forge / …） ── -->
+                <Panel Grid.Row="1" Margin="0,0,0,12" IsVisible="{Binding !IsInstallSection}">
+                    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel Margin="0,2,8,0" Spacing="8">
+
+                            <TextBlock Classes="sline"
+                                       Margin="2,0,0,0"
+                                       Text="{Binding ActiveSection.Hint}" />
+
+                            <c:McLoading Width="120"
+                                         Height="80"
+                                         Text="正在获取版本列表"
+                                         HorizontalAlignment="Center"
+                                         Margin="0,40,0,0"
+                                         IsVisible="{Binding ActiveSection.IsLoading}" />
+
+                            <StackPanel HorizontalAlignment="Center"
+                                        Margin="0,36,0,0"
+                                        IsVisible="{Binding ActiveSection.IsFailed}">
+                                <c:HyclIcon Kind="info"
+                                            Width="28"
+                                            Height="28"
+                                            HorizontalAlignment="Center"
+                                            Foreground="{DynamicResource ErrorBrush}" />
+                                <TextBlock Classes="dl-empty" Text="{Binding ActiveSection.ErrorText}" />
+                                <Button Classes="mc-btn"
+                                        Content="重试"
+                                        HorizontalAlignment="Center"
+                                        Command="{Binding RefreshCommand}" />
+                            </StackPanel>
+
+                            <!-- 版本分组卡片：默认折叠、展开才渲染条目 -->
+                            <ItemsControl ItemsSource="{Binding ActiveSection.Groups}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:VersionGroupViewModel">
+                                        <Border Background="{DynamicResource GlassSurfaceBrush}"
+                                                BorderBrush="{DynamicResource SoftLineBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="10"
+                                                Padding="6,6"
+                                                Margin="0,0,0,10">
+                                            <StackPanel>
+                                                <Button Classes="ver-row"
+                                                        Command="{Binding ToggleCommand}">
+                                                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                                                        <TextBlock Text="{Binding Title}"
+                                                                   FontSize="14"
+                                                                   FontWeight="SemiBold"
+                                                                   VerticalAlignment="Center"
+                                                                   Foreground="{DynamicResource TextBrush}" />
+                                                        <TextBlock Grid.Column="1"
+                                                                   Text="{Binding CountText}"
+                                                                   FontSize="12"
+                                                                   VerticalAlignment="Center"
+                                                                   Foreground="{DynamicResource Gray3Brush}" />
+                                                        <c:HyclIcon Grid.Column="2"
+                                                                    Width="14"
+                                                                    Height="14"
+                                                                    VerticalAlignment="Center"
+                                                                    Foreground="{DynamicResource Gray2Brush}"
+                                                                    Kind="chevron-down"
+                                                                    IsVisible="{Binding IsExpanded}" />
+                                                        <c:HyclIcon Grid.Column="2"
+                                                                    Width="14"
+                                                                    Height="14"
+                                                                    VerticalAlignment="Center"
+                                                                    Foreground="{DynamicResource Gray2Brush}"
+                                                                    Kind="chevron-right"
+                                                                    IsVisible="{Binding !IsExpanded}" />
+                                                    </Grid>
+                                                </Button>
+
+                                                <TextBlock FontSize="12"
+                                                           Margin="6,2,4,4"
+                                                           Foreground="{DynamicResource ErrorBrush}"
+                                                           Text="{Binding ChildErrorText}"
+                                                           IsVisible="{Binding ChildErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+                                                <ItemsControl Margin="2,4,0,2" ItemsSource="{Binding VisibleItems}">
+                                                    <ItemsControl.ItemsPanel>
+                                                        <ItemsPanelTemplate>
+                                                            <WrapPanel />
+                                                        </ItemsPanelTemplate>
+                                                    </ItemsControl.ItemsPanel>
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate x:DataType="vm:VersionItemViewModel">
+                                                            <Button Classes="ver-row"
+                                                                    Width="246"
+                                                                    Command="{Binding $parent[UserControl].((vm:DownloadPageViewModel)DataContext).ActivateSectionItemCommand}"
+                                                                    CommandParameter="{Binding}"
+                                                                    ToolTip.Tip="另存为下载">
+                                                                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="9">
+                                                                    <c:BlockIcon Kind="{Binding IconKey}"
+                                                                                 Width="24"
+                                                                                 Height="24"
+                                                                                 VerticalAlignment="Center" />
+                                                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                                                                        <TextBlock Text="{Binding Title}"
+                                                                                   FontSize="13"
+                                                                                   FontWeight="SemiBold"
+                                                                                   TextTrimming="CharacterEllipsis"
+                                                                                   Foreground="{DynamicResource TextBrush}" />
+                                                                        <TextBlock Text="{Binding Info}"
+                                                                                   FontSize="11"
+                                                                                   TextTrimming="CharacterEllipsis"
+                                                                                   Foreground="{DynamicResource Gray3Brush}" />
+                                                                    </StackPanel>
+                                                                    <ItemsControl Grid.Column="2"
+                                                                                  VerticalAlignment="Center"
+                                                                                  ItemsSource="{Binding Tags}">
+                                                                        <ItemsControl.ItemsPanel>
+                                                                            <ItemsPanelTemplate>
+                                                                                <StackPanel Orientation="Horizontal" Spacing="4" />
+                                                                            </ItemsPanelTemplate>
+                                                                        </ItemsControl.ItemsPanel>
+                                                                        <ItemsControl.ItemTemplate>
+                                                                            <DataTemplate>
+                                                                                <Border Background="{DynamicResource Primary8Brush}"
+                                                                                        CornerRadius="4"
+                                                                                        Padding="5,1">
+                                                                                    <TextBlock Text="{Binding}"
+                                                                                               FontSize="10.5"
+                                                                                               Foreground="{DynamicResource PrimaryDeepBrush}" />
+                                                                                </Border>
+                                                                            </DataTemplate>
+                                                                        </ItemsControl.ItemTemplate>
+                                                                    </ItemsControl>
+                                                                    <c:HyclIcon Grid.Column="3"
+                                                                                Width="14"
+                                                                                Height="14"
+                                                                                VerticalAlignment="Center"
+                                                                                Foreground="{DynamicResource PrimaryBrush}"
+                                                                                Kind="download" />
+                                                                </Grid>
+                                                            </Button>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Panel>
+
+                <!-- ── 底部：开始安装 + 任务条 ──────────────────── -->
+                <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="0,0,0,4">
+                    <Border Background="{DynamicResource GlassSurfaceBrush}"
+                            BorderBrush="{DynamicResource Primary6Brush}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="14,8"
+                            IsVisible="{Binding Install.IsInstalling}">
+                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
+                            <c:HyclIcon Kind="download"
+                                        Width="15"
+                                        Height="15"
+                                        Foreground="{DynamicResource PrimaryBrush}"
+                                        VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+                                <TextBlock FontSize="12.5"
+                                           Foreground="{DynamicResource TextBrush}">
+                                    <Run Text="{Binding Install.InstallingName}" />
+                                    <Run Text=" — " />
+                                    <Run Text="{Binding Install.StageText}" />
+                                </TextBlock>
+                                <ProgressBar Value="{Binding Install.ProgressPercent}"
+                                             Maximum="100"
+                                             Height="5" />
+                                <TextBlock FontSize="11"
+                                           Foreground="{DynamicResource Gray2Brush}"
+                                           Text="{Binding Install.TransferText}" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="2"
+                                       FontSize="12"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource Gray2Brush}"
+                                       Text="{Binding Install.ProgressPercent, StringFormat={}{0:0}%}" />
+                            <Button Grid.Column="3"
+                                    Classes="mc-btn danger"
+                                    Padding="10,3"
+                                    FontSize="12"
+                                    Command="{Binding CancelInstallCommand}"
+                                    Content="取消" />
+                        </Grid>
+                    </Border>
+
+                    <Button Grid.Column="1"
+                            Classes="mc-btn primary"
+                            MinWidth="150"
+                            IsVisible="{Binding IsStartButtonVisible}"
+                            Command="{Binding Wizard.StartInstallCommand}"
+                            Content="开始安装" />
+                </Grid>
+            </Grid>
+        </Panel>
+    </Grid>
+</UserControl>

@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Hycl.Launcher.UI</RootNamespace>
+    <AssemblyName>Hycl.Launcher.UI</AssemblyName>
+    <Product>Hyplay Craft Launcher</Product>
+    <Company>Hyplay Craft Launcher</Company>
+    <AssemblyTitle>Hyplay Craft Launcher</AssemblyTitle>
+    <Description>Hyplay Craft Launcher（HYCL）：基于 Avalonia 与 .NET 10 的跨平台 Minecraft 启动器</Description>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets/hycl.ico</ApplicationIcon>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="Assets/**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.4" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.4" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.4" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Hycl.Launcher.Core\Hycl.Launcher.Core.csproj" />
+  </ItemGroup>
+
+</Project>

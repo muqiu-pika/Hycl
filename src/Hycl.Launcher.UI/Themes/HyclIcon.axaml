@@ -1,0 +1,26 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:c="clr-namespace:Hycl.Launcher.UI.Controls">
+
+    <!-- 默认 24x24；实例可通过 Width/Height 缩放，颜色跟随 Foreground -->
+    <ControlTheme x:Key="{x:Type c:HyclIcon}" TargetType="c:HyclIcon">
+        <Setter Property="Width" Value="24" />
+        <Setter Property="Height" Value="24" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <!-- Margin 为描边留出空间：Stretch=Uniform 会让几何贴满控件，
+                     线宽一半会落在边界外而被父级裁掉 -->
+                <Path Data="{TemplateBinding Geometry}"
+                      Fill="{TemplateBinding Fill}"
+                      Stroke="{TemplateBinding Foreground}"
+                      StrokeThickness="2"
+                      StrokeJoin="Round"
+                      StrokeLineCap="Round"
+                      Stretch="Uniform"
+                      Margin="1.5"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Center" />
+            </ControlTemplate>
+        </Setter>
+    </ControlTheme>
+</ResourceDictionary>

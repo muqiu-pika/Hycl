@@ -1,0 +1,43 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:c="clr-namespace:Hycl.Launcher.UI.Controls">
+
+    <!-- 对应网页版 .mc-combo：半透明白底触发器 + 白色下拉浮层 -->
+    <ControlTheme x:Key="{x:Type c:McComboBox}" TargetType="c:McComboBox">
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Grid>
+                    <Button Name="PART_Trigger"
+                            Classes="combo-trigger"
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Stretch">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Text="{TemplateBinding SelectedItem}"
+                                       FontSize="13"
+                                       Foreground="{DynamicResource TextBrush}"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis" />
+                            <Path Grid.Column="1"
+                                  Data="M6 9l6 6 6-6"
+                                  Width="16"
+                                  Height="16"
+                                  Margin="6,0,0,0"
+                                  Stroke="{DynamicResource PrimaryBrush}"
+                                  StrokeThickness="2"
+                                  StrokeJoin="Round"
+                                  StrokeLineCap="Round"
+                                  Stretch="Uniform"
+                                  VerticalAlignment="Center" />
+                        </Grid>
+                    </Button>
+
+                    <Popup Name="PART_Popup" IsLightDismissEnabled="True">
+                        <Border Classes="combo-pop">
+                            <ListBox Name="PART_List" Classes="combo-list" />
+                        </Border>
+                    </Popup>
+                </Grid>
+            </ControlTemplate>
+        </Setter>
+    </ControlTheme>
+</ResourceDictionary>
