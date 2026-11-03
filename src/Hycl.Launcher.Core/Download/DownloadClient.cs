@@ -35,9 +35,14 @@ public sealed class DownloadClient : IDisposable
         })
         {
             // 头部超时单独控制；流式读取用每次读取超时，避免大文件被整体超时掐断
-            Timeout = Timeout.InfiniteTimeSpan
+            Timeout = Timeout.InfiniteTimeSpan,
+            // 统一 HTTP/1.1：部分镜像源（如 meta.legacyfabric.net）对 HTTP/2 握手异常
+            DefaultVersionPolicy = HttpVersionPolicy.RequestVersionExact,
+            DefaultRequestVersion = HttpVersion.Version11
         };
-        _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("HYCL/1.0 (Hyplay Craft Launcher; cross-platform)");
+        // Mozilla 前缀：meta.legacyfabric.net 等源会拒绝非浏览器 UA
+        _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) HYCL/1.0 (Hyplay Craft Launcher)");
     }
 
     public int RetryCount { get; set; }
