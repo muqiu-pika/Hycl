@@ -28,11 +28,11 @@
                                                     Command="{Binding $parent[UserControl].((vm:DownloadPageViewModel)DataContext).SelectSectionCommand}"
                                                     CommandParameter="{Binding}">
                                                 <Grid ColumnDefinitions="Auto,*">
-                                                    <c:HyclIcon Kind="{Binding IconKey}"
-                                                                Width="16"
-                                                                Height="16"
-                                                                Margin="0,0,9,0"
-                                                                VerticalAlignment="Center" />
+                                                    <c:BlockIcon Kind="{Binding IconKey}"
+                                                                 Width="18"
+                                                                 Height="18"
+                                                                 Margin="0,0,9,0"
+                                                                 VerticalAlignment="Center" />
                                                     <TextBlock Grid.Column="1"
                                                                Text="{Binding Title}"
                                                                FontSize="13"
@@ -564,7 +564,7 @@
                                             <TextBox PlaceholderText="搜索社区资源…"
                                                      Text="{Binding ActiveCompSection.SearchText, Mode=TwoWay}" />
                                             <Button Grid.Column="1"
-                                                    Classes="mc-btn primary"
+                                                    Classes="mc-btn line-btn"
                                                     Command="{Binding ActiveCompSection.SearchFromStartCommand}">
                                                 <StackPanel Orientation="Horizontal" Spacing="5">
                                                     <c:HyclIcon Kind="search" Width="14" Height="14" />

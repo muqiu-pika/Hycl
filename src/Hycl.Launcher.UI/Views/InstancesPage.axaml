@@ -338,7 +338,7 @@
                                                    Foreground="{DynamicResource Gray2Brush}"
                                                    IsVisible="{Binding IsSelectedCurrent}"
                                                    Text="已是当前版本" />
-                                        <Button Classes="mc-btn primary"
+                                        <Button Classes="mc-btn line-btn"
                                                 Content="设为当前版本"
                                                 IsVisible="{Binding CanSetCurrent}"
                                                 Command="{Binding SetCurrentCommand}" />

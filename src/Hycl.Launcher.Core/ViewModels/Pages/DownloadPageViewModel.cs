@@ -39,7 +39,7 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
             }
         };
 
-        var minecraft = new NavItemViewModel("Minecraft", "grass-block");
+        var minecraft = new NavItemViewModel("安装新版本", "grass-block");
         CompSections = new List<CompSectionViewModel>
         {
             new(services, Install, CompResourceType.ModPack, "整合包", "package", "搜索并安装 Modrinth / CurseForge 整合包，自动安装所需原版与加载器", toast),
@@ -52,7 +52,7 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
             new("", [minecraft]),
             new("安装包",
             [
-                new NavItemViewModel("Minecraft 客户端", "vanilla", CreateClientSection()),
+                new NavItemViewModel("Vanilla", "vanilla", CreateClientSection()),
                 new NavItemViewModel("Forge", "forge", CreateLoaderSection("forge", "Forge", "forge")),
                 new NavItemViewModel("NeoForge", "neoforge", CreateLoaderSection("neoforge", "NeoForge", "neoforge")),
                 new NavItemViewModel("Cleanroom", "cleanroom", CreateLoaderSection("cleanroom", "Cleanroom", "cleanroom")),
@@ -124,7 +124,7 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
 
     private LoaderSectionViewModel CreateClientSection() => new(
         "Client",
-        "Minecraft 客户端",
+        "Vanilla",
         "点击版本可直接安装原版客户端；安装进度显示在底部。",
         LoadClientGroupsAsync);
 

@@ -30,8 +30,9 @@ public class BlockIcon : TemplatedControl
         ["liteloader"] = "Egg",
         ["optifine"] = "GrassPath",
         ["labymod"] = "LabyMod",
-        // 整合包（PCL-CE 使用自定义 PCL\Logo.png；本工程暂无该文件时用金块作为整合包图标）。
+        // 整合包（PCL-CE 使用自定义 PCL\Logo.png；本工程暂无该文件时用命令方块作为整合包图标）。
         ["modpack"] = "GoldBlock",
+        ["package"] = "CommandBlock",
     };
 
     public static readonly StyledProperty<string?> KindProperty =
