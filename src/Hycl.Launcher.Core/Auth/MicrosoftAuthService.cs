@@ -222,15 +222,29 @@ public sealed class MicrosoftAuthService
         }
 
         // 5) Minecraft 服务令牌
-        var mc = await PostJsonAsync(
-                MinecraftAuthEndpoint,
-                $$"""
-                {"identityToken":"XBL3.0 x={{userHash}};{{xstsToken}}"}
-                """,
-                cancellationToken).ConfigureAwait(false);
-        var mcToken = Required(mc, "access_token");
-        var expiresIn = mc.TryGetProperty("expires_in", out var expiresInNode) ? expiresInNode.GetInt32() : 86400;
-        var expiresAt = DateTimeOffset.UtcNow.AddSeconds(expiresIn);
+        // login_with_xbox 会校验应用的注册配置：账户类型为「仅个人 Microsoft 账户」的应用
+        // 被拒绝（403 Invalid app registration），必须使用「任何组织目录 + 个人账户」的应用
+        string mcToken;
+        DateTimeOffset expiresAt;
+        try
+        {
+            var mc = await PostJsonAsync(
+                    MinecraftAuthEndpoint,
+                    $$"""
+                    {"identityToken":"XBL3.0 x={{userHash}};{{xstsToken}}"}
+                    """,
+                    cancellationToken).ConfigureAwait(false);
+            mcToken = Required(mc, "access_token");
+            var expiresIn = mc.TryGetProperty("expires_in", out var expiresInNode) ? expiresInNode.GetInt32() : 86400;
+            expiresAt = DateTimeOffset.UtcNow.AddSeconds(expiresIn);
+        }
+        catch (MicrosoftAuthException ex) when (ex.Message.Contains("Invalid app registration", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new MicrosoftAuthException(
+                "微软拒绝了本次登录：Azure 应用的账户类型配置不正确。" +
+                "请到 Azure「应用注册」→ 清单，把 signInAudience 改为 \"AzureADAndPersonalMicrosoftAccount\"" +
+                "（或重新注册应用并选择「任何组织目录中的账户和个人 Microsoft 账户」，同时重新开启公共客户端流），详见 aka.ms/AppRegInfo");
+        }
 
         // 6) 权益校验（拥有游戏才能进入）
         var entitlements = await GetStringAsync(EntitlementsEndpoint, mcToken, cancellationToken).ConfigureAwait(false);
