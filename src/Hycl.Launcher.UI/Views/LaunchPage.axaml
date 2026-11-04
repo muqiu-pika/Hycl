@@ -12,8 +12,12 @@
     <Panel>
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <Grid ColumnDefinitions="300,*" MinHeight="{Binding $parent[ScrollViewer].Bounds.Height}">
-            <!-- ================= 左栏 ================= -->
-            <Grid Margin="18,18,15,18">
+            <!-- ================= 左栏（唯一弹性项） ================= -->
+            <!-- MinHeight 为按内容量测的极小高度下限：
+                 头像 178 + 名称（4+24）28 + 账号行（5+15）20 + 操作按钮（14+32）46 + 启动按钮（16+54）70 = 342
+                 卡片内边距 14/16 + 标题 16 + 正文间距 10 = 56 → 内容下限 398，取 400 留 2px 余量
+                 低于该高度时由外层 ScrollViewer 纵向滚动，卡片不再压缩内容 -->
+            <Grid Margin="18,18,15,18" MinHeight="400">
                 <!-- 玩家卡 -->
                 <c:McCard Title="玩家" IsVisible="{Binding IsPlayerPanel}">
                     <Grid RowDefinitions="*,Auto">
@@ -191,8 +195,9 @@
                 </c:McCard>
             </Grid>
 
-            <!-- ================= 右栏 ================= -->
-            <Grid Grid.Column="1" RowDefinitions="Auto,*" Margin="0,18,18,18">
+            <!-- ================= 右栏（固定项） ================= -->
+            <!-- Auto,Auto + Top：两张卡片按内容取高，窗口变高时底部留空，不拉伸卡片 -->
+            <Grid Grid.Column="1" RowDefinitions="Auto,Auto" VerticalAlignment="Top" Margin="0,18,18,18">
                 <!-- 当前版本：仿照 PCL-CE 的版本信息项（图标 + 标签 + 值），只展示版本真实属性 -->
                 <c:McCard Title="当前版本" Margin="0,0,0,15">
                     <StackPanel>

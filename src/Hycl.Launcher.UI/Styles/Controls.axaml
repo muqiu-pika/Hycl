@@ -823,24 +823,24 @@
         <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="9" />
-        <Setter Property="Padding" Value="20,16,20,14" />
+        <Setter Property="Padding" Value="18,15,18,15" />
     </Style>
     <Style Selector="TextBlock.setting-card-title">
         <Setter Property="FontSize" Value="14.5" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
-        <Setter Property="Margin" Value="0,0,0,6" />
+        <Setter Property="Margin" Value="0,0,0,9" />
     </Style>
     <Style Selector="Border.setting-card-rule">
         <Setter Property="Height" Value="1" />
         <Setter Property="Background" Value="{DynamicResource Gray6Brush}" />
         <Setter Property="Opacity" Value="0.7" />
-        <Setter Property="Margin" Value="0,0,0,2" />
+        <Setter Property="Margin" Value="0,0,0,9" />
     </Style>
     <!-- 设置行统一 170px 标签列 + 可伸缩控件列，同类控件的左边界与行高保持一致 -->
     <Style Selector="Grid.setting-row">
         <Setter Property="MinHeight" Value="44" />
-        <Setter Property="Margin" Value="0,1" />
+        <Setter Property="Margin" Value="0,2" />
     </Style>
 
     <Style Selector="TextBlock.srow-label">

@@ -122,9 +122,10 @@
                                                         </Grid>
                                                     </DataTemplate>
                                                     <DataTemplate x:DataType="m:TextLineRowViewModel">
-                                                        <Grid Classes="setting-row" ColumnDefinitions="170,*">
-                                                            <TextBlock Grid.ColumnSpan="2" Classes="sline" Text="{Binding Text}" />
-                                                        </Grid>
+                                                        <!-- 说明文字：整行铺满，不套 44px 行高，避免挤占纵向空间 -->
+                                                        <TextBlock Classes="sline"
+                                                                   Text="{Binding Text}"
+                                                                   Margin="0,0,0,10" />
                                                     </DataTemplate>
                                                     <DataTemplate x:DataType="m:LogRowViewModel">
                                                         <Border Classes="slog" Margin="0,4,0,8">
@@ -134,7 +135,7 @@
                                                         </Border>
                                                     </DataTemplate>
                                                     <DataTemplate x:DataType="m:ButtonsRowViewModel">
-                                                        <ItemsControl ItemsSource="{Binding Buttons}" Margin="0,4,0,8">
+                                                        <ItemsControl ItemsSource="{Binding Buttons}" Margin="0,4,0,2">
                                                             <ItemsControl.ItemsPanel>
                                                                 <ItemsPanelTemplate>
                                                                     <!-- 小窗口下按钮自动换行，不撑出横向滚动条 -->
@@ -144,7 +145,7 @@
                                                             <ItemsControl.ItemTemplate>
                                                                 <DataTemplate x:DataType="m:SettingButtonViewModel">
                                                                     <Button Classes="mc-btn"
-                                                                            Margin="0,0,8,0"
+                                                                            Margin="0,0,8,6"
                                                                             Classes.primary="{Binding IsPrimary}"
                                                                             Command="{Binding Command}">
                                                                         <StackPanel Orientation="Horizontal" Spacing="6">
