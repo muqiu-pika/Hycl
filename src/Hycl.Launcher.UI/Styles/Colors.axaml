@@ -49,6 +49,13 @@
             <SolidColorBrush x:Key="MsBlueBrush" Color="#2F7DE1" />
             <SolidColorBrush x:Key="ToastBrush" Color="#EB343D4A" />
 
+            <!-- 块状/卡片按钮：默认内容色比主色浅一档；Hover/按下只换底色 -->
+            <SolidColorBrush x:Key="BlockButtonTextBrush" Color="#2F7DE1" />
+            <SolidColorBrush x:Key="BlockButtonNeutralTextBrush" Color="#5A6573" />
+            <SolidColorBrush x:Key="BlockButtonHoverBrush" Color="#EAF2FE" />
+            <SolidColorBrush x:Key="BlockButtonPressedBrush" Color="#E0EAFD" />
+            <SolidColorBrush x:Key="BlockButtonSelectedBrush" Color="#D5E6FD" />
+
             <!-- 标题栏前景：默认白色文字/图标（选中态改为 PCL-CE 蓝） -->
             <SolidColorBrush x:Key="TitleTabBrush" Color="#FFFFFF" />
 
@@ -117,6 +124,12 @@
 
             <SolidColorBrush x:Key="MsBlueBrush" Color="#4C93EE" />
             <SolidColorBrush x:Key="ToastBrush" Color="#EBD6DAE1" />
+
+            <SolidColorBrush x:Key="BlockButtonTextBrush" Color="#6FA6F7" />
+            <SolidColorBrush x:Key="BlockButtonNeutralTextBrush" Color="#C9D0DA" />
+            <SolidColorBrush x:Key="BlockButtonHoverBrush" Color="#182C49" />
+            <SolidColorBrush x:Key="BlockButtonPressedBrush" Color="#1B3355" />
+            <SolidColorBrush x:Key="BlockButtonSelectedBrush" Color="#1E3A5F" />
 
             <SolidColorBrush x:Key="TitleTabBrush" Color="#FFFFFF" />
             <SolidColorBrush x:Key="TitleTabSelectedBrush" Color="#1370F3" />

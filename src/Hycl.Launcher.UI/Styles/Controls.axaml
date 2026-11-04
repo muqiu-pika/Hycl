@@ -70,7 +70,7 @@
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
@@ -78,12 +78,10 @@
         <Setter Property="Cursor" Value="Hand" />
     </Style>
     <Style Selector="Button.line-btn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
+        <Setter Property="Background" Value="{DynamicResource BlockButtonHoverBrush}" />
     </Style>
     <Style Selector="Button.line-btn:pressed /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource Primary7Brush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="Background" Value="{DynamicResource BlockButtonPressedBrush}" />
     </Style>
     <Style Selector="Button.line-btn:disabled">
         <Setter Property="Opacity" Value="0.5" />
@@ -119,6 +117,10 @@
         <Setter Property="Background" Value="{DynamicResource ErrorSoftBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource ErrorDarkBrush}" />
     </Style>
+    <Style Selector="Button.launch-btn.running:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource ErrorSoftBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource ErrorDarkBrush}" />
+    </Style>
     <Style Selector="Button.launch-btn.running TextBlock.launch-title">
         <Setter Property="Foreground" Value="{DynamicResource ErrorDarkBrush}" />
     </Style>
@@ -131,14 +133,14 @@
     </Style>
 
     <Style Selector="Button.launch-btn TextBlock.launch-title">
-        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
     </Style>
     <Style Selector="Button.launch-btn TextBlock.launch-sub">
-        <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}" />
-        <Setter Property="Opacity" Value="0.85" />
+        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
+        <Setter Property="Opacity" Value="1" />
     </Style>
     <Style Selector="Button.launch-btn c|HyclIcon">
-        <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
     </Style>
     <!-- 启动中/游戏运行中虽被禁用，但保持完整不透明度，避免看起来“变灰失效” -->
     <Style Selector="Button.launch-btn:disabled">
@@ -406,7 +408,11 @@
         <Setter Property="Cursor" Value="Hand" />
     </Style>
     <Style Selector="Button.quick-row:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+        <Setter Property="Background" Value="{DynamicResource BlockButtonHoverBrush}" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.quick-row:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource BlockButtonPressedBrush}" />
         <Setter Property="BorderBrush" Value="Transparent" />
     </Style>
 
@@ -571,14 +577,16 @@
         <Setter Property="Background" Value="{DynamicResource WhiteGlassBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource Gray5Brush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="Cursor" Value="Hand" />
     </Style>
     <Style Selector="Button.pa-btn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource Primary7Brush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource Primary5Brush}" />
+        <Setter Property="Background" Value="{DynamicResource BlockButtonHoverBrush}" />
+    </Style>
+    <Style Selector="Button.pa-btn:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource BlockButtonPressedBrush}" />
     </Style>
 
     <Style Selector="Button.profile-row">
@@ -674,13 +682,10 @@
         </Setter>
     </Style>
     <Style Selector="Button.new-profile:pointerover /template/ Border#bg">
-        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+        <Setter Property="Background" Value="{DynamicResource BlockButtonHoverBrush}" />
     </Style>
-    <Style Selector="Button.new-profile:pointerover /template/ Rectangle#dash">
-        <Setter Property="Stroke" Value="{DynamicResource Primary5Brush}" />
-    </Style>
-    <Style Selector="Button.new-profile:pointerover">
-        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+    <Style Selector="Button.new-profile:pressed /template/ Border#bg">
+        <Setter Property="Background" Value="{DynamicResource BlockButtonPressedBrush}" />
     </Style>
 
     <!-- ============================================================
@@ -766,9 +771,10 @@
         </Setter>
     </Style>
     <Style Selector="Button.tool-card:pointerover /template/ Border#root">
-        <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource Primary5Brush}" />
-        <Setter Property="BoxShadow" Value="0 8 22 0 #334890F5" />
+        <Setter Property="Background" Value="{DynamicResource BlockButtonHoverBrush}" />
+    </Style>
+    <Style Selector="Button.tool-card:pressed /template/ Border#root">
+        <Setter Property="Background" Value="{DynamicResource BlockButtonPressedBrush}" />
     </Style>
 
     <Style Selector="Border.card-icon-box">
@@ -801,15 +807,11 @@
         <Setter Property="HorizontalAlignment" Value="Stretch" />
     </Style>
     <Style Selector="Border.tool-btn TextBlock">
-        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="HorizontalAlignment" Value="Center" />
         <Setter Property="VerticalAlignment" Value="Center" />
-    </Style>
-    <Style Selector="Button.tool-card:pointerover Border.tool-btn">
-        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
     </Style>
 
     <!-- ============================================================

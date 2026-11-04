@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Animation;
 using Avalonia.Controls;
@@ -73,6 +74,8 @@ public partial class MainWindow : Window
 
         // 窗口显示后在后台预热其余页面，避免首次切换标签页时再实例化大页面造成卡顿。
         Opened += (_, _) => Dispatcher.UIThread.Post(PrewarmPages, DispatcherPriority.Background);
+        Opened += (_, _) => ScheduleWindowRegionUpdate();
+        SizeChanged += (_, _) => ScheduleWindowRegionUpdate();
 
         SetupResizeHandles();
         UpdateFrameForState();
@@ -377,11 +380,107 @@ public partial class MainWindow : Window
     private void UpdateFrameForState()
     {
         var maximized = WindowState == WindowState.Maximized;
-        MainFrame.Margin = maximized ? new Thickness(0) : new Thickness(18);
-        MainFrame.CornerRadius = maximized ? new CornerRadius(0) : new CornerRadius(12);
+        MainFrame.Margin = maximized ? new Thickness(0) : new Thickness(6);
+        MainFrame.CornerRadius = maximized ? new CornerRadius(0) : new CornerRadius(10);
         if (this.FindControl<Control>("ResizeLayer") is { } layer)
         {
             layer.IsHitTestVisible = !maximized;
         }
+
+        ScheduleWindowRegionUpdate();
     }
+
+    // —— Windows 圆角窗形区域：把圆角外的四角从窗口矩形中裁掉，点击可穿透到下层窗口 ——
+
+    private bool _regionUpdateQueued;
+
+    private void ScheduleWindowRegionUpdate()
+    {
+        if (_regionUpdateQueued)
+        {
+            return;
+        }
+
+        _regionUpdateQueued = true;
+        Dispatcher.UIThread.Post(
+            () =>
+            {
+                _regionUpdateQueued = false;
+                ApplyWindowRegion();
+            },
+            DispatcherPriority.Background);
+    }
+
+    private void ApplyWindowRegion()
+    {
+        // 非 Windows 没有设置窗形的 API；窗口已铺满整个矩形，不存在透明留白
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var handle = TryGetPlatformHandle()?.Handle;
+        if (handle is null || handle.Value == 0)
+        {
+            return;
+        }
+
+        if (WindowState == WindowState.Maximized)
+        {
+            SetWindowRgn(handle.Value, IntPtr.Zero, true);
+            return;
+        }
+
+        var rect = new WindowRect();
+        if (!GetWindowRect(handle.Value, out rect))
+        {
+            return;
+        }
+
+        var scale = GetDpiForWindow(handle.Value) / 96d;
+        var width = rect.Right - rect.Left;
+        var height = rect.Bottom - rect.Top;
+        if (width <= 0 || height <= 0)
+        {
+            return;
+        }
+
+        var radius = Math.Max(2, (int)Math.Round(10 * scale));
+        var region = CreateRoundRectRgn(0, 0, width + 1, height + 1, radius, radius);
+        if (region == IntPtr.Zero)
+        {
+            return;
+        }
+
+        // SetWindowRgn 成功后 region 归系统所有，不能再 DeleteObject
+        if (SetWindowRgn(handle.Value, region, true) == 0)
+        {
+            DeleteObject(region);
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WindowRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hWnd, out WindowRect rect);
+
+    [DllImport("user32.dll")]
+    private static extern int GetDpiForWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int SetWindowRgn(IntPtr hWnd, IntPtr hRgn, bool redraw);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateRoundRectRgn(
+        int left, int top, int right, int bottom, int widthEllipse, int heightEllipse);
+
+    [DllImport("gdi32.dll")]
+    private static extern bool DeleteObject(IntPtr hObject);
 }

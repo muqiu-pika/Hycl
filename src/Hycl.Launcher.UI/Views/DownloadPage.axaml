@@ -712,7 +712,7 @@
                                                             Width="13"
                                                             Height="13"
                                                             VerticalAlignment="Center"
-                                                            Foreground="{DynamicResource PrimaryDeepBrush}" />
+                                                            Foreground="{DynamicResource BlockButtonTextBrush}" />
                                                 <TextBlock Text="返回"
                                                            FontSize="12"
                                                            VerticalAlignment="Center" />

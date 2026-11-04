@@ -17,14 +17,17 @@
         WindowDecorations="None"
         TransparencyLevelHint="Transparent">
 
-    <!-- 窗口外框：四周留出 18px 用于阴影与缩放手柄，内部卡片圆角裁切 -->
-    <Grid Name="RootFrame">
+    <!--
+        窗口外框：不再保留透明留白。阴影改在窗口内部绘制（RootFrame 铺满窗口并铺底色，
+        MainFrame 内缩 6px 后向外投影，阴影不撑大窗口矩形），最外缘和圆角外都不再是“点不着”的透明区。
+    -->
+    <Grid Name="RootFrame" Background="{DynamicResource AppBackdropBrush}">
         <Border Name="MainFrame"
-                Margin="18"
-                CornerRadius="12"
+                Margin="6"
+                CornerRadius="10"
                 ClipToBounds="True"
                 Background="{DynamicResource AppBackdropBrush}"
-                BoxShadow="0 10 32 0 #330B5BCB">
+                BoxShadow="0 4 14 0 #330B5BCB">
             <Grid RowDefinitions="48,*">
                 <!-- ===== 标题栏：品牌 + 居中胶囊标签 + 窗口控制 ===== -->
                 <Border Background="{DynamicResource TitleGradientBrush}"

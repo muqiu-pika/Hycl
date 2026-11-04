@@ -40,6 +40,12 @@
     <SolidColorBrush x:Key="SoftLineBrush" Color="#3D4A5566" />
     <SolidColorBrush x:Key="GlassSurfaceBrush" Color="#E61C212B" />
 
+    <SolidColorBrush x:Key="BlockButtonTextBrush" Color="#6FA6F7" />
+    <SolidColorBrush x:Key="BlockButtonNeutralTextBrush" Color="#C9D0DA" />
+    <SolidColorBrush x:Key="BlockButtonHoverBrush" Color="#182C49" />
+    <SolidColorBrush x:Key="BlockButtonPressedBrush" Color="#1B3355" />
+    <SolidColorBrush x:Key="BlockButtonSelectedBrush" Color="#1E3A5F" />
+
     <SolidColorBrush x:Key="TitleTabBrush" Color="#FFFFFF" />
     <SolidColorBrush x:Key="TitleTabSelectedBrush" Color="#1370F3" />
     <SolidColorBrush x:Key="TitleSelectedPillBrush" Color="#FFFFFF" />

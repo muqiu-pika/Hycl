@@ -262,7 +262,7 @@
                             <c:HyclIcon Kind="settings"
                                         Width="15"
                                         Height="15"
-                                        Foreground="{DynamicResource PrimaryBrush}"
+                                        Foreground="{DynamicResource BlockButtonTextBrush}"
                                         VerticalAlignment="Center" />
                             <TextBlock Text="管理实例" VerticalAlignment="Center" />
                         </StackPanel>
@@ -282,7 +282,7 @@
                                             <c:HyclIcon Kind="{Binding IconKey}"
                                                         Width="17"
                                                         Height="17"
-                                                        Foreground="{DynamicResource PrimaryBrush}"
+                                                        Foreground="{DynamicResource BlockButtonTextBrush}"
                                                         HorizontalAlignment="Center"
                                                         VerticalAlignment="Center" />
                                         </Border>
@@ -292,7 +292,7 @@
                                             <TextBlock Text="{Binding Title}"
                                                        FontSize="13"
                                                        FontWeight="SemiBold"
-                                                       Foreground="{DynamicResource TextBrush}" />
+                                                       Foreground="{DynamicResource BlockButtonNeutralTextBrush}" />
                                             <TextBlock Text="{Binding Subtitle}"
                                                        FontSize="11"
                                                        Foreground="{DynamicResource Gray3Brush}"
