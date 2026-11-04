@@ -3,6 +3,7 @@ using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Hycl.Launcher.Core.Download;
+using Hycl.Launcher.Core.Game;
 using Hycl.Launcher.Core.Game.Comp;
 using Hycl.Launcher.Core.Services;
 
@@ -210,6 +211,10 @@ public partial class CompSectionViewModel : ObservableObject
         _detailGeneration++;
         IsSearching = false;
         IsLoadingVersions = false;
+        // 保存位置选择框随页面一起关闭：尚未开始下载，不产生任何文件
+        IsSaveDialogVisible = false;
+        _pendingFile = null;
+        SaveHint = "";
     }
 
     private static void CancelAndDispose(ref CancellationTokenSource? source)
@@ -324,6 +329,54 @@ public partial class CompSectionViewModel : ObservableObject
     private CurseForgeClient CurseForge => new(Requester);
 
     private int Offset => _pageIndex * 40;
+
+    // ---------- 下载前选择保存位置（对应 PCL-CE Save_Click / Install_Click） ----------
+
+    private readonly List<MinecraftInstance> _dialogInstances = [];
+    private CompFileItemViewModel? _pendingFile;
+
+    /// <summary>UI 注入的文件夹选择器（返回 null 表示用户取消）。</summary>
+    public Func<string, Task<string?>>? FolderPicker { get; set; }
+
+    public ObservableCollection<string> TargetInstanceOptions { get; } = [];
+
+    [ObservableProperty]
+    private bool _isSaveDialogVisible;
+
+    /// <summary>整合包：只选择实例名，安装到 versions 下（对应 PCL-CE Install_Click 的实例名输入）。</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SaveDialogTitle))]
+    [NotifyPropertyChangedFor(nameof(SaveDialogConfirmText))]
+    [NotifyPropertyChangedFor(nameof(SaveDialogBody))]
+    [NotifyPropertyChangedFor(nameof(IsInstanceSelectable))]
+    private bool _isModpackSave;
+
+    [ObservableProperty]
+    private string _selectedTargetInstance = "";
+
+    [ObservableProperty]
+    private string _saveDirectory = "";
+
+    [ObservableProperty]
+    private string _saveFileName = "";
+
+    [ObservableProperty]
+    private string _instanceName = "";
+
+    /// <summary>选择框内的校验提示（非法路径、名称冲突等），确认失败时保留弹窗。</summary>
+    [ObservableProperty]
+    private string _saveHint = "";
+
+    public bool IsInstanceSelectable => !IsModpackSave;
+
+    public string SaveDialogTitle => IsModpackSave ? "安装整合包" : "选择保存位置";
+
+    public string SaveDialogConfirmText => IsModpackSave ? "开始安装" : "下载";
+
+    public string SaveDialogBody => IsModpackSave
+        ? "整合包会安装到游戏目录的版本文件夹中，请输入实例名称。"
+        : "文件将下载到下面的目录；目录不存在时会自动创建。";
+
 
     /// <summary>执行搜索（对应 PCL-CE CompProjectsGet；默认综合排序合并双源按相关度+下载量排序）。</summary>
     [RelayCommand]
@@ -523,6 +576,15 @@ public partial class CompSectionViewModel : ObservableObject
     [RelayCommand]
     private void CloseDetail()
     {
+        // 选择保存位置时点返回：尚未开始下载，直接收起并丢弃待下载项
+        if (IsSaveDialogVisible)
+        {
+            IsSaveDialogVisible = false;
+            _pendingFile = null;
+            SaveHint = "";
+            _toast?.Invoke("已取消下载，未保存任何文件");
+        }
+
         if (_installingItem is not null && _install.IsInstalling)
         {
             if (_install.CancelIfDownloading())
@@ -551,61 +613,201 @@ public partial class CompSectionViewModel : ObservableObject
         VersionErrorText = "";
     }
 
-    /// <summary>安装资源：ModPack 走整合包流程（自动装原版与加载器），其余落盘到实例对应目录。</summary>
+    /// <summary>
+    /// 下载资源前的保存位置选择（对应 PCL-CE Save_Click / Install_Click）：
+    /// 普通资源选择目标实例与保存目录，整合包输入实例名；此时不发起任何下载。
+    /// </summary>
     public async Task InstallFileAsync(CompFileItemViewModel item)
     {
-        if (item.IsInstalling || _install.IsInstalling)
+        if (item.IsInstalling || _install.IsInstalling || IsSaveDialogVisible)
         {
             return;
         }
 
+        _pendingFile = item;
+        _installingItem = null;
+        SaveFileName = item.File.FileName;
+        SaveHint = "";
         if (item.File.Type == CompResourceType.ModPack)
         {
-            var rawName = SelectedProject?.Project.Title ?? item.Title;
-            var instanceName = string.Join("_", rawName.Split(Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries))
-                .Trim();
-            if (instanceName.Length == 0)
-            {
-                instanceName = "Modpack";
-            }
-
-            _installingItem = item;
-            try
-            {
-                await _install.RunCompModpackAsync(item.File, instanceName).ConfigureAwait(true);
-            }
-            finally
-            {
-                if (ReferenceEquals(_installingItem, item))
-                {
-                    _installingItem = null;
-                }
-            }
-
+            IsModpackSave = true;
+            InstanceName = SuggestedInstanceName(item);
+            SaveDirectory = Path.Combine(_services.Config.EffectiveGameDirectory, "versions", InstanceName.Trim());
+            IsSaveDialogVisible = true;
             return;
         }
 
+        IsModpackSave = false;
+        await LoadSaveDialogInstancesAsync(item.File).ConfigureAwait(true);
+        IsSaveDialogVisible = true;
+    }
+
+    /// <summary>列举实例并按「当前实例 → 兼容且较新 → 其余」排序，默认落到兼容实例的对应子目录。</summary>
+    private async Task LoadSaveDialogInstancesAsync(CompFile file)
+    {
+        _dialogInstances.Clear();
+        TargetInstanceOptions.Clear();
         var gameDirectory = _services.Config.EffectiveGameDirectory;
-        var target = await _services.CompInstall
-            .ResolveTargetAsync(gameDirectory, item.File)
-            .ConfigureAwait(true);
-        if (!_attached)
+        var subFolder = CompInstallService.GetSubFolder(file.Type);
+        List<MinecraftInstance> instances;
+        try
         {
-            // 页面已离开，不再发起新的下载
+            instances = (await _services.Instances.ScanAsync(gameDirectory).ConfigureAwait(true)).ToList();
+        }
+        catch (Exception ex)
+        {
+            SaveDirectory = gameDirectory;
+            SelectedTargetInstance = "";
+            SaveHint = $"扫描实例失败：{ex.Message}";
             return;
         }
 
+        var compatible = instances
+            .Where(instance => file.GameVersions.Count == 0
+                               || file.GameVersions.Any(v => v.Equals(instance.GameVersion, StringComparison.OrdinalIgnoreCase)))
+            .OrderByDescending(instance => instance.LastWriteTime)
+            .ToList();
+        var current = instances.FirstOrDefault(instance =>
+            instance.Id.Equals(_services.Config.SelectedVersion, StringComparison.OrdinalIgnoreCase));
+        if (current is not null && compatible.Contains(current))
+        {
+            compatible.Remove(current);
+            compatible.Insert(0, current);
+        }
+
+        foreach (var instance in compatible.Concat(instances.Except(compatible)))
+        {
+            _dialogInstances.Add(instance);
+            TargetInstanceOptions.Add($"{instance.Name} · {instance.Description}");
+        }
+
+        var target = compatible.FirstOrDefault();
         if (target is null)
         {
-            _toast?.Invoke("尚未安装任何 Minecraft 版本，请先在「Minecraft」分区安装原版或加载器");
+            SelectedTargetInstance = "";
+            SaveDirectory = gameDirectory;
+            SaveHint = "未找到可用实例，将保存到游戏目录，也可手动修改路径。";
             return;
         }
 
+        SelectedTargetInstance = TargetInstanceOptions[_dialogInstances.IndexOf(target)];
+        SaveDirectory = string.IsNullOrEmpty(subFolder)
+            ? target.Directory
+            : Path.Combine(target.Directory, subFolder);
+    }
+
+    /// <summary>实例选择变化时同步默认保存目录（用户仍可再手动修改）。</summary>
+    partial void OnSelectedTargetInstanceChanged(string value)
+    {
+        if (IsModpackSave)
+        {
+            return;
+        }
+
+        var index = TargetInstanceOptions.IndexOf(value);
+        if (index < 0 || index >= _dialogInstances.Count || _pendingFile is null)
+        {
+            return;
+        }
+
+        var subFolder = CompInstallService.GetSubFolder(_pendingFile.File.Type);
+        var directory = _dialogInstances[index].Directory;
+        SaveDirectory = string.IsNullOrEmpty(subFolder) ? directory : Path.Combine(directory, subFolder);
+        SaveHint = "";
+    }
+
+    /// <summary>整合包实例名变化时同步预览路径。</summary>
+    partial void OnInstanceNameChanged(string value)
+    {
+        if (IsModpackSave)
+        {
+            SaveDirectory = Path.Combine(
+                _services.Config.EffectiveGameDirectory,
+                "versions",
+                value.Trim());
+            SaveHint = "";
+        }
+    }
+
+    [RelayCommand]
+    private async Task BrowseSaveDirectoryAsync()
+    {
+        if (FolderPicker is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var picked = await FolderPicker(SaveDirectory).ConfigureAwait(true);
+            if (!string.IsNullOrWhiteSpace(picked))
+            {
+                SaveDirectory = picked;
+                SaveHint = "";
+            }
+        }
+        catch (Exception ex)
+        {
+            SaveHint = $"无法打开文件夹选择器：{ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private void CancelSaveDialog()
+    {
+        IsSaveDialogVisible = false;
+        _pendingFile = null;
+        SaveHint = "";
+        _toast?.Invoke("已取消下载，未保存任何文件");
+    }
+
+    /// <summary>确认保存：校验路径/名称后关闭弹窗并开始下载；校验不通过时保留弹窗并就地提示。</summary>
+    [RelayCommand]
+    private async Task ConfirmSaveAsync()
+    {
+        var item = _pendingFile;
+        if (item is null)
+        {
+            return;
+        }
+
+        if (IsModpackSave)
+        {
+            await ConfirmModpackSaveAsync(item).ConfigureAwait(true);
+            return;
+        }
+
+        string directory;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(SaveDirectory))
+            {
+                SaveHint = "请输入保存目录";
+                return;
+            }
+
+            directory = Path.GetFullPath(Environment.ExpandEnvironmentVariables(SaveDirectory.Trim()));
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            SaveHint = $"保存目录无效：{ex.Message}";
+            return;
+        }
+
+        if (File.Exists(directory))
+        {
+            SaveHint = "保存位置是一个文件，请选择文件夹";
+            return;
+        }
+
+        IsSaveDialogVisible = false;
+        _pendingFile = null;
+        SaveHint = "";
         item.IsInstalling = true;
         _installingItem = item;
         try
         {
-            await _install.RunCompFileAsync(item.File, target.Id, Title).ConfigureAwait(true);
+            await _install.RunCompFileToDirectoryAsync(item.File, directory, Title).ConfigureAwait(true);
         }
         finally
         {
@@ -616,6 +818,55 @@ public partial class CompSectionViewModel : ObservableObject
             }
         }
     }
+
+    private async Task ConfirmModpackSaveAsync(CompFileItemViewModel item)
+    {
+        var name = InstanceName.Trim();
+        if (name.Length == 0)
+        {
+            SaveHint = "请输入实例名称";
+            return;
+        }
+
+        if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || name.Contains("..", StringComparison.Ordinal))
+        {
+            SaveHint = "实例名称包含非法字符";
+            return;
+        }
+
+        if (Directory.Exists(Path.Combine(_services.Config.EffectiveGameDirectory, "versions", name)))
+        {
+            SaveHint = "同名实例已存在，请换一个名称";
+            return;
+        }
+
+        IsSaveDialogVisible = false;
+        _pendingFile = null;
+        SaveHint = "";
+        item.IsInstalling = true;
+        _installingItem = item;
+        try
+        {
+            await _install.RunCompModpackAsync(item.File, name).ConfigureAwait(true);
+        }
+        finally
+        {
+            item.IsInstalling = false;
+            if (ReferenceEquals(_installingItem, item))
+            {
+                _installingItem = null;
+            }
+        }
+    }
+
+    private static string SuggestedInstanceName(CompFileItemViewModel item)
+    {
+        var raw = item.File.DisplayName.Length > 0 ? item.File.DisplayName : item.Title;
+        var trimmed = Path.GetFileNameWithoutExtension(raw);
+        var name = string.Join("", trimmed.Split(Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries)).Trim();
+        return name.Length == 0 ? "Modpack" : name;
+    }
+
 
     private CompSearchRequest BuildRequest()
     {

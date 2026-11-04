@@ -73,6 +73,18 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
         };
 
         SelectedSection = minecraft;
+
+        // 保存位置弹窗的可见性需要跨分区转达：ActiveCompSection 为空时一律隐藏
+        foreach (var section in CompSections)
+        {
+            section.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(CompSectionViewModel.IsSaveDialogVisible))
+                {
+                    OnPropertyChanged(nameof(IsSaveDialogVisible));
+                }
+            };
+        }
     }
 
     /// <summary>社区资源分区（与左侧导航一一对应）。</summary>
@@ -102,6 +114,9 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
 
     /// <summary>社区资源分区可见性。</summary>
     public bool IsCompSection => ActiveCompSection is not null;
+
+    /// <summary>下载前保存位置弹窗（仅社区资源分区有效）。</summary>
+    public bool IsSaveDialogVisible => ActiveCompSection?.IsSaveDialogVisible == true;
 
     public bool IsStartButtonVisible => IsInstallSection && Wizard.IsStep2 && !Install.IsInstalling;
 
@@ -189,6 +204,7 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
         }
 
         OnPropertyChanged(nameof(IsStartButtonVisible));
+        OnPropertyChanged(nameof(IsSaveDialogVisible));
     }
 
     [RelayCommand]

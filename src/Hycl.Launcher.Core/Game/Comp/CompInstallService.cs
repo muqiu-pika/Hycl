@@ -81,11 +81,34 @@ public sealed class CompInstallService
         var targetDirectory = string.IsNullOrEmpty(subFolder)
             ? instanceDirectory
             : Path.Combine(instanceDirectory, subFolder);
-        Directory.CreateDirectory(targetDirectory);
-        var targetPath = Path.Combine(targetDirectory, file.FileName);
+        return await InstallFileToDirectoryAsync(file, targetDirectory, progress, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>把资源文件下载到用户选择的目录（对应 PCL-CE Save_Click 的另存为）；目录不存在时自动创建。</summary>
+    public async Task<string> InstallFileToDirectoryAsync(
+        CompFile file,
+        string targetDirectory,
+        IProgress<InstallProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        var directory = Path.GetFullPath(targetDirectory);
+        if (File.Exists(directory))
+        {
+            throw new CompException($"保存位置是文件而不是文件夹：{directory}");
+        }
+
+        Directory.CreateDirectory(directory);
+        var fileName = Path.GetFileName(file.FileName);
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            throw new CompException("资源文件缺少有效的文件名");
+        }
+
+        var targetPath = Path.Combine(directory, fileName);
         var reporter = new CompProgress(progress);
         reporter.Stage($"下载 {file.DisplayName}");
-        reporter.BeginFile(file.FileName, file.Size);
+        reporter.BeginFile(fileName, file.Size);
         await _requester.ClientDownloadAsync(
                 file.DownloadUrls,
                 targetPath,
@@ -96,7 +119,7 @@ public sealed class CompInstallService
             .ConfigureAwait(false);
         reporter.FileCompleted(file.Size);
         reporter.Stage("安装完成");
-        _logger.Info($"社区资源已安装：{file.FileName} → {targetPath}");
+        _logger.Info($"社区资源已保存：{fileName} → {targetPath}");
         return targetPath;
     }
 

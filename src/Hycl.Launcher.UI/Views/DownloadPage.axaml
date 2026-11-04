@@ -1096,5 +1096,94 @@
                 </Grid>
             </Grid>
         </Panel>
+
+        <!-- 下载前选择保存位置（对应 PCL-CE Save_Click / Install_Click）：选择期间不发起下载 -->
+        <Panel Grid.ColumnSpan="2"
+               IsVisible="{Binding IsSaveDialogVisible}"
+               Background="{DynamicResource DialogScrimBrush}"
+               ZIndex="3">
+            <Border Classes="dialog-card"
+                    Width="580"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                <StackPanel>
+                    <TextBlock Classes="dialog-title" Text="{Binding ActiveCompSection.SaveDialogTitle}" />
+                    <TextBlock Classes="dialog-body"
+                               Margin="0,9,0,0"
+                               Text="{Binding ActiveCompSection.SaveDialogBody}"
+                               TextWrapping="Wrap" />
+                    <TextBlock Margin="0,8,0,0"
+                               FontSize="11.5"
+                               TextWrapping="Wrap"
+                               Foreground="{DynamicResource Gray3Brush}">
+                        <Run Text="文件：" />
+                        <Run Text="{Binding ActiveCompSection.SaveFileName}" />
+                    </TextBlock>
+
+                    <!-- 普通资源：目标实例 + 保存目录 -->
+                    <Grid Margin="0,14,0,0"
+                          ColumnDefinitions="84,*"
+                          RowDefinitions="Auto,Auto"
+                          ColumnSpacing="8"
+                          RowSpacing="10"
+                          IsVisible="{Binding ActiveCompSection.IsInstanceSelectable}">
+                        <TextBlock Text="目标实例" Classes="sline" VerticalAlignment="Center" />
+                        <c:McComboBox Grid.Column="1"
+                                      HorizontalAlignment="Stretch"
+                                      Items="{Binding ActiveCompSection.TargetInstanceOptions}"
+                                      SelectedItem="{Binding ActiveCompSection.SelectedTargetInstance, Mode=TwoWay}" />
+                        <TextBlock Grid.Row="1" Text="保存目录" Classes="sline" VerticalAlignment="Center" />
+                        <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                            <TextBox PlaceholderText="选择要保存到的文件夹"
+                                     Text="{Binding ActiveCompSection.SaveDirectory, Mode=TwoWay}" />
+                            <Button Grid.Column="1"
+                                    Classes="mc-btn"
+                                    Content="浏览…"
+                                    Command="{Binding ActiveCompSection.BrowseSaveDirectoryCommand}" />
+                        </Grid>
+                    </Grid>
+
+                    <!-- 整合包：实例名称，安装到 versions 下 -->
+                    <Grid Margin="0,14,0,0"
+                          ColumnDefinitions="84,*"
+                          RowDefinitions="Auto,Auto"
+                          ColumnSpacing="8"
+                          RowSpacing="10"
+                          IsVisible="{Binding ActiveCompSection.IsModpackSave}">
+                        <TextBlock Text="实例名称" Classes="sline" VerticalAlignment="Center" />
+                        <TextBox Grid.Column="1"
+                                 Text="{Binding ActiveCompSection.InstanceName, Mode=TwoWay}" />
+                        <TextBlock Grid.Row="1" Text="安装到" Classes="sline" VerticalAlignment="Top" />
+                        <TextBlock Grid.Row="1"
+                                   Grid.Column="1"
+                                   FontSize="11.5"
+                                   TextWrapping="Wrap"
+                                   Text="{Binding ActiveCompSection.SaveDirectory}"
+                                   Foreground="{DynamicResource Gray2Brush}" />
+                    </Grid>
+
+                    <TextBlock Margin="0,10,0,0"
+                               FontSize="11.5"
+                               TextWrapping="Wrap"
+                               Foreground="{DynamicResource PrimaryDeepBrush}"
+                               Text="{Binding ActiveCompSection.SaveHint}"
+                               IsVisible="{Binding ActiveCompSection.SaveHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+                    <StackPanel Orientation="Horizontal"
+                                Spacing="10"
+                                HorizontalAlignment="Right"
+                                Margin="0,20,0,0">
+                        <Button Classes="mc-btn"
+                                MinWidth="88"
+                                Content="取消"
+                                Command="{Binding ActiveCompSection.CancelSaveDialogCommand}" />
+                        <Button Classes="mc-btn primary"
+                                MinWidth="104"
+                                Content="{Binding ActiveCompSection.SaveDialogConfirmText}"
+                                Command="{Binding ActiveCompSection.ConfirmSaveCommand}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Panel>
     </Grid>
 </UserControl>

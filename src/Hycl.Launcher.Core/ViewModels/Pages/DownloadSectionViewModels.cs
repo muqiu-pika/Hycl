@@ -215,6 +215,16 @@ public partial class InstallTaskViewModel : ObservableObject
             .ConfigureAwait(true);
     }
 
+    /// <summary>把社区资源文件保存到用户选择的目录（目录不存在时自动创建）。</summary>
+    public async Task RunCompFileToDirectoryAsync(CompFile file, string targetDirectory, string sectionTitle)
+    {
+        await RunAsync(
+            $"{file.DisplayName}（{sectionTitle}）",
+            (progress, token) => _services.CompInstall
+                .InstallFileToDirectoryAsync(file, targetDirectory, progress, token))
+            .ConfigureAwait(true);
+    }
+
     /// <summary>安装整合包（下载 → 解析 → 资源落盘 → 自动安装原版与加载器）。</summary>
     public async Task RunCompModpackAsync(CompFile file, string instanceName)
     {
