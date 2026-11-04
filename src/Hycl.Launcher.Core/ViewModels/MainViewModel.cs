@@ -63,6 +63,11 @@ public partial class MainViewModel : ObservableObject
             {
                 _ = Launch.SelectInstanceAsync(instanceId);
             }
+            else
+            {
+                // 实例被删除：同步刷新启动页，避免“切换版本”里仍停留着已删除的实例
+                _ = Launch.RefreshInstancesAsync();
+            }
         };
         Instances.LaunchRequested += async (_, instanceId) =>
         {
@@ -94,7 +99,33 @@ public partial class MainViewModel : ObservableObject
             }
         };
 
+        // 右下角悬浮下载按钮：安装/下载任务进行中且不在下载页时显示（进度实时跟随 Install）
+        Download.Install.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(InstallTaskViewModel.IsInstalling)
+                or nameof(InstallTaskViewModel.ProgressPercent)
+                or nameof(InstallTaskViewModel.InstallingName)
+                or nameof(InstallTaskViewModel.StageText))
+            {
+                OnPropertyChanged(nameof(ShowFloatingDownload));
+                OnPropertyChanged(nameof(FloatingDownloadTip));
+            }
+        };
+
         _ = Launch.RefreshInstancesAsync();
+    }
+
+    /// <summary>是否显示右下角悬浮下载按钮：有任务在进行且当前不在下载页。</summary>
+    public bool ShowFloatingDownload => Download.Install.IsInstalling && SelectedTabIndex != 1;
+
+    /// <summary>悬浮下载按钮的悬停提示：阶段 + 任务名 + 百分比。</summary>
+    public string FloatingDownloadTip
+    {
+        get
+        {
+            var install = Download.Install;
+            return $"{install.StageText}：{install.InstallingName} · {install.ProgressPercent:0}%";
+        }
     }
 
     partial void OnSelectedTabIndexChanged(int value)
@@ -130,6 +161,7 @@ public partial class MainViewModel : ObservableObject
         };
 
         (CurrentPage as IPageLifecycle)?.Activate();
+        OnPropertyChanged(nameof(ShowFloatingDownload));
     }
 
     /// <summary>窗口关闭：取消所有页面级在途任务并释放取消令牌。</summary>

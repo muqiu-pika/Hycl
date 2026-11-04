@@ -59,7 +59,11 @@ public sealed class VersionListCache
                 Manifest = manifest
             };
             var json = JsonSerializer.Serialize(wrapper, JsonOptions);
-            await File.WriteAllTextAsync(_filePath, json, cancellationToken).ConfigureAwait(false);
+            // 先写临时文件再原子替换：崩溃/断电不会留下半个 JSON（读取端虽有兜底，写入端也应干净）
+            Directory.CreateDirectory(Path.GetDirectoryName(_filePath) ?? ".");
+            var tempFile = _filePath + ".tmp";
+            await File.WriteAllTextAsync(tempFile, json, cancellationToken).ConfigureAwait(false);
+            File.Move(tempFile, _filePath, true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -94,7 +98,9 @@ public sealed class VersionListCache
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(filePath) ?? ".");
-            await File.WriteAllTextAsync(filePath, content, cancellationToken).ConfigureAwait(false);
+            var tempFile = filePath + ".tmp";
+            await File.WriteAllTextAsync(tempFile, content, cancellationToken).ConfigureAwait(false);
+            File.Move(tempFile, filePath, true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

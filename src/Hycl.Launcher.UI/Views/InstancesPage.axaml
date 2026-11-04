@@ -51,9 +51,13 @@
                     </Grid>
                 </StackPanel>
 
-                <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                <ScrollViewer Name="InstanceScroll"
+                              Grid.Row="1"
+                              HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="10,0,10,12">
-                        <ListBox Classes="instance-list"
+                        <ListBox Name="InstanceList"
+                                 Classes="instance-list"
                                  ItemsSource="{Binding Instances}"
                                  SelectedItem="{Binding SelectedInstance, Mode=TwoWay}"
                                  IsVisible="{Binding HasInstances}">

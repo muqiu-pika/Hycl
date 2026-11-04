@@ -2,10 +2,12 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:c="clr-namespace:Hycl.Launcher.UI.Controls">
 
-    <!-- 对应网页版 .mc-combo：半透明白底触发器 + 白色下拉浮层。
+    <!-- 对应网页版 .mc-combo / PCL-CE MyComboBox：玻璃白底触发器 + 白色下拉浮层。
          下拉浮层不再由模板里的 Popup 承载，而是由控件代码挂到窗口的 OverlayLayer 上，
-         避免 Avalonia 12 的 Popup 顶层宿主窗口在首帧布局时崩溃。 -->
+         避免 Avalonia 12 的 Popup 顶层宿主窗口在首帧布局时崩溃。
+         箭头 #Caret 的旋转与触发器展开态配色由 Controls.axaml 里 :open 伪类样式驱动。 -->
     <ControlTheme x:Key="{x:Type c:McComboBox}" TargetType="c:McComboBox">
+        <Setter Property="MinWidth" Value="120" />
         <Setter Property="Template">
             <ControlTemplate>
                 <Grid>
@@ -19,16 +21,18 @@
                                        Foreground="{DynamicResource TextBrush}"
                                        VerticalAlignment="Center"
                                        TextTrimming="CharacterEllipsis" />
+                            <!-- 与 PCL-CE 一致的小箭头：细描边雪佛龙，展开时旋转 180° -->
                             <Path Grid.Column="1"
-                                  Data="M6 9l6 6 6-6"
-                                  Width="16"
-                                  Height="16"
+                                  Name="Caret"
+                                  Data="M1,1 L6,6 L11,1"
+                                  Width="12"
+                                  Height="7"
                                   Margin="6,0,0,0"
                                   Stroke="{DynamicResource PrimaryBrush}"
-                                  StrokeThickness="2"
+                                  StrokeThickness="1.6"
                                   StrokeJoin="Round"
                                   StrokeLineCap="Round"
-                                  Stretch="Uniform"
+                                  Stretch="None"
                                   VerticalAlignment="Center" />
                         </Grid>
                     </Button>

@@ -153,6 +153,9 @@ public sealed partial class InstancesViewModel : ObservableObject
     /// <summary>当前实例变化（参数为实例 ID，空表示无实例）。</summary>
     public event EventHandler<string>? SelectionChanged;
 
+    /// <summary>删除实例后列表已重置：UI 应滚动回开头，避免用户误以为还停在旧实例。</summary>
+    public event EventHandler? ListResetRequested;
+
     [RelayCommand]
     public async Task RefreshAsync()
     {
@@ -254,6 +257,8 @@ public sealed partial class InstancesViewModel : ObservableObject
         await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
         await RefreshAsync().ConfigureAwait(true);
         SelectionChanged?.Invoke(this, "");
+        // 选中项已回到列表第一项（RefreshAsync 兜底），通知 UI 滚回开头
+        ListResetRequested?.Invoke(this, EventArgs.Empty);
     }
 
     // ------------------------- 设置保存 -------------------------

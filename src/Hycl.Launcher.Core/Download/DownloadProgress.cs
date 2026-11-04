@@ -19,12 +19,14 @@ public sealed record InstallProgress(
     {
         get
         {
-            if (BytesTotal > 0)
+            // 进度一律按文件数计（对齐 PCL-CE）：已完成文件 / 总文件数；
+            // 仅当任务没有文件计数（如单文件下载）时才回退到字节数
+            if (FilesTotal > 0)
             {
-                return Math.Clamp(BytesDone / BytesTotal, 0, 1);
+                return Math.Clamp((double)FilesDone / FilesTotal, 0, 1);
             }
 
-            return FilesTotal > 0 ? Math.Clamp((double)FilesDone / FilesTotal, 0, 1) : 0;
+            return BytesTotal > 0 ? Math.Clamp(BytesDone / BytesTotal, 0, 1) : 0;
         }
     }
 }

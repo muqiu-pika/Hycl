@@ -344,6 +344,15 @@ public partial class MainWindow : Window
 
     private void OnCloseClick(object? sender, RoutedEventArgs e) => Close();
 
+    private void OnFloatingDownloadClick(object? sender, RoutedEventArgs e)
+    {
+        // 右下角悬浮下载按钮：切回下载页查看详情（下载任务本身不因切页中断）
+        if (DataContext is MainViewModel viewModel)
+        {
+            viewModel.SelectedTabIndex = 1;
+        }
+    }
+
     private void OnHelpClick(object? sender, RoutedEventArgs e) =>
         (DataContext as MainViewModel)?.ShowToast("帮助文档（演示）");
 

@@ -153,12 +153,14 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
         return InstallWizardViewModel.BuildMcVersionGroups(mcVersions, iconKey);
     }
 
-    /// <summary>离开下载页：取消在途的版本列表、社区搜索/详情与安装下载，回到可再次发起的状态。</summary>
+    /// <summary>
+    /// 离开下载页：只取消页面级的列表/搜索请求并退订进度监听。
+    /// 安装与下载任务刻意不取消——与 PCL-CE 一致，下载只在关闭启动器时停止；
+    /// 期间由主窗口右下角的悬浮下载按钮展示进度（见 MainWindow）。
+    /// </summary>
     public void Deactivate()
     {
         Wizard.CancelPending();
-        // 只取消仍处于下载/准备阶段的任务；解压与安装原版/加载器等不可逆阶段继续完成
-        Install.CancelIfDownloading();
         ActiveSection?.CancelPending();
         foreach (var section in CompSections)
         {

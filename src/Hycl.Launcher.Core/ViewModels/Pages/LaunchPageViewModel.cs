@@ -2,6 +2,8 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Hycl.Launcher.Core.Auth;
+using Hycl.Launcher.Core.Config;
 using Hycl.Launcher.Core.Game;
 using Hycl.Launcher.Core.Models;
 
@@ -357,13 +359,21 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             Profiles.Add(new PlayerProfileViewModel(
                 "p" + index,
                 account.Name,
-                account.Type == "offline" ? "离线账户" : account.Type,
+                DescribeAccountType(account),
                 SkinFor(index),
+                account.IsMicrosoft,
                 isActive: index == selectedIndex));
         }
 
         ActiveProfile = Profiles.FirstOrDefault(x => x.IsActive) ?? Profiles.FirstOrDefault();
     }
+
+    private static string DescribeAccountType(PlayerAccount account) => account.Type switch
+    {
+        "msa" => "微软正版",
+        "authlib" => string.IsNullOrWhiteSpace(account.ServerName) ? "皮肤站" : account.ServerName,
+        _ => "离线账户"
+    };
 
     private static string SkinFor(int index) => (index % 3) switch
     {
@@ -457,6 +467,62 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         {
             var config = _services.Config;
             var account = _services.Accounts.SelectedAccount;
+
+            // 正版账号：令牌临近过期先静默续期（refresh_token），失败则中止本次启动
+            if (account.Type == "msa" && account.IsTokenNearExpiry)
+            {
+                LaunchStageText = "正在刷新正版令牌…";
+                try
+                {
+                    var refreshed = await _services.MicrosoftAuth
+                        .RefreshAsync(account.RefreshToken)
+                        .ConfigureAwait(true);
+                    AccountStore.ApplyMicrosoftAuth(account, refreshed);
+                    await _services.Accounts.SaveAsync().ConfigureAwait(true);
+                    BuildProfiles();
+                }
+                catch (Exception ex)
+                {
+                    _toast?.Invoke($"正版令牌刷新失败，请重新登录：{ex.Message}");
+                    LaunchStageText = "启动已取消";
+                    IsLaunching = false;
+                    return;
+                }
+            }
+
+            // 皮肤站账号：校验令牌（失效则 refresh），并准备 authlib-injector 注入材料
+            string? authlibJar = null;
+            string? authlibPrefetched = null;
+            if (account.Type == "authlib")
+            {
+                LaunchStageText = "正在校验皮肤站令牌…";
+                try
+                {
+                    if (!await _services.AuthlibAuth
+                            .ValidateAsync(account.Server, account.AccessToken, account.ClientToken)
+                            .ConfigureAwait(true))
+                    {
+                        var refreshed = await _services.AuthlibAuth.RefreshAsync(account).ConfigureAwait(true);
+                        AccountStore.ApplyAuthlibAuth(account, refreshed);
+                        await _services.Accounts.SaveAsync().ConfigureAwait(true);
+                    }
+
+                    authlibJar = await _services.AuthlibAuth
+                        .EnsureAuthlibInjectorJarAsync(_services.Paths.CacheDirectory, _services.DownloadClient)
+                        .ConfigureAwait(true);
+                    authlibPrefetched = await _services.AuthlibAuth
+                        .GetPrefetchedAsync(account.Server)
+                        .ConfigureAwait(true);
+                }
+                catch (Exception ex)
+                {
+                    _toast?.Invoke($"皮肤站账号准备失败：{ex.Message}");
+                    LaunchStageText = "启动已取消";
+                    IsLaunching = false;
+                    return;
+                }
+            }
+
             var instanceSettings = config.FindInstanceSettings(instance.Id);
             var isolated = instanceSettings?.VersionIsolation ?? true;
             var options = new LaunchOptions
@@ -489,6 +555,18 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                 ExtraGameArguments = config.ExtraGameArguments,
                 PlayerName = account.Name,
                 PlayerUuid = account.Uuid,
+                AccessToken = account.AccessToken,
+                UserType = account.Type switch
+                {
+                    "msa" => "msa",
+                    "authlib" => "Legacy",
+                    _ => "legacy"
+                },
+                AuthClientId = account.Type == "msa" ? HyclSecrets.MicrosoftOAuthClientId : "",
+                AuthXuid = account.Xuid,
+                AuthlibServer = account.Type == "authlib" ? account.Server : "",
+                AuthlibJarPath = authlibJar ?? "",
+                AuthlibPrefetched = authlibPrefetched ?? "",
                 WindowTitle = config.WindowTitle,
                 TypeInfo = config.TypeInfo,
                 LauncherVisibility = config.LauncherVisibility,
@@ -797,6 +875,404 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
 
     [RelayCommand]
     private void ChangeSkin() => _toast?.Invoke("皮肤更换暂未支持，当前展示内置皮肤");
+
+    // ------------------------- 登录对话框（添加账号：正版 / 皮肤站 / 离线） -------------------------
+
+    [ObservableProperty]
+    private bool _isLoginDialogVisible;
+
+    /// <summary>0 正版 / 1 皮肤站（预留）/ 2 离线。</summary>
+    [ObservableProperty]
+    private int _loginTabIndex;
+
+    public bool IsMsLoginTab => LoginTabIndex == 0;
+
+    public bool IsAuthlibLoginTab => LoginTabIndex == 1;
+
+    public bool IsOfflineLoginTab => LoginTabIndex == 2;
+
+    [ObservableProperty]
+    private bool _isMsLoginBusy;
+
+    [ObservableProperty]
+    private string _msLoginStage = "";
+
+    [ObservableProperty]
+    private string _msUserCode = "";
+
+    [ObservableProperty]
+    private string _msVerificationUri = "";
+
+    public bool HasMsUserCode => !string.IsNullOrWhiteSpace(MsUserCode);
+
+    [ObservableProperty]
+    private string _offlineNameText = "";
+
+    public bool CanAddOfflineAccount => OfflineNameText.Trim().Length > 0;
+
+    private CancellationTokenSource? _msLoginCts;
+
+    partial void OnLoginTabIndexChanged(int value)
+    {
+        OnPropertyChanged(nameof(IsMsLoginTab));
+        OnPropertyChanged(nameof(IsAuthlibLoginTab));
+        OnPropertyChanged(nameof(IsOfflineLoginTab));
+    }
+
+    partial void OnMsUserCodeChanged(string value) => OnPropertyChanged(nameof(HasMsUserCode));
+
+    partial void OnOfflineNameTextChanged(string value) => OnPropertyChanged(nameof(CanAddOfflineAccount));
+
+    [RelayCommand]
+    private void OpenLoginDialog()
+    {
+        MsUserCode = "";
+        MsVerificationUri = "";
+        MsLoginStage = "";
+        IsMsLoginBusy = false;
+        OfflineNameText = "";
+        AuthlibProfileOptions = null;
+        SelectedAuthlibProfile = null;
+        AuthlibLoginStage = "";
+        IsAuthlibLoginBusy = false;
+        LoginTabIndex = 0;
+        IsLoginDialogVisible = true;
+    }
+
+    [RelayCommand]
+    private void CloseLoginDialog()
+    {
+        _msLoginCts?.Cancel();
+        IsLoginDialogVisible = false;
+    }
+
+    [RelayCommand]
+    private void OpenMsVerificationPage()
+    {
+        var url = string.IsNullOrWhiteSpace(MsVerificationUri) ? "https://www.microsoft.com/link" : MsVerificationUri;
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            _toast?.Invoke($"无法打开浏览器：{ex.Message}（请手动访问 {url}）");
+        }
+    }
+
+    /// <summary>正版设备码登录：申请设备码 → 展示给玩家 → 按 interval 轮询直到完成/过期。</summary>
+    [RelayCommand]
+    private async Task StartMsLoginAsync()
+    {
+        if (IsMsLoginBusy)
+        {
+            return;
+        }
+
+        if (!HyclSecrets.HasMicrosoftOAuthClientId)
+        {
+            _toast?.Invoke("正版登录未配置 Microsoft OAuth ClientId");
+            return;
+        }
+
+        _msLoginCts?.Cancel();
+        _msLoginCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        _msLoginCts = cts;
+
+        IsMsLoginBusy = true;
+        MsUserCode = "";
+        MsVerificationUri = "";
+        try
+        {
+            MsLoginStage = "正在向微软申请设备码…";
+            var deviceCode = await _services.MicrosoftAuth
+                .StartDeviceCodeAsync(cts.Token)
+                .ConfigureAwait(true);
+            MsUserCode = deviceCode.UserCode;
+            MsVerificationUri = string.IsNullOrWhiteSpace(deviceCode.VerificationUriComplete)
+                ? deviceCode.VerificationUri
+                : deviceCode.VerificationUriComplete;
+            MsLoginStage =
+                $"请在浏览器打开 {deviceCode.VerificationUri} 并输入上方代码（约 {Math.Max(1, deviceCode.ExpiresInSeconds / 60)} 分钟内有效）";
+
+            var interval = TimeSpan.FromSeconds(Math.Max(2, deviceCode.IntervalSeconds));
+            var deadline = DateTimeOffset.UtcNow.AddSeconds(Math.Max(60, deviceCode.ExpiresInSeconds));
+            while (DateTimeOffset.UtcNow < deadline && !cts.Token.IsCancellationRequested)
+            {
+                await Task.Delay(interval, cts.Token).ConfigureAwait(true);
+                var poll = await _services.MicrosoftAuth
+                    .PollOnceAsync(deviceCode, cts.Token)
+                    .ConfigureAwait(true);
+
+                if (poll.Result is not null)
+                {
+                    _services.Accounts.AddMicrosoft(poll.Result);
+                    await _services.Accounts.SaveAsync(cts.Token).ConfigureAwait(true);
+                    _services.Config.UserName = poll.Result.UserName;
+                    await _services.ConfigStore.SaveAsync(cts.Token).ConfigureAwait(true);
+                    BuildProfiles();
+                    _toast?.Invoke($"正版登录成功：{poll.Result.UserName}");
+                    IsLoginDialogVisible = false;
+                    return;
+                }
+
+                if (poll.IsExpired)
+                {
+                    MsLoginStage = "设备码已过期，请重新开始登录";
+                    MsUserCode = "";
+                    return;
+                }
+
+                if (poll.IsDenied)
+                {
+                    MsLoginStage = "你在浏览器中拒绝了授权，请重新开始登录";
+                    MsUserCode = "";
+                    return;
+                }
+
+                if (poll.IsSlowDown)
+                {
+                    interval = interval.Add(TimeSpan.FromSeconds(3));
+                }
+            }
+
+            if (!cts.Token.IsCancellationRequested)
+            {
+                MsLoginStage = "登录超时，请重新开始";
+                MsUserCode = "";
+            }
+        }
+        catch (OperationCanceledException) when (cts.Token.IsCancellationRequested)
+        {
+            // 用户关闭对话框：静默退出
+        }
+        catch (MicrosoftAuthException ex)
+        {
+            MsLoginStage = ex.Message;
+            MsUserCode = "";
+            _toast?.Invoke($"正版登录失败：{ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            MsLoginStage = $"网络异常：{ex.Message}";
+            MsUserCode = "";
+            _toast?.Invoke($"正版登录失败：{ex.Message}");
+            _services.Logger.Error("正版登录失败", ex);
+        }
+        finally
+        {
+            if (ReferenceEquals(_msLoginCts, cts))
+            {
+                _msLoginCts = null;
+                IsMsLoginBusy = false;
+                cts.Dispose();
+            }
+        }
+    }
+
+    [RelayCommand]
+    private void AddOfflineAccount()
+    {
+        var name = OfflineNameText.Trim();
+        if (name.Length == 0)
+        {
+            _toast?.Invoke("请先输入玩家名");
+            return;
+        }
+
+        if (name.Length > 16)
+        {
+            _toast?.Invoke("玩家名最长 16 个字符");
+            return;
+        }
+
+        _services.Accounts.AddOffline(name);
+        _ = _services.Accounts.SaveAsync();
+        _services.Config.UserName = name;
+        _ = _services.ConfigStore.SaveAsync();
+        BuildProfiles();
+        OfflineNameText = "";
+        IsLoginDialogVisible = false;
+        _toast?.Invoke($"已添加离线档案：{name}");
+    }
+
+    // ------------------------- 皮肤站登录（authlib-injector / Yggdrasil） -------------------------
+
+    [ObservableProperty]
+    private string _authlibServerText = "https://littleskin.cn/api/yggdrasil";
+
+    [ObservableProperty]
+    private string _authlibUsernameText = "";
+
+    [ObservableProperty]
+    private string _authlibPasswordText = "";
+
+    [ObservableProperty]
+    private bool _isAuthlibLoginBusy;
+
+    [ObservableProperty]
+    private string _authlibLoginStage = "";
+
+    /// <summary>多角色账号：authenticate 成功后列出待选角色。</summary>
+    [ObservableProperty]
+    private System.Collections.ObjectModel.ObservableCollection<AuthlibProfile>? _authlibProfileOptions;
+
+    [ObservableProperty]
+    private AuthlibProfile? _selectedAuthlibProfile;
+
+    public bool HasAuthlibProfileOptions => AuthlibProfileOptions is { Count: > 0 };
+
+    partial void OnAuthlibProfileOptionsChanged(System.Collections.ObjectModel.ObservableCollection<AuthlibProfile>? value)
+        => OnPropertyChanged(nameof(HasAuthlibProfileOptions));
+
+    /// <summary>皮肤站登录：探测站点 → authenticate → 多角色时展示选择 → refresh 绑定。</summary>
+    [RelayCommand]
+    private async Task StartAuthlibLoginAsync()
+    {
+        if (IsAuthlibLoginBusy)
+        {
+            return;
+        }
+
+        var username = AuthlibUsernameText.Trim();
+        var password = AuthlibPasswordText;
+        var serverInput = AuthlibServerText.Trim();
+        if (username.Length == 0 || password.Length == 0 || serverInput.Length == 0)
+        {
+            _toast?.Invoke("请填写皮肤站地址、账号与密码");
+            return;
+        }
+
+        IsAuthlibLoginBusy = true;
+        AuthlibLoginStage = "";
+        AuthlibServerInfo server;
+        try
+        {
+            AuthlibLoginStage = "正在探测皮肤站…";
+            server = await _services.AuthlibAuth
+                .ResolveServerAsync(serverInput)
+                .ConfigureAwait(true);
+        }
+        catch (AuthlibException ex)
+        {
+            AuthlibLoginStage = ex.Message;
+            IsAuthlibLoginBusy = false;
+            _toast?.Invoke($"皮肤站登录失败：{ex.Message}");
+            return;
+        }
+
+        try
+        {
+            AuthlibLoginStage = $"正在登录 {server.ServerName}…";
+            var result = await _services.AuthlibAuth
+                .AuthenticateAsync(server, username, password)
+                .ConfigureAwait(true);
+            FinishAuthlibLogin(result);
+        }
+        catch (AuthlibProfileSelectionRequiredException ex)
+        {
+            // 多角色：展示选择列表；令牌暂存内存，选中后 refresh 绑定，不重发密码
+            _pendingAuthlibServer = server.ApiRoot;
+            _pendingAuthlibServerName = server.ServerName;
+            _pendingAuthlibAccessToken = ex.AccessToken;
+            _pendingAuthlibClientToken = ex.ClientToken;
+            _pendingAuthlibUsername = username;
+            AuthlibProfileOptions = new(ex.Profiles);
+            SelectedAuthlibProfile = ex.Profiles[0];
+            AuthlibLoginStage = "请选择要登录的角色";
+        }
+        catch (AuthlibException ex)
+        {
+            AuthlibLoginStage = ex.Message;
+            _toast?.Invoke($"皮肤站登录失败：{ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            AuthlibLoginStage = $"网络异常：{ex.Message}";
+            _toast?.Invoke($"皮肤站登录失败：{ex.Message}");
+            _services.Logger.Error("皮肤站登录失败", ex);
+        }
+        finally
+        {
+            AuthlibPasswordText = "";
+            if (!HasAuthlibProfileOptions)
+            {
+                IsAuthlibLoginBusy = false;
+            }
+        }
+    }
+
+    private string? _pendingAuthlibServer;
+    private string? _pendingAuthlibAccessToken;
+    private string? _pendingAuthlibClientToken;
+    private string _pendingAuthlibUsername = "";
+
+    /// <summary>多角色选择完成后：用首次 authenticate 的令牌 refresh 绑定所选角色。</summary>
+    [RelayCommand]
+    private void ConfirmAuthlibProfile()
+    {
+        if (SelectedAuthlibProfile is null)
+        {
+            _toast?.Invoke("请先选择一个角色");
+            return;
+        }
+
+        if (_pendingAuthlibServer is null || _pendingAuthlibAccessToken is null || _pendingAuthlibClientToken is null)
+        {
+            return;
+        }
+
+        IsAuthlibLoginBusy = true;
+        AuthlibLoginStage = "正在绑定所选角色…";
+        var profile = SelectedAuthlibProfile;
+        var server = _pendingAuthlibServer;
+        var accessToken = _pendingAuthlibAccessToken;
+        var clientToken = _pendingAuthlibClientToken;
+        var username = _pendingAuthlibUsername;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                // 站点名已在探测阶段确定；这里只做 refresh 绑定
+                var result = await _services.AuthlibAuth
+                    .BindProfileAsync(server, accessToken, clientToken, profile, username, _pendingAuthlibServerName ?? "")
+                    .ConfigureAwait(false);
+                _services.Dispatcher.Post(() => FinishAuthlibLogin(result));
+            }
+            catch (Exception ex)
+            {
+                _services.Dispatcher.Post(() =>
+                {
+                    AuthlibLoginStage = ex.Message;
+                    _toast?.Invoke($"皮肤站登录失败：{ex.Message}");
+                    AuthlibProfileOptions = null;
+                    SelectedAuthlibProfile = null;
+                    IsAuthlibLoginBusy = false;
+                });
+            }
+        });
+    }
+
+    private string? _pendingAuthlibServerName;
+
+    private void FinishAuthlibLogin(AuthlibAuthResult result)
+    {
+        _services.Accounts.AddAuthlib(result);
+        _ = _services.Accounts.SaveAsync();
+        _services.Config.UserName = result.UserName;
+        _ = _services.ConfigStore.SaveAsync();
+        BuildProfiles();
+        AuthlibUsernameText = "";
+        AuthlibProfileOptions = null;
+        SelectedAuthlibProfile = null;
+        _pendingAuthlibServer = null;
+        _pendingAuthlibAccessToken = null;
+        _pendingAuthlibClientToken = null;
+        _pendingAuthlibUsername = "";
+        IsLoginDialogVisible = false;
+        _toast?.Invoke($"皮肤站登录成功：{result.UserName}（{result.ServerName}）");
+    }
 
     [RelayCommand]
     private void EditProfile() => _toast?.Invoke("编辑档案暂未支持，可在配置文件中修改玩家名");

@@ -371,10 +371,11 @@ public partial class InstallTaskViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 窗口关闭：无论处于哪个阶段都取消安装，并同步等待下载临时文件清理与半成品目录回滚完成，
-    /// 避免进程退出时把残缺文件留在磁盘上。等待有上限（默认 1 秒），不会卡住关闭流程。
+    /// 窗口关闭：可安全取消的阶段（准备/获取信息/下载）立即取消并等待临时文件清理与目录回滚；
+    /// 解压整合包、安装原版/加载器等不可逆阶段不取消，改为等待其完成——强杀会留下半成品实例目录
+    /// （回滚逻辑以任务自身收尾为准）。等待有上限，不会长时间卡住关闭流程。
     /// </summary>
-    public void CancelForShutdown(int timeoutMilliseconds = 1000)
+    public void CancelForShutdown(int timeoutMilliseconds = 3000)
     {
         var cts = _cts;
         if (cts is null)
@@ -382,13 +383,29 @@ public partial class InstallTaskViewModel : ObservableObject
             return;
         }
 
-        cts.Cancel();
         var task = _actionTask;
         if (task is null)
         {
+            cts.Cancel();
             return;
         }
 
+        if (!IsInCancellableDownloadStage)
+        {
+            // 不可逆阶段：等待任务自然完成（本地解压/落盘通常秒级），超时则放弃等待
+            try
+            {
+                task.Wait(timeoutMilliseconds * 3);
+            }
+            catch (Exception ex) when (ex is AggregateException or OperationCanceledException)
+            {
+                // 收尾异常不影响关闭
+            }
+
+            return;
+        }
+
+        cts.Cancel();
         try
         {
             // 安装/下载的收尾逻辑都走 ConfigureAwait(false)，不依赖 UI 线程，因此这里可以安全阻塞等待

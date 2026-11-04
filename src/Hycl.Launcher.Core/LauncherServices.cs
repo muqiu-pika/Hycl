@@ -28,6 +28,8 @@ public sealed class LauncherServices
         InstanceManager instances,
         LaunchService launch,
         SystemService system,
+        Auth.MicrosoftAuthService microsoftAuth,
+        Auth.AuthlibAuthService authlibAuth,
         IAppDispatcher dispatcher)
     {
         Paths = paths;
@@ -45,6 +47,8 @@ public sealed class LauncherServices
         Instances = instances;
         Launch = launch;
         System = system;
+        MicrosoftAuth = microsoftAuth;
+        AuthlibAuth = authlibAuth;
         Dispatcher = dispatcher;
     }
 
@@ -79,6 +83,10 @@ public sealed class LauncherServices
     public LaunchService Launch { get; }
 
     public SystemService System { get; }
+
+    public Auth.MicrosoftAuthService MicrosoftAuth { get; }
+
+    public Auth.AuthlibAuthService AuthlibAuth { get; }
 
     public IAppDispatcher Dispatcher { get; }
 
@@ -119,6 +127,8 @@ public sealed class LauncherServices
         var instances = new InstanceManager(logger, versionResolver);
         var launch = new LaunchService(versionResolver, javaDetector, logger);
         var system = new SystemService(logger);
+        var microsoftAuth = new Auth.MicrosoftAuthService(logger);
+        var authlibAuth = new Auth.AuthlibAuthService(logger);
 
         // 社区资源（Modrinth / CurseForge）
         var compRequester = new Game.Comp.CompRequester(downloadClient, configStore.Config, logger);
@@ -145,6 +155,8 @@ public sealed class LauncherServices
             instances,
             launch,
             system,
+            microsoftAuth,
+            authlibAuth,
             dispatcher);
     }
 }

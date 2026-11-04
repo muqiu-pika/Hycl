@@ -100,43 +100,66 @@ public partial class VersionInstaller
             _ => false
         };
         var versionDirectory = Path.Combine(request.GameDirectory, "versions", request.TargetName);
-        if (isModern)
+        // 回滚标记：目录是本次新建的才回滚，避免误删已存在的实例
+        var createdVersionDirectory = !Directory.Exists(versionDirectory);
+        try
         {
-            reporter.Stage($"分析 {loaderName} 依赖");
-            var installerLibs = await AnalyzeForgelikeInstallerAsync(
-                    installerPath,
-                    vanillaJsonPath,
-                    request,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            reporter.Stage($"下载 {loaderName} 依赖", installerLibs.Count);
-            await DownloadLibrariesAsync(installerLibs, request.GameDirectory, request.Threads, reporter, cancellationToken)
-                .ConfigureAwait(false);
+            if (isModern)
+            {
+                reporter.Stage($"分析 {loaderName} 依赖");
+                var installerLibs = await AnalyzeForgelikeInstallerAsync(
+                        installerPath,
+                        vanillaJsonPath,
+                        request,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                reporter.Stage($"下载 {loaderName} 依赖", installerLibs.Count);
+                await DownloadLibrariesAsync(installerLibs, request.GameDirectory, request.Threads, reporter, cancellationToken)
+                    .ConfigureAwait(false);
 
-            var versionsSnapshot = Directory.Exists(Path.Combine(request.GameDirectory, "versions"))
-                ? Directory.EnumerateDirectories(Path.Combine(request.GameDirectory, "versions")).ToHashSet(StringComparer.OrdinalIgnoreCase)
-                : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            reporter.Stage($"运行 {loaderName} 安装器");
-            await RunForgelikeHeadlessInstallerAsync(
-                    installerPath,
-                    cacheDirectory,
-                    request,
-                    reporter,
-                    cancellationToken)
-                .ConfigureAwait(false);
+                var versionsSnapshot = Directory.Exists(Path.Combine(request.GameDirectory, "versions"))
+                    ? Directory.EnumerateDirectories(Path.Combine(request.GameDirectory, "versions")).ToHashSet(StringComparer.OrdinalIgnoreCase)
+                    : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                reporter.Stage($"运行 {loaderName} 安装器");
+                await RunForgelikeHeadlessInstallerAsync(
+                        installerPath,
+                        cacheDirectory,
+                        request,
+                        reporter,
+                        cancellationToken)
+                    .ConfigureAwait(false);
 
-            CopyGeneratedForgelikeInstance(request.GameDirectory, versionsSnapshot, versionDirectory, request.TargetName, loaderName);
+                CopyGeneratedForgelikeInstance(request.GameDirectory, versionsSnapshot, versionDirectory, request.TargetName, loaderName);
+            }
+            else
+            {
+                reporter.Stage($"解包 {loaderName} 安装器");
+                await InstallLegacyForgelikeAsync(
+                        installerPath,
+                        vanillaJsonPath,
+                        request,
+                        reporter,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
         }
-        else
+        catch
         {
-            reporter.Stage($"解包 {loaderName} 安装器");
-            await InstallLegacyForgelikeAsync(
-                    installerPath,
-                    vanillaJsonPath,
-                    request,
-                    reporter,
-                    cancellationToken)
-                .ConfigureAwait(false);
+            // 下载依赖失败/用户取消：回滚本次新建的实例目录，不留半成品（对齐原版安装的回滚策略）
+            if (createdVersionDirectory && Directory.Exists(versionDirectory))
+            {
+                try
+                {
+                    Directory.Delete(versionDirectory, true);
+                    _logger.Warn($"{loaderName} 安装未完成，已回滚实例目录：{versionDirectory}");
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    _logger.Error("回滚实例目录失败", ex);
+                }
+            }
+
+            throw;
         }
 
         TryDeleteFile(installerPath);
@@ -406,8 +429,15 @@ public partial class VersionInstaller
                 }
 
                 var destination = Path.Combine(librariesDirectory, relativePath.Replace('/', Path.DirectorySeparatorChar));
-                Directory.CreateDirectory(Path.GetDirectoryName(destination) ?? librariesDirectory);
-                entry.ExtractToFile(destination, true);
+                var fullDestination = Path.GetFullPath(destination);
+                if (!fullDestination.StartsWith(Path.GetFullPath(librariesDirectory) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.Warn($"跳过越界条目（zip-slip 防护）：{entry.FullName}");
+                    continue;
+                }
+
+                Directory.CreateDirectory(Path.GetDirectoryName(fullDestination) ?? librariesDirectory);
+                entry.ExtractToFile(fullDestination, true);
             }
         }
         else
@@ -545,10 +575,35 @@ public partial class VersionInstaller
         using var process = Process.Start(info) ?? throw new DownloadException("无法启动 Java 进程");
         var outputTask = PumpStreamAsync(process.StandardOutput, onLine, cancellationToken);
         var errorTask = PumpStreamAsync(process.StandardError, onLine, cancellationToken);
-        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // 取消/关窗：终止安装器子进程（含子进程树），避免进程退出后仍继续写版本目录
+            TryKillProcess(process);
+            throw;
+        }
+
         await Task.WhenAll(outputTask, errorTask).ConfigureAwait(false);
         onLine(null);
         return (process.ExitCode, process.ExitCode == 0);
+    }
+
+    private static void TryKillProcess(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(true);
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or SystemException)
+        {
+            // 进程已自行退出或句柄失效，无需处理
+        }
     }
 
     private static async Task PumpStreamAsync(StreamReader reader, Action<string?> onLine, CancellationToken cancellationToken)

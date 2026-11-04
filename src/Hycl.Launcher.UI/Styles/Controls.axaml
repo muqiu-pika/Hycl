@@ -447,13 +447,116 @@
     </Style>
 
     <!-- ============================================================
+         右下角悬浮下载按钮（对应 PCL-CE）：蓝色圆 + 进度环 + 下载图标
+         ============================================================ -->
+
+    <Style Selector="Button.dl-fab">
+        <Setter Property="Width" Value="46" />
+        <Setter Property="Height" Value="46" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="CornerRadius" Value="999" />
+        <Setter Property="Background" Value="{DynamicResource PrimaryGradientBrush}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Transitions">
+            <Transitions>
+                <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.15" />
+            </Transitions>
+        </Setter>
+    </Style>
+    <!-- 注意：不要把模板 presenter 的 Background 设为 Transparent——
+         Fluent 按钮的真实底色画在 presenter 上，透明会让整个圆钮隐身 -->
+    <Style Selector="Button.dl-fab:pointerover">
+        <Setter Property="RenderTransform" Value="scale(1.06)" />
+    </Style>
+    <Style Selector="Button.dl-fab:pressed">
+        <Setter Property="RenderTransform" Value="scale(0.96)" />
+    </Style>
+    <Style Selector="Button.dl-fab:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource PrimaryLightBrush}" />
+    </Style>
+    <Style Selector="Button.dl-fab:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Primary5Brush}" />
+    </Style>
+
+    <!-- ============================================================
+         登录对话框（添加账号）：三页签 + 设备码展示框
+         ============================================================ -->
+
+    <Style Selector="ListBox.login-tabs">
+        <Setter Property="Background" Value="{DynamicResource Gray8Brush}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="3" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="FontSize" Value="12.5" />
+    </Style>
+    <Style Selector="ListBox.login-tabs ListBoxItem">
+        <Setter Property="Margin" Value="2" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Foreground" Value="{DynamicResource Gray2Brush}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border x:Name="tabRoot"
+                        Background="Transparent"
+                        CornerRadius="6"
+                        Padding="0,7">
+                    <ContentPresenter Content="{TemplateBinding Content}"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center" />
+                </Border>
+            </ControlTemplate>
+        </Setter>
+    </Style>
+    <Style Selector="ListBox.login-tabs ListBoxItem:pointerover /template/ Border#tabRoot">
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+    </Style>
+    <Style Selector="ListBox.login-tabs ListBoxItem:selected /template/ Border#tabRoot">
+        <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+        <Setter Property="BoxShadow" Value="0 1 4 0 #26343D4A" />
+    </Style>
+    <Style Selector="ListBox.login-tabs ListBoxItem:selected">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <Style Selector="Border.login-code">
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Primary6Brush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="12,10" />
+    </Style>
+
+    <!-- 皮肤站多角色选择列表 -->
+    <Style Selector="ListBox.authlib-profiles">
+        <Setter Property="Background" Value="{DynamicResource Gray8Brush}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="3" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="FontSize" Value="12.5" />
+    </Style>
+    <Style Selector="ListBox.authlib-profiles ListBoxItem">
+        <Setter Property="Margin" Value="2" />
+        <Setter Property="Padding" Value="9,5" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="ListBox.authlib-profiles ListBoxItem:selected">
+        <Setter Property="Background" Value="{DynamicResource Primary6Brush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <!-- ============================================================
          下拉框（对应网页版 McComboBox）
          ============================================================ -->
 
     <Style Selector="Button.combo-trigger">
         <Setter Property="Height" Value="32" />
         <Setter Property="MinHeight" Value="0" />
-        <Setter Property="Padding" Value="8,0,10,0" />
+        <Setter Property="Padding" Value="10,0,10,0" />
         <Setter Property="CornerRadius" Value="6" />
         <Setter Property="Background" Value="{DynamicResource GlassSurfaceBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource Primary6Brush}" />
@@ -464,18 +567,49 @@
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="Cursor" Value="Hand" />
     </Style>
+    <Style Selector="Button.combo-trigger /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Transitions">
+            <Transitions>
+                <BrushTransition Property="Background" Duration="0:0:0.14" />
+                <BrushTransition Property="BorderBrush" Duration="0:0:0.14" />
+            </Transitions>
+        </Setter>
+    </Style>
     <Style Selector="Button.combo-trigger:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+        <Setter Property="Background" Value="{DynamicResource Primary7Brush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource Primary5Brush}" />
     </Style>
+    <!-- 展开态（open 类由控件代码驱动）：边框转主色，须声明在 :pointerover 之后确保覆盖 -->
+    <Style Selector=".mc-combo.open /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Primary7Brush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
+    </Style>
+    <!-- 下拉箭头：展开时旋转 180°，节奏与网页版 .mc-combo-caret（transform .2s）一致 -->
+    <Style Selector=".mc-combo /template/ Path#Caret">
+        <Setter Property="RenderTransform" Value="rotate(0deg)" />
+        <Setter Property="Transitions">
+            <Transitions>
+                <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.2" Easing="CubicEaseOut" />
+            </Transitions>
+        </Setter>
+    </Style>
+    <Style Selector=".mc-combo.open /template/ Path#Caret">
+        <Setter Property="RenderTransform" Value="rotate(180deg)" />
+    </Style>
 
+    <!-- 下拉浮层：白底、细蓝边、蓝调轻投影，淡入淡出 -->
     <Style Selector="Border.combo-pop">
         <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource Primary6Brush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="CornerRadius" Value="8" />
-        <Setter Property="Padding" Value="5" />
-        <Setter Property="BoxShadow" Value="0 8 22 0 #2E343D4A" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Padding" Value="4" />
+        <Setter Property="BoxShadow" Value="0 6 18 0 #2E1370F3" />
+        <Setter Property="Transitions">
+            <Transitions>
+                <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+            </Transitions>
+        </Setter>
     </Style>
 
     <Style Selector="ListBox.combo-list">
@@ -493,7 +627,12 @@
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Template">
             <ControlTemplate>
-                <Border x:Name="itemRoot" Background="Transparent" CornerRadius="6" Padding="10,7">
+                <Border x:Name="itemRoot" Background="Transparent" CornerRadius="4" Padding="10,6">
+                    <Border.Transitions>
+                        <Transitions>
+                            <BrushTransition Property="Background" Duration="0:0:0.12" />
+                        </Transitions>
+                    </Border.Transitions>
                     <ContentPresenter Content="{TemplateBinding Content}"
                                       ContentTemplate="{TemplateBinding ContentTemplate}"
                                       VerticalAlignment="Center" />
@@ -505,7 +644,7 @@
         <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
     </Style>
     <Style Selector="ListBox.combo-list ListBoxItem:selected /template/ Border#itemRoot">
-        <Setter Property="Background" Value="{DynamicResource Primary6Brush}" />
+        <Setter Property="Background" Value="{DynamicResource Primary7Brush}" />
     </Style>
     <Style Selector="ListBox.combo-list ListBoxItem:selected">
         <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />

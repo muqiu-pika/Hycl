@@ -45,6 +45,27 @@ public sealed class LaunchOptions
 
     public string PlayerUuid { get; init; } = "";
 
+    /// <summary>进入游戏的访问令牌；离线账号为空（占位符回退 "0"）。</summary>
+    public string AccessToken { get; init; } = "";
+
+    /// <summary>user_type 占位符：msa（正版）/ Legacy（皮肤站）/ legacy（离线）。</summary>
+    public string UserType { get; init; } = "legacy";
+
+    /// <summary>clientid 占位符（正版登录填启动器自己的 ClientId）。</summary>
+    public string AuthClientId { get; init; } = "";
+
+    /// <summary>auth_xuid 占位符（正版登录的 Xbox XUID）。</summary>
+    public string AuthXuid { get; init; } = "";
+
+    /// <summary>皮肤站 Yggdrasil 根地址；非空时注入 authlib-injector javaagent。</summary>
+    public string AuthlibServer { get; init; } = "";
+
+    /// <summary>authlib-injector.jar 的完整路径（随 AuthlibServer 一起提供）。</summary>
+    public string AuthlibJarPath { get; init; } = "";
+
+    /// <summary>皮肤站根响应的 Base64（-Dauthlibinjector.yggdrasil.prefetched）。</summary>
+    public string AuthlibPrefetched { get; init; } = "";
+
     /// <summary>游戏窗口标题；空 = 不修改（Windows 下经 Win32 注入）。</summary>
     public string WindowTitle { get; init; } = "";
 
@@ -508,8 +529,8 @@ public sealed class LaunchService
             ["assets_index_name"] = assetIndex,
             ["game_assets"] = virtualAssets,
             ["auth_uuid"] = uuid.Replace("-", "", StringComparison.Ordinal),
-            ["auth_access_token"] = "0",
-            ["user_type"] = "legacy",
+            ["auth_access_token"] = string.IsNullOrWhiteSpace(options.AccessToken) ? "0" : options.AccessToken,
+            ["user_type"] = string.IsNullOrWhiteSpace(options.UserType) ? "legacy" : options.UserType,
             ["version_type"] = versionType,
             ["natives_directory"] = resolved.NativesDirectory,
             ["launcher_name"] = "Hycl",
@@ -520,8 +541,8 @@ public sealed class LaunchService
             ["resolution_width"] = width.ToString(),
             ["resolution_height"] = height.ToString(),
             ["user_properties"] = "{}",
-            ["clientid"] = "",
-            ["auth_xuid"] = ""
+            ["clientid"] = options.AuthClientId,
+            ["auth_xuid"] = options.AuthXuid
         };
     }
 
@@ -542,6 +563,25 @@ public sealed class LaunchService
             "-Dminecraft.launcher.brand=Hycl",
             $"-Dminecraft.launcher.version={LauncherVersion}"
         };
+
+        // 皮肤站账号：注入 authlib-injector javaagent（对应 PCL-CE _AddAuthlibInjectorJvmArgs，插在最前）
+        if (!string.IsNullOrWhiteSpace(options.AuthlibServer) && !string.IsNullOrWhiteSpace(options.AuthlibJarPath))
+        {
+            arguments.Insert(
+                0,
+                $"-javaagent:\"{options.AuthlibJarPath}\"={options.AuthlibServer}");
+            arguments.Insert(1, "-Dauthlibinjector.side=client");
+            if (!string.IsNullOrWhiteSpace(options.AuthlibPrefetched))
+            {
+                arguments.Insert(2, $"-Dauthlibinjector.yggdrasil.prefetched={options.AuthlibPrefetched}");
+            }
+
+            // 兼容自签名证书的皮肤站（对齐 PCL-CE 的 WINDOWS-ROOT 处理）
+            if (OperatingSystem.IsWindows())
+            {
+                arguments.Insert(3, "-Djavax.net.ssl.trustStoreType=WINDOWS-ROOT");
+            }
+        }
 
         // 初始内存（-Xms）：锁定内存 > 手动初始内存 > 自动（对应 PCL-CE 内存策略）
         if (options.LockMemory)

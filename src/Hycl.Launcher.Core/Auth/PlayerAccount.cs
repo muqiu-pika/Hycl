@@ -3,7 +3,10 @@ using System.Text;
 
 namespace Hycl.Launcher.Core.Auth;
 
-/// <summary>离线账号（对应 PCL-CE 的离线登录）。</summary>
+/// <summary>
+/// 启动器账号。Type 取值：offline（离线）/ msa（微软正版）/ authlib（皮肤站，预留）。
+/// 正版与皮肤站账号携带令牌字段；离线账号仅 Name/Uuid。
+/// </summary>
 public sealed class PlayerAccount
 {
     public string Name { get; set; } = "Player";
@@ -11,6 +14,40 @@ public sealed class PlayerAccount
     public string Uuid { get; set; } = "";
 
     public string Type { get; set; } = "offline";
+
+    /// <summary>进入游戏用的访问令牌（正版为 MC 服务令牌，约 24 小时有效）。</summary>
+    public string AccessToken { get; set; } = "";
+
+    /// <summary>微软 refresh_token，用于启动前静默续期。</summary>
+    public string RefreshToken { get; set; } = "";
+
+    /// <summary>皮肤站 clientToken（预留）。</summary>
+    public string ClientToken { get; set; } = "";
+
+    /// <summary>皮肤站登录名（预留）。</summary>
+    public string LoginName { get; set; } = "";
+
+    /// <summary>皮肤站 Yggdrasil 根地址（预留）。</summary>
+    public string Server { get; set; } = "";
+
+    /// <summary>皮肤站显示名（预留）。</summary>
+    public string ServerName { get; set; } = "";
+
+    /// <summary>正版 Xbox XUID（auth_xuid 占位符）。</summary>
+    public string Xuid { get; set; } = "";
+
+    /// <summary>访问令牌过期时间；null 表示无需续期（离线）。</summary>
+    public DateTimeOffset? ExpiresAt { get; set; }
+
+    public bool IsMicrosoft => Type == "msa";
+
+    public bool IsAuthlib => Type == "authlib";
+
+    /// <summary>令牌是否临近过期（启动前 10 分钟内到期视为过期）。</summary>
+    public bool IsTokenNearExpiry => Type != "offline"
+                                     && (string.IsNullOrWhiteSpace(AccessToken)
+                                         || ExpiresAt is null
+                                         || ExpiresAt <= DateTimeOffset.UtcNow.AddMinutes(10));
 
     public string AvatarText => Name.Length >= 2 ? Name[..2].ToUpperInvariant() : Name.ToUpperInvariant();
 }

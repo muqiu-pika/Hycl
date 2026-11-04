@@ -47,6 +47,21 @@ public static class HyclSecrets
     /// <summary>明文 SHA-256 前 12 字节的 Base64（仅用于解密自检，不含明文信息）。</summary>
     private const string PlainDigest = "56ljrZsZN14FgZgl";
 
+    // ---------- Microsoft OAuth ClientId（正版登录设备码流，同样密文分片） ----------
+    // 与 CurseForge Key 共用同一套混淆算法；客户端 ID 本身非高机密，但保持源码无明文的口径一致。
+    private const string MsBlobHead = "xDXAAWFmaUrEWdbe";
+    private const string MsBlobBody = "CvTtAkHtmqUYigpi";
+    private const string MsBlobTail = "GEC/G62fkQ91CXKv";
+
+    private const string MsPlainDigest = "phHsHpfq9TljrwbB";
+
+    /// <summary>显式覆盖 Microsoft OAuth ClientId 的环境变量名。</summary>
+    public const string MicrosoftOAuthEnvironmentVariable = "HYCL_MS_OAUTH_CLIENT_ID";
+
+    private static string? _msOverride;
+    private static string? _msBuiltIn;
+    private static bool _msBuiltInAttempted;
+
     private static string? _override;
     private static string? _builtIn;
     private static bool _builtInAttempted;
@@ -65,6 +80,15 @@ public static class HyclSecrets
 
     /// <summary>CurseForge API Key 是否可用。</summary>
     public static bool HasCurseForgeApiKey => !string.IsNullOrWhiteSpace(CurseForgeApiKey);
+
+    /// <summary>
+    /// Microsoft OAuth ClientId（正版登录设备码流）。优先环境变量覆盖，否则内置解密；
+    /// 都不可用时返回空字符串（调用方应禁用正版登录入口并提示）。
+    /// </summary>
+    public static string MicrosoftOAuthClientId => _msOverride ?? DecryptBuiltInMs() ?? "";
+
+    /// <summary>正版登录是否可用（已配置 ClientId）。</summary>
+    public static bool HasMicrosoftOAuthClientId => !string.IsNullOrWhiteSpace(MicrosoftOAuthClientId);
 
     /// <summary>
     /// 读取显式覆盖值并做一次解密自检；应在应用启动时调用一次。
@@ -93,14 +117,33 @@ public static class HyclSecrets
         if (string.IsNullOrEmpty(key))
         {
             logger.Warn("CurseForge 官方源未启用：内置密钥解密失败或未配置，社区资源将只使用镜像源");
-            return;
+        }
+        else
+        {
+            var source = _override is null
+                ? "内置密文"
+                : !string.IsNullOrWhiteSpace(fromEnvironment) ? "环境变量覆盖" : "配置项覆盖";
+            logger.Info($"CurseForge 官方源已启用（密钥 {MaskApiKey(key)}，来源：{source}）");
         }
 
-        var source = _override is null
-            ? "内置密文"
-            : !string.IsNullOrWhiteSpace(fromEnvironment) ? "环境变量覆盖" : "配置项覆盖";
-        logger.Info($"CurseForge 官方源已启用（密钥 {MaskApiKey(key)}，来源：{source}）");
+        // Microsoft OAuth ClientId：环境变量 > 内置密文
+        var msFromEnvironment = Environment.GetEnvironmentVariable(MicrosoftOAuthEnvironmentVariable);
+        _msOverride = string.IsNullOrWhiteSpace(msFromEnvironment) ? null : msFromEnvironment.Trim();
+        var clientId = MicrosoftOAuthClientId;
+        if (string.IsNullOrEmpty(clientId))
+        {
+            logger.Warn("正版登录未启用：Microsoft OAuth ClientId 解密失败或未配置（可设 HYCL_MS_OAUTH_CLIENT_ID）");
+        }
+        else
+        {
+            logger.Info(
+                $"正版登录已启用（ClientId {MaskClientId(clientId)}，来源：{(_msOverride is null ? "内置密文" : "环境变量覆盖")}）");
+        }
     }
+
+    /// <summary>ClientId 日志掩码：只保留前 8 位，避免完整 ID 进日志。</summary>
+    public static string MaskClientId(string clientId)
+        => string.IsNullOrEmpty(clientId) || clientId.Length <= 8 ? "***" : clientId[..8] + "***";
 
     /// <summary>日志用掩码：只保留前缀 <c>$2a$10$</c>，其余一律替换为 ***。</summary>
     public static string MaskApiKey(string key)
@@ -170,5 +213,57 @@ public static class HyclSecrets
     {
         _builtIn = null;
         _logger?.Error($"CurseForge 内置密钥解密自检失败（{reason}），本次会话禁用官方源并回退镜像");
+    }
+
+    /// <summary>解密内置 Microsoft OAuth ClientId；失败返回 null 并记录一次错误日志。</summary>
+    private static string? DecryptBuiltInMs()
+    {
+        if (_msBuiltInAttempted)
+        {
+            return _msBuiltIn;
+        }
+
+        _msBuiltInAttempted = true;
+        try
+        {
+            var text = DecryptSharded(MsBlobHead + MsBlobBody + MsBlobTail);
+            var digest = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(text)), 0, 12);
+            if (!digest.Equals(MsPlainDigest, StringComparison.Ordinal))
+            {
+                _msBuiltIn = null;
+                _logger?.Error("Microsoft OAuth ClientId 解密自检失败（校验和不匹配），正版登录将不可用");
+                return null;
+            }
+
+            _msBuiltIn = text;
+            return _msBuiltIn;
+        }
+        catch (Exception ex) when (ex is FormatException or CryptographicException or ArgumentException or IndexOutOfRangeException)
+        {
+            _msBuiltIn = null;
+            _logger?.Error($"Microsoft OAuth ClientId 解密自检失败（{ex.Message}），正版登录将不可用");
+            return null;
+        }
+    }
+
+    /// <summary>与两处内置密钥共用的混淆还原（掩码材料同 MaskSeedA/B）。</summary>
+    private static string DecryptSharded(string encoded)
+    {
+        var cipher = Convert.FromBase64String(encoded);
+        var seed = new byte[MaskSeedA.Length];
+        for (var i = 0; i < seed.Length; i++)
+        {
+            seed[i] = (byte)(MaskSeedA[i] ^ MaskSeedB[i] ^ MaskBlend);
+        }
+
+        var plain = new byte[cipher.Length];
+        for (var i = 0; i < cipher.Length; i++)
+        {
+            var mixed = (seed[i % seed.Length] + i * 29 + MaskOffset) & 0xFF;
+            var tweak = i % 5 == 0 ? 0x5A : i % 3 == 0 ? 0xC3 : 0x00;
+            plain[i] = (byte)(cipher[i] ^ (byte)(mixed ^ tweak));
+        }
+
+        return Encoding.UTF8.GetString(plain);
     }
 }

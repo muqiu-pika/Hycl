@@ -88,6 +88,90 @@ public sealed class AccountStore
         SelectedIndex = Accounts.Count - 1;
     }
 
+    /// <summary>
+    /// 新增或更新微软正版账号：同 UUID 已存在则原位更新令牌，否则追加并选中。
+    /// </summary>
+    public void AddMicrosoft(MicrosoftAuthResult result)
+    {
+        var existing = Accounts.FirstOrDefault(x =>
+            x.Type == "msa" && x.Uuid.Equals(result.Uuid, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            ApplyMicrosoftAuth(existing, result);
+            SelectedIndex = Accounts.IndexOf(existing);
+            return;
+        }
+
+        var account = new PlayerAccount
+        {
+            Name = result.UserName,
+            Uuid = result.Uuid,
+            Type = "msa",
+            AccessToken = result.AccessToken,
+            RefreshToken = result.RefreshToken,
+            Xuid = result.Xuid,
+            ExpiresAt = result.ExpiresAt
+        };
+        Accounts.Add(account);
+        SelectedIndex = Accounts.Count - 1;
+    }
+
+    /// <summary>把最新令牌写回账号对象（刷新与重登录共用）。</summary>
+    public static void ApplyMicrosoftAuth(PlayerAccount account, MicrosoftAuthResult result)
+    {
+        account.Name = result.UserName;
+        account.Uuid = result.Uuid;
+        account.Type = "msa";
+        account.AccessToken = result.AccessToken;
+        account.RefreshToken = result.RefreshToken;
+        account.Xuid = result.Xuid;
+        account.ExpiresAt = result.ExpiresAt;
+    }
+
+    /// <summary>
+    /// 新增或更新皮肤站账号：同 皮肤站+UUID 已存在则原位更新令牌，否则追加并选中。
+    /// </summary>
+    public void AddAuthlib(AuthlibAuthResult result)
+    {
+        var existing = Accounts.FirstOrDefault(x =>
+            x.Type == "authlib"
+            && x.Server.Equals(result.ApiRoot, StringComparison.OrdinalIgnoreCase)
+            && x.Uuid.Equals(result.Uuid, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            ApplyAuthlibAuth(existing, result);
+            SelectedIndex = Accounts.IndexOf(existing);
+            return;
+        }
+
+        var account = new PlayerAccount
+        {
+            Name = result.UserName,
+            Uuid = result.Uuid,
+            Type = "authlib",
+            AccessToken = result.AccessToken,
+            ClientToken = result.ClientToken,
+            LoginName = result.LoginName,
+            Server = result.ApiRoot,
+            ServerName = result.ServerName
+        };
+        Accounts.Add(account);
+        SelectedIndex = Accounts.Count - 1;
+    }
+
+    /// <summary>把皮肤站最新令牌写回账号对象。</summary>
+    public static void ApplyAuthlibAuth(PlayerAccount account, AuthlibAuthResult result)
+    {
+        account.Name = result.UserName;
+        account.Uuid = result.Uuid;
+        account.Type = "authlib";
+        account.AccessToken = result.AccessToken;
+        account.ClientToken = result.ClientToken;
+        account.LoginName = result.LoginName;
+        account.Server = result.ApiRoot;
+        account.ServerName = result.ServerName;
+    }
+
     public void Select(int index)
     {
         if (index >= 0 && index < Accounts.Count)

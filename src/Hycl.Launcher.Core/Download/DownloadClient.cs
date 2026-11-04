@@ -165,7 +165,9 @@ public sealed class DownloadClient : IDisposable
             await DelayBeforeRetryAsync(attempt, retryCount, cancellationToken).ConfigureAwait(false);
         }
 
-        throw new DownloadException($"请求失败：{urls.FirstOrDefault()}", lastError);
+        throw new DownloadException(
+            $"请求失败：{urls.FirstOrDefault()}（{DescribeLastError(lastError)}）",
+            lastError);
     }
 
     public async Task<T> GetJsonAsync<T>(string url, CancellationToken cancellationToken = default)
@@ -245,6 +247,9 @@ public sealed class DownloadClient : IDisposable
                 var resumeFrom = GetResumeLength(tempFile);
                 foreach (var url in candidateUrls)
                 {
+                    // 上一次尝试可能在流中断前已把数据追加进临时文件（超过 resumeFrom）：
+                    // 先截断回当前续传偏移，否则 Range 续传 + Append 会拼出带空洞的坏文件
+                    TruncateTo(tempFile, resumeFrom);
                     try
                     {
                         var state = new ResumeState(resumeFrom);
@@ -293,8 +298,34 @@ public sealed class DownloadClient : IDisposable
             throw;
         }
 
-        throw new DownloadException($"下载失败：{candidateUrls.FirstOrDefault()}", lastError);
+        throw new DownloadException(
+            $"下载失败：{candidateUrls.FirstOrDefault()}（{DescribeLastError(lastError)}）",
+            lastError);
     }
+
+    /// <summary>把续传临时文件截断到指定长度（更长说明上次中断前多写了数据）。</summary>
+    private static void TruncateTo(string tempFile, long length)
+    {
+        try
+        {
+            if (length >= 0 && File.Exists(tempFile) && new FileInfo(tempFile).Length > length)
+            {
+                using var stream = new FileStream(tempFile, FileMode.Open, FileAccess.Write, FileShare.None);
+                stream.SetLength(length);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // 截断失败不致命：下一个 URL 会以 416/大小校验兜底
+        }
+    }
+
+    private static string DescribeLastError(Exception? lastError)
+        => lastError is null
+            ? "无可用下载源"
+            : lastError.GetType() == typeof(IOException) || lastError.GetType() == typeof(UnauthorizedAccessException)
+                ? lastError.Message
+                : $"{lastError.GetType().Name}: {lastError.Message}";
 
     /// <summary>断点续传状态（async 方法无法使用 ref 参数，用可变对象承载）。</summary>
     private sealed class ResumeState(long offset)
@@ -337,9 +368,10 @@ public sealed class DownloadClient : IDisposable
 
         var total = expectedSize
                     ?? (response.Content.Headers.ContentLength is { } contentLength
-                        ? contentLength + resumeFrom
+                        ? contentLength + (appending ? resumeFrom : 0)
                         : 0);
-        var received = resumeFrom;
+        // 服务器不支持 Range 时返回 200 全量：文件已用 FileMode.Create 截断重写，必须从 0 计数
+        var received = appending ? resumeFrom : 0;
 
         await using (var source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
         await using (var target = new FileStream(
@@ -492,7 +524,8 @@ public sealed class DownloadClient : IDisposable
             return;
         }
 
-        var delay = TimeSpan.FromMilliseconds(Math.Min(3000, 400 * (attempt + 1)));
+        // 随机抖动退避（对齐 PCL-CE FileDownloader）：避免并发任务同步重试打爆同一镜像
+        var delay = TimeSpan.FromMilliseconds(Math.Min(4000, Random.Shared.Next(300, 500 + (attempt + 1) * 300)));
         await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
     }
 

@@ -99,6 +99,34 @@
                             Margin="0,0,0,40">
                         <TextBlock Text="{Binding ToastMessage}" />
                     </Border>
+
+                    <!--
+                        右下角悬浮下载按钮（对应 PCL-CE）：下载/安装进行中且不在下载页时显示，
+                        进度环以轻微颜色差呈现下载了多少；点击返回下载页查看详情/取消。
+                    -->
+                    <Button Name="FloatingDownloadButton"
+                            Classes="dl-fab"
+                            IsVisible="{Binding ShowFloatingDownload}"
+                            ToolTip.Tip="{Binding FloatingDownloadTip}"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Bottom"
+                            Margin="0,0,16,16"
+                            Click="OnFloatingDownloadClick">
+                        <Panel>
+                            <c:McProgressRing Width="40"
+                                              Height="40"
+                                              Thickness="2.5"
+                                              TrackBrush="#26FFFFFF"
+                                              ProgressBrush="{DynamicResource PrimaryLightBrush}"
+                                              Percent="{Binding Download.Install.ProgressPercent}" />
+                            <c:HyclIcon Kind="download"
+                                        Width="16"
+                                        Height="16"
+                                        Foreground="White"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center" />
+                        </Panel>
+                    </Button>
                 </Grid>
 
                 <!--

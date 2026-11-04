@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:c="clr-namespace:Hycl.Launcher.UI.Controls"
              xmlns:m="clr-namespace:Hycl.Launcher.Core.Models;assembly=Hycl.Launcher.Core"
+             xmlns:auth="clr-namespace:Hycl.Launcher.Core.Auth;assembly=Hycl.Launcher.Core"
              xmlns:vm="clr-namespace:Hycl.Launcher.Core.ViewModels.Pages;assembly=Hycl.Launcher.Core"
              x:Class="Hycl.Launcher.UI.Views.LaunchPage"
              x:DataType="vm:LaunchPageViewModel"
@@ -83,6 +84,9 @@
                             </Button>
                             <Button Classes="pa-btn" ToolTip.Tip="切换档案" Command="{Binding OpenProfilesCommand}">
                                 <c:HyclIcon Kind="arrow-right-left" Width="16" Height="16" />
+                            </Button>
+                            <Button Classes="pa-btn" ToolTip.Tip="添加账号（正版 / 离线）" Command="{Binding OpenLoginDialogCommand}">
+                                <c:HyclIcon Kind="user-plus" Width="16" Height="16" />
                             </Button>
                         </StackPanel>
                         </StackPanel>
@@ -376,6 +380,210 @@
                                 MinWidth="104"
                                 Content="确认关闭"
                                 Command="{Binding ConfirmCloseGameCommand}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Panel>
+
+        <!-- 添加账号弹窗：正版（设备码）/ 皮肤站（预留）/ 离线 -->
+        <Panel IsVisible="{Binding IsLoginDialogVisible}"
+               Background="{DynamicResource DialogScrimBrush}"
+               ZIndex="3">
+            <Border Classes="dialog-card"
+                    Width="480"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="9">
+                        <c:HyclIcon Kind="user-plus"
+                                    Width="19"
+                                    Height="19"
+                                    Foreground="{DynamicResource PrimaryBrush}"
+                                    VerticalAlignment="Center" />
+                        <TextBlock Text="添加账号"
+                                   Classes="dialog-title"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+
+                    <!-- 三个页签：与 PCL-CE 登录窗一致的分组 -->
+                    <ListBox Classes="login-tabs"
+                             SelectedIndex="{Binding LoginTabIndex, Mode=TwoWay}"
+                             Margin="0,14,0,0">
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <UniformGrid Columns="3" />
+                            </ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                        <ListBoxItem Content="正版登录" />
+                        <ListBoxItem Content="皮肤站" />
+                        <ListBoxItem Content="离线模式" />
+                    </ListBox>
+
+                    <!-- 正版：设备码流 -->
+                    <StackPanel IsVisible="{Binding IsMsLoginTab}" Margin="0,14,0,0">
+                        <TextBlock Classes="dialog-body"
+                                   Text="通过微软官方设备码登录：点击开始后会显示一个代码，浏览器打开 microsoft.com/link 输入即可。Hycl 只使用自研应用身份，不会接触你的密码。"
+                                   TextWrapping="Wrap" />
+
+                        <Border Classes="login-code"
+                                IsVisible="{Binding HasMsUserCode}"
+                                Margin="0,14,0,0">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="在浏览器中输入此代码"
+                                           FontSize="11.5"
+                                           Foreground="{DynamicResource Gray3Brush}"
+                                           HorizontalAlignment="Center" />
+                                <TextBlock Text="{Binding MsUserCode}"
+                                           FontSize="26"
+                                           FontWeight="Bold"
+                                           Foreground="{DynamicResource PrimaryDeepBrush}"
+                                           HorizontalAlignment="Center"
+                                           Margin="0,4,0,0" />
+                            </StackPanel>
+                        </Border>
+
+                        <Button Classes="mc-btn primary"
+                                MinHeight="38"
+                                HorizontalAlignment="Stretch"
+                                Margin="0,14,0,0"
+                                IsEnabled="{Binding !IsMsLoginBusy}"
+                                Command="{Binding StartMsLoginCommand}">
+                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                <c:HyclIcon Kind="user-plus" Width="15" Height="15" VerticalAlignment="Center" />
+                                <TextBlock Text="开始登录" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+
+                        <Button Classes="line-btn"
+                                Height="36"
+                                HorizontalAlignment="Stretch"
+                                Margin="0,10,0,0"
+                                IsVisible="{Binding HasMsUserCode}"
+                                Command="{Binding OpenMsVerificationPageCommand}">
+                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                <c:HyclIcon Kind="globe" Width="15" Height="15" VerticalAlignment="Center" />
+                                <TextBlock Text="打开登录页面" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+
+                        <TextBlock Text="{Binding MsLoginStage}"
+                                   IsVisible="{Binding MsLoginStage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                   FontSize="11.5"
+                                   TextWrapping="Wrap"
+                                   Foreground="{DynamicResource Gray2Brush}"
+                                   Margin="0,12,0,0" />
+                    </StackPanel>
+
+                    <!-- 皮肤站：authlib-injector / Yggdrasil -->
+                    <StackPanel IsVisible="{Binding IsAuthlibLoginTab}" Margin="0,14,0,0">
+                        <TextBlock Classes="dialog-body"
+                                   Text="使用支持 authlib-injector 规范的皮肤站（如 LittleSkin）。填写站点地址与账号，登录后启动游戏时会自动注入。"
+                                   TextWrapping="Wrap" />
+
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10" Margin="0,12,0,0">
+                            <TextBlock Text="皮肤站"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource Gray2Brush}"
+                                       FontSize="12.5" />
+                            <TextBox Grid.Column="1"
+                                     Text="{Binding AuthlibServerText, Mode=TwoWay}"
+                                     PlaceholderText="https://littleskin.cn/api/yggdrasil" />
+                        </Grid>
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10" Margin="0,10,0,0">
+                            <TextBlock Text="账号"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource Gray2Brush}"
+                                       FontSize="12.5" />
+                            <TextBox Grid.Column="1"
+                                     Text="{Binding AuthlibUsernameText, Mode=TwoWay}"
+                                     PlaceholderText="皮肤站注册的邮箱或用户名" />
+                        </Grid>
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10" Margin="0,10,0,0">
+                            <TextBlock Text="密码"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource Gray2Brush}"
+                                       FontSize="12.5" />
+                            <TextBox Grid.Column="1"
+                                     Text="{Binding AuthlibPasswordText, Mode=TwoWay}"
+                                     PasswordChar="•" />
+                        </Grid>
+
+                        <Button Classes="mc-btn primary"
+                                MinHeight="38"
+                                HorizontalAlignment="Stretch"
+                                Margin="0,14,0,0"
+                                IsEnabled="{Binding !IsAuthlibLoginBusy}"
+                                Command="{Binding StartAuthlibLoginCommand}">
+                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                <c:HyclIcon Kind="user-plus" Width="15" Height="15" VerticalAlignment="Center" />
+                                <TextBlock Text="登录皮肤站" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+
+                        <!-- 多角色选择 -->
+                        <StackPanel IsVisible="{Binding HasAuthlibProfileOptions}" Margin="0,12,0,0">
+                            <TextBlock Text="该账号有多个角色，请选择："
+                                       FontSize="12"
+                                       Foreground="{DynamicResource Gray2Brush}" />
+                            <ListBox Classes="authlib-profiles"
+                                     ItemsSource="{Binding AuthlibProfileOptions}"
+                                     SelectedItem="{Binding SelectedAuthlibProfile, Mode=TwoWay}"
+                                     MaxHeight="120"
+                                     Margin="0,6,0,0">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate x:DataType="auth:AuthlibProfile">
+                                        <TextBlock Text="{Binding Name}" FontSize="12.5" VerticalAlignment="Center" />
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                            <Button Classes="mc-btn primary"
+                                    MinHeight="34"
+                                    HorizontalAlignment="Stretch"
+                                    Margin="0,8,0,0"
+                                    Command="{Binding ConfirmAuthlibProfileCommand}"
+                                    Content="确认并登录" />
+                        </StackPanel>
+
+                        <TextBlock Text="{Binding AuthlibLoginStage}"
+                                   IsVisible="{Binding AuthlibLoginStage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                   FontSize="11.5"
+                                   TextWrapping="Wrap"
+                                   Foreground="{DynamicResource Gray2Brush}"
+                                   Margin="0,12,0,0" />
+                    </StackPanel>
+
+                    <!-- 离线：玩家名 -->
+                    <StackPanel IsVisible="{Binding IsOfflineLoginTab}" Margin="0,14,0,0">
+                        <TextBlock Classes="dialog-body"
+                                   Text="离线模式无需网络与账号，玩家名会按原版离线 UUID 规则生成固定身份。"
+                                   TextWrapping="Wrap" />
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10" Margin="0,14,0,0">
+                            <TextBlock Text="玩家名"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource Gray2Brush}"
+                                       FontSize="12.5" />
+                            <TextBox Grid.Column="1"
+                                     Text="{Binding OfflineNameText, Mode=TwoWay}"
+                                     PlaceholderText="例如：Steve（最长 16 字符）"
+                                     MaxLength="16" />
+                        </Grid>
+                        <Button Classes="mc-btn primary"
+                                MinHeight="38"
+                                HorizontalAlignment="Stretch"
+                                Margin="0,14,0,0"
+                                IsEnabled="{Binding CanAddOfflineAccount}"
+                                Command="{Binding AddOfflineAccountCommand}"
+                                Content="添加离线档案" />
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal"
+                                Spacing="10"
+                                HorizontalAlignment="Right"
+                                Margin="0,20,0,0">
+                        <Button Classes="mc-btn"
+                                MinWidth="88"
+                                Content="关闭"
+                                Command="{Binding CloseLoginDialogCommand}" />
                     </StackPanel>
                 </StackPanel>
             </Border>

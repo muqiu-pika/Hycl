@@ -99,7 +99,7 @@ public sealed class CompInstallService
         }
 
         Directory.CreateDirectory(directory);
-        var fileName = Path.GetFileName(file.FileName);
+        var fileName = SanitizeFileName(file.FileName);
         if (string.IsNullOrWhiteSpace(fileName))
         {
             throw new CompException("资源文件缺少有效的文件名");
@@ -141,24 +141,26 @@ public sealed class CompInstallService
         bool downloadAssets = true)
     {
         var instanceDirectory = Path.Combine(gameDirectory, "versions", instanceName);
+        // 回滚标记：目录是本次新建的才回滚，避免误删已存在的实例
+        var createdInstanceDirectory = !Directory.Exists(instanceDirectory);
         Directory.CreateDirectory(instanceDirectory);
         var packPath = Path.Combine(instanceDirectory, "原始整合包" + Path.GetExtension(file.FileName));
 
         var reporter = new CompProgress(progress);
         reporter.Stage("下载整合包");
         reporter.BeginFile(file.FileName, file.Size);
-        await _requester.ClientDownloadAsync(
-                file.DownloadUrls,
-                packPath,
-                file.Size > 0 ? file.Size : null,
-                file.Hash,
-                new Progress<DownloadByteProgress>(value => reporter.FileBytes(value.ReceivedBytes, value.TotalBytes)),
-                cancellationToken)
-            .ConfigureAwait(false);
-        reporter.FileCompleted(file.Size);
-
         try
         {
+            await _requester.ClientDownloadAsync(
+                    file.DownloadUrls,
+                    packPath,
+                    file.Size > 0 ? file.Size : null,
+                    file.Hash,
+                    new Progress<DownloadByteProgress>(value => reporter.FileBytes(value.ReceivedBytes, value.TotalBytes)),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            reporter.FileCompleted(file.Size);
+
             var modpackType = DetectModpackType(packPath);
             var gameVersion = modpackType switch
             {
@@ -178,10 +180,24 @@ public sealed class CompInstallService
             _logger.Info($"整合包安装完成：{instanceName}（{modpackType}，MC {gameVersion}）");
             return instanceName;
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch
         {
-            // 取消：删除已下载的整合包临时文件（zip 句柄已随 using 关闭）
+            // 取消/失败/格式不支持：清掉整合包临时文件；本次新建的实例目录整体回滚，
+            // 不留半成品（overrides 已解压一半、 mods 只下了一部分等都属于无效状态）
             TryDeleteFile(packPath);
+            if (createdInstanceDirectory && Directory.Exists(instanceDirectory))
+            {
+                try
+                {
+                    Directory.Delete(instanceDirectory, true);
+                    _logger.Warn($"整合包安装未完成，已回滚实例目录：{instanceDirectory}");
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    _logger.Error("回滚整合包实例目录失败", ex);
+                }
+            }
+
             throw;
         }
     }
@@ -394,7 +410,7 @@ public sealed class CompInstallService
                 ? instanceDirectory
                 : Path.Combine(instanceDirectory, subFolder);
             Directory.CreateDirectory(destinationDirectory);
-            var destination = Path.Combine(destinationDirectory, file.FileName);
+            var destination = Path.Combine(destinationDirectory, SanitizeFileName(file.FileName));
             reporter.BeginFile(file.FileName, file.Size);
             await _requester.ClientDownloadAsync(
                     file.DownloadUrls, destination, file.Size > 0 ? file.Size : null, file.Hash,
@@ -479,6 +495,25 @@ public sealed class CompInstallService
         return destination.StartsWith(Path.GetFullPath(instanceDirectory), StringComparison.OrdinalIgnoreCase)
             ? destination
             : null;
+    }
+
+    /// <summary>
+    /// 文件名消毒：去掉目录部分、拒绝 "…" 上级跳转与非法字符（资源名来自第三方 API，不可信任）。
+    /// </summary>
+    internal static string SanitizeFileName(string rawName)
+    {
+        var name = Path.GetFileName(rawName?.Trim());
+        if (string.IsNullOrWhiteSpace(name) || name is "." or "..")
+        {
+            return "";
+        }
+
+        foreach (var invalid in Path.GetInvalidFileNameChars())
+        {
+            name = name.Replace(invalid, '_');
+        }
+
+        return name.Length > 180 ? name[..180] : name;
     }
 
     /// <summary>安装整合包所需的原版与加载器（复用加载器安装门面）。</summary>

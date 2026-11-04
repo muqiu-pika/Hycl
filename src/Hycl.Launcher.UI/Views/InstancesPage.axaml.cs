@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
 using Hycl.Launcher.Core.ViewModels;
@@ -23,6 +24,18 @@ public partial class InstancesPage : UserControl
         }
 
         viewModel.FolderPicker = PickFolderAsync;
+        viewModel.ListResetRequested -= OnListResetRequested;
+        viewModel.ListResetRequested += OnListResetRequested;
+    }
+
+    private void OnListResetRequested(object? sender, EventArgs e)
+    {
+        // 删除实例后回到列表开头：滚动复位（选中项已由 VM 置为列表第一项），
+        // 避免滚动位置停在旧实例附近让用户误以为还停留在旧实例
+        if (this.FindControl<ScrollViewer>("InstanceScroll") is { } scroll)
+        {
+            scroll.Offset = new Vector(scroll.Offset.X, 0);
+        }
     }
 
     private async Task<string?> PickFolderAsync(string? startDirectory)
