@@ -517,9 +517,25 @@ public partial class CompSectionViewModel : ObservableObject
         }
     }
 
+    /// <summary>由本分区发起、仍在进行的安装项（用于「返回」时只取消自己发起的下载）。</summary>
+    private CompFileItemViewModel? _installingItem;
+
     [RelayCommand]
     private void CloseDetail()
     {
+        if (_installingItem is not null && _install.IsInstalling)
+        {
+            if (_install.CancelIfDownloading())
+            {
+                _toast?.Invoke($"已取消下载：{_install.InstallingName}");
+            }
+            else
+            {
+                // 解压/安装原版等不可逆阶段：不取消，继续完成，避免留下半成品实例
+                _toast?.Invoke($"当前阶段（{_install.StageText}）无法安全取消，安装将继续完成");
+            }
+        }
+
         CancelAndDispose(ref _detailCts);
         _detailGeneration++;
         IsLoadingVersions = false;
@@ -553,7 +569,19 @@ public partial class CompSectionViewModel : ObservableObject
                 instanceName = "Modpack";
             }
 
-            await _install.RunCompModpackAsync(item.File, instanceName).ConfigureAwait(true);
+            _installingItem = item;
+            try
+            {
+                await _install.RunCompModpackAsync(item.File, instanceName).ConfigureAwait(true);
+            }
+            finally
+            {
+                if (ReferenceEquals(_installingItem, item))
+                {
+                    _installingItem = null;
+                }
+            }
+
             return;
         }
 
@@ -574,6 +602,7 @@ public partial class CompSectionViewModel : ObservableObject
         }
 
         item.IsInstalling = true;
+        _installingItem = item;
         try
         {
             await _install.RunCompFileAsync(item.File, target.Id, Title).ConfigureAwait(true);
@@ -581,6 +610,10 @@ public partial class CompSectionViewModel : ObservableObject
         finally
         {
             item.IsInstalling = false;
+            if (ReferenceEquals(_installingItem, item))
+            {
+                _installingItem = null;
+            }
         }
     }
 

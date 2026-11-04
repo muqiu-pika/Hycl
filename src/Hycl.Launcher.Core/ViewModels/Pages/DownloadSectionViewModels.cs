@@ -331,6 +331,31 @@ public partial class InstallTaskViewModel : ObservableObject
 
     public void Cancel() => _cts?.Cancel();
 
+    /// <summary>
+    /// 是否仍处于可安全取消的阶段：准备中、获取版本/加载器信息、检查原版、下载…。
+    /// 这些阶段只读取元数据或写入可丢弃的临时文件；解压整合包、安装原版/加载器、复制资源
+    /// 等阶段取消会留下半成品实例或残缺资源，需继续完成后再处理。
+    /// </summary>
+    public bool IsInCancellableDownloadStage =>
+        IsInstalling
+        && _cts is not null
+        && (StageText == "准备中"
+            || StageText.StartsWith("获取", StringComparison.Ordinal)
+            || StageText == "检查原版"
+            || StageText.StartsWith("下载", StringComparison.Ordinal));
+
+    /// <summary>页面返回/切换等辅助路径：只在可安全取消阶段取消；解压与安装阶段保持继续。返回是否已发起取消。</summary>
+    public bool CancelIfDownloading()
+    {
+        if (!IsInCancellableDownloadStage)
+        {
+            return false;
+        }
+
+        _cts!.Cancel();
+        return true;
+    }
+
     [RelayCommand]
     private void CancelInstall() => Cancel();
 }

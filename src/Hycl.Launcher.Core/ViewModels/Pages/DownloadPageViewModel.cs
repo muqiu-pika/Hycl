@@ -142,7 +142,8 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
     public void Deactivate()
     {
         Wizard.CancelPending();
-        Install.Cancel();
+        // 只取消仍处于下载/准备阶段的任务；解压与安装原版/加载器等不可逆阶段继续完成
+        Install.CancelIfDownloading();
         ActiveSection?.CancelPending();
         foreach (var section in CompSections)
         {

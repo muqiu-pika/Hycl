@@ -100,6 +100,9 @@ public sealed class LauncherServices
             configStore.Config.UserName = accounts.SelectedAccount.Name;
         }
 
+        // 启动时一次性清理上次异常退出遗留的下载临时文件；在创建下载客户端与任何下载逻辑之前完成
+        StaleTempCleaner.Run(configStore.Config.EffectiveGameDirectory, logger);
+
         var javaDetector = new JavaDetector(logger);
         var downloadClient = new DownloadClient(logger, configStore.Config.RetryCount);
         var versionResolver = new VersionResolver(logger);
