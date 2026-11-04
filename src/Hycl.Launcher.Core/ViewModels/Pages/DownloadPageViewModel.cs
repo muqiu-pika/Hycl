@@ -166,6 +166,20 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
         }
     }
 
+    /// <summary>
+    /// 窗口关闭：取消所有在途任务（含安装/解压阶段），并等待下载临时文件与半成品目录回滚完成。
+    /// </summary>
+    public void Shutdown()
+    {
+        Wizard.CancelPending();
+        Install.CancelForShutdown();
+        ActiveSection?.CancelPending();
+        foreach (var section in CompSections)
+        {
+            section.Detach();
+        }
+    }
+
     /// <summary>重新进入下载页：恢复社区分区的安装进度监听。</summary>
     public void Activate()
     {

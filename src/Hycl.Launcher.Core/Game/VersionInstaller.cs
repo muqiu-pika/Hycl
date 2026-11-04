@@ -276,110 +276,141 @@ public sealed partial class VersionInstaller
     {
         var reporter = new ProgressReporter(progress);
         var versionDirectory = Path.Combine(gameDirectory, "versions", summary.Id);
+        var versionDirectoryExisted = Directory.Exists(versionDirectory);
         Directory.CreateDirectory(versionDirectory);
 
-        reporter.Stage("获取版本信息");
-        _logger.Info($"开始安装 {summary.Id}（版本列表源 {policy.VersionListSource} / 文件源 {policy.FileSource}）");
-        var rawJson = await _client
-            .GetStringAsync(DownloadSources.GetLauncherOrMetaUrls(summary.Url, policy), cancellationToken)
-            .ConfigureAwait(false);
-        // 1.16.5 的 authlib 2.1.28 存在兼容问题（对应 PCL-CE ToolFixAuthlib，默认开启）
-        if (FixAuthlibEnabled && summary.Id.Equals("1.16.5", StringComparison.Ordinal))
+        try
         {
-            rawJson = VersionJsonMerger.FixAuthlib(rawJson);
-        }
-
-        var jsonPath = Path.Combine(versionDirectory, summary.Id + ".json");
-        await File.WriteAllTextAsync(jsonPath, rawJson, cancellationToken).ConfigureAwait(false);
-
-        var info = JsonSerializer.Deserialize<VersionInfo>(rawJson, JsonOptions)
-                   ?? throw new DownloadException($"版本 JSON 解析失败：{summary.Id}");
-        if (string.IsNullOrWhiteSpace(info.Id))
-        {
-            info.Id = summary.Id;
-        }
-
-        var environment = RuleEnvironment.Current(false);
-
-        // 客户端 jar
-        if (info.Downloads?.Client is not null)
-        {
-            reporter.Stage("下载客户端");
-            var jarPath = Path.Combine(versionDirectory, summary.Id + ".jar");
-            var client = info.Downloads.Client;
-            var urls = DownloadSources.GetLauncherOrMetaUrls(client.Url, policy);
-            reporter.BeginFile(summary.Id + ".jar", client.Size);
-            await _client.DownloadFileAsync(
-                    urls,
-                    jarPath,
-                    client.Size > 0 ? client.Size : null,
-                    client.Sha1,
-                    new Progress<DownloadByteProgress>(value => reporter.FileBytes(value.ReceivedBytes, value.TotalBytes)),
-                    cancellationToken)
+            reporter.Stage("获取版本信息");
+            _logger.Info($"开始安装 {summary.Id}（版本列表源 {policy.VersionListSource} / 文件源 {policy.FileSource}）");
+            var rawJson = await _client
+                .GetStringAsync(DownloadSources.GetLauncherOrMetaUrls(summary.Url, policy), cancellationToken)
                 .ConfigureAwait(false);
-            reporter.FileCompleted(client.Size > 0 ? client.Size : new FileInfo(jarPath).Length);
-        }
-
-        // 依赖库与 natives
-        var libraries = LibraryResolver.CollectLibraries(info, environment, policy);
-        reporter.Stage("下载依赖库", libraries.Count);
-        var librariesDirectory = Path.Combine(gameDirectory, "libraries");
-        var nativesDirectory = Path.Combine(versionDirectory, "natives");
-
-        await ForEachParallelAsync(
-            libraries,
-            threads,
-            async library =>
+            // 1.16.5 的 authlib 2.1.28 存在兼容问题（对应 PCL-CE ToolFixAuthlib，默认开启）
+            if (FixAuthlibEnabled && summary.Id.Equals("1.16.5", StringComparison.Ordinal))
             {
-                var destination = Path.Combine(librariesDirectory, library.RelativePath.Replace('/', Path.DirectorySeparatorChar));
-                reporter.BeginFile(library.RelativePath, library.Size);
+                rawJson = VersionJsonMerger.FixAuthlib(rawJson);
+            }
+
+            var jsonPath = Path.Combine(versionDirectory, summary.Id + ".json");
+            await File.WriteAllTextAsync(jsonPath, rawJson, cancellationToken).ConfigureAwait(false);
+
+            var info = JsonSerializer.Deserialize<VersionInfo>(rawJson, JsonOptions)
+                       ?? throw new DownloadException($"版本 JSON 解析失败：{summary.Id}");
+            if (string.IsNullOrWhiteSpace(info.Id))
+            {
+                info.Id = summary.Id;
+            }
+
+            var environment = RuleEnvironment.Current(false);
+
+            // 客户端 jar
+            if (info.Downloads?.Client is not null)
+            {
+                reporter.Stage("下载客户端");
+                var jarPath = Path.Combine(versionDirectory, summary.Id + ".jar");
+                var client = info.Downloads.Client;
+                var urls = DownloadSources.GetLauncherOrMetaUrls(client.Url, policy);
+                reporter.BeginFile(summary.Id + ".jar", client.Size);
                 await _client.DownloadFileAsync(
-                        library.Urls,
-                        destination,
-                        library.Size > 0 ? library.Size : null,
-                        library.Sha1,
-                        null,
+                        urls,
+                        jarPath,
+                        client.Size > 0 ? client.Size : null,
+                        client.Sha1,
+                        new Progress<DownloadByteProgress>(value => reporter.FileBytes(value.ReceivedBytes, value.TotalBytes)),
                         cancellationToken)
                     .ConfigureAwait(false);
-                reporter.FileCompleted(library.Size > 0 ? library.Size : 0);
-            },
-            cancellationToken).ConfigureAwait(false);
+                reporter.FileCompleted(client.Size > 0 ? client.Size : new FileInfo(jarPath).Length);
+            }
 
-        // 解压 natives（仅旧版本 JSON 带 natives 字段）
-        ExtractAllNatives(info, environment, policy, librariesDirectory, nativesDirectory);
+            // 依赖库与 natives
+            var libraries = LibraryResolver.CollectLibraries(info, environment, policy);
+            reporter.Stage("下载依赖库", libraries.Count);
+            var librariesDirectory = Path.Combine(gameDirectory, "libraries");
+            var nativesDirectory = Path.Combine(versionDirectory, "natives");
 
-        // 资源索引与资源对象
-        if (downloadAssets && info.AssetIndex is not null)
-        {
-            await InstallAssetsAsync(gameDirectory, policy, threads, info.AssetIndex, reporter, cancellationToken)
-                .ConfigureAwait(false);
-        }
+            await ForEachParallelAsync(
+                libraries,
+                threads,
+                async library =>
+                {
+                    var destination = Path.Combine(librariesDirectory, library.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+                    reporter.BeginFile(library.RelativePath, library.Size);
+                    await _client.DownloadFileAsync(
+                            library.Urls,
+                            destination,
+                            library.Size > 0 ? library.Size : null,
+                            library.Sha1,
+                            null,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    reporter.FileCompleted(library.Size > 0 ? library.Size : 0);
+                },
+                cancellationToken).ConfigureAwait(false);
 
-        // 日志配置（失败不阻断安装）
-        if (info.Logging?.Client?.File is not null)
-        {
-            try
+            // 解压 natives（仅旧版本 JSON 带 natives 字段）
+            ExtractAllNatives(info, environment, policy, librariesDirectory, nativesDirectory);
+
+            // 资源索引与资源对象
+            if (downloadAssets && info.AssetIndex is not null)
             {
-                var logFile = info.Logging.Client.File;
-                var logDirectory = Path.Combine(gameDirectory, "assets", "log_configs");
-                var destination = Path.Combine(logDirectory, (logFile.Path ?? logFile.Id ?? "client") + ".xml");
-                await _client.DownloadFileAsync(
-                        DownloadSources.GetLauncherOrMetaUrls(logFile.Url, policy),
-                        destination,
-                        logFile.Size > 0 ? logFile.Size : null,
-                        logFile.Sha1,
-                        null,
-                        cancellationToken)
+                await InstallAssetsAsync(gameDirectory, policy, threads, info.AssetIndex, reporter, cancellationToken)
                     .ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is DownloadException or IOException)
+
+            // 日志配置（失败不阻断安装）
+            if (info.Logging?.Client?.File is not null)
             {
-                _logger.Warn($"日志配置下载失败（可忽略）：{ex.Message}");
+                try
+                {
+                    var logFile = info.Logging.Client.File;
+                    var logDirectory = Path.Combine(gameDirectory, "assets", "log_configs");
+                    var destination = Path.Combine(logDirectory, (logFile.Path ?? logFile.Id ?? "client") + ".xml");
+                    await _client.DownloadFileAsync(
+                            DownloadSources.GetLauncherOrMetaUrls(logFile.Url, policy),
+                            destination,
+                            logFile.Size > 0 ? logFile.Size : null,
+                            logFile.Sha1,
+                            null,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is DownloadException or IOException)
+                {
+                    _logger.Warn($"日志配置下载失败（可忽略）：{ex.Message}");
+                }
+            }
+
+            reporter.Stage("安装完成");
+            _logger.Info($"版本 {summary.Id} 安装完成");
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or DownloadException or IOException or HttpRequestException)
+        {
+            // 取消/失败回滚：只清理本次新建的版本目录，避免留下"只有 json 没有 jar"的残缺实例
+            if (!versionDirectoryExisted)
+            {
+                TryDeleteDirectory(versionDirectory, summary.Id);
+            }
+
+            throw;
+        }
+    }
+
+    /// <summary>回滚本次安装新建的版本目录（文件被占用时只记录日志，交由下次启动清理）。</summary>
+    private void TryDeleteDirectory(string directory, string versionId)
+    {
+        try
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, true);
+                _logger.Info($"已回滚未完成的版本目录：{versionId}");
             }
         }
-
-        reporter.Stage("安装完成");
-        _logger.Info($"版本 {summary.Id} 安装完成");
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.Warn($"回滚版本目录失败：{versionId} · {ex.Message}");
+        }
     }
 
     /// <summary>安装 Fabric（自动确保对应原版已安装；选择最新稳定 loader）。</summary>
@@ -494,37 +525,51 @@ public sealed partial class VersionInstaller
         }
 
         var versionDirectory = Path.Combine(gameDirectory, "versions", displayName);
+        var versionDirectoryExisted = Directory.Exists(versionDirectory);
         Directory.CreateDirectory(versionDirectory);
-        var vanillaJsonText = await File.ReadAllTextAsync(vanillaJsonPath, cancellationToken).ConfigureAwait(false);
-        var vanillaJson = JsonNode.Parse(vanillaJsonText) as JsonObject
-                          ?? throw new DownloadException($"原版版本 JSON 解析失败：{gameVersion}");
-        var merged = VersionJsonMerger.Merge(displayName, vanillaJson, profileJson);
-        await File.WriteAllTextAsync(
-                Path.Combine(versionDirectory, displayName + ".json"),
-                merged.ToJsonString(JsonOptions),
-                cancellationToken)
-            .ConfigureAwait(false);
-
-        // 5) 复制原版客户端 jar（合并后 json 的 jar 项已被移除）
-        var vanillaJarPath = Path.Combine(gameDirectory, "versions", gameVersion, gameVersion + ".jar");
-        var outputJarPath = Path.Combine(versionDirectory, displayName + ".jar");
-        if (File.Exists(vanillaJarPath) && !File.Exists(outputJarPath))
+        try
         {
-            File.Copy(vanillaJarPath, outputJarPath, true);
+            var vanillaJsonText = await File.ReadAllTextAsync(vanillaJsonPath, cancellationToken).ConfigureAwait(false);
+            var vanillaJson = JsonNode.Parse(vanillaJsonText) as JsonObject
+                              ?? throw new DownloadException($"原版版本 JSON 解析失败：{gameVersion}");
+            var merged = VersionJsonMerger.Merge(displayName, vanillaJson, profileJson);
+            await File.WriteAllTextAsync(
+                    Path.Combine(versionDirectory, displayName + ".json"),
+                    merged.ToJsonString(JsonOptions),
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            // 5) 复制原版客户端 jar（合并后 json 的 jar 项已被移除）
+            var vanillaJarPath = Path.Combine(gameDirectory, "versions", gameVersion, gameVersion + ".jar");
+            var outputJarPath = Path.Combine(versionDirectory, displayName + ".jar");
+            if (File.Exists(vanillaJarPath) && !File.Exists(outputJarPath))
+            {
+                File.Copy(vanillaJarPath, outputJarPath, true);
+            }
+
+            // 6) 下载 profile 声明的加载器依赖库（原版库已就位，重复合并项由去重跳过）
+            var profile = JsonSerializer.Deserialize<VersionInfo>(profileJson.ToJsonString(JsonOptions), JsonOptions)
+                          ?? throw new DownloadException("加载器 profile 解析失败");
+            var environment = RuleEnvironment.Current(false);
+            var libraries = LibraryResolver.CollectLibraries(profile, environment, policy);
+            reporter.Stage("下载加载器依赖", libraries.Count);
+            await DownloadLibrariesAsync(libraries, gameDirectory, threads, reporter, cancellationToken)
+                .ConfigureAwait(false);
+
+            reporter.Stage("安装完成");
+            _logger.Info($"{kind} {version}（{gameVersion}）安装完成：{displayName}");
+            return displayName;
         }
+        catch (Exception ex) when (ex is OperationCanceledException or DownloadException or IOException or HttpRequestException)
+        {
+            // 取消/失败回滚：只清理本次新建的实例目录
+            if (!versionDirectoryExisted)
+            {
+                TryDeleteDirectory(versionDirectory, displayName);
+            }
 
-        // 6) 下载 profile 声明的加载器依赖库（原版库已就位，重复合并项由去重跳过）
-        var profile = JsonSerializer.Deserialize<VersionInfo>(profileJson.ToJsonString(JsonOptions), JsonOptions)
-                      ?? throw new DownloadException("加载器 profile 解析失败");
-        var environment = RuleEnvironment.Current(false);
-        var libraries = LibraryResolver.CollectLibraries(profile, environment, policy);
-        reporter.Stage("下载加载器依赖", libraries.Count);
-        await DownloadLibrariesAsync(libraries, gameDirectory, threads, reporter, cancellationToken)
-            .ConfigureAwait(false);
-
-        reporter.Stage("安装完成");
-        _logger.Info($"{kind} {version}（{gameVersion}）安装完成：{displayName}");
-        return displayName;
+            throw;
+        }
     }
 
     /// <summary>确保某 MC 版本的原版文件就绪；返回其版本 json 路径。</summary>

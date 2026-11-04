@@ -141,7 +141,7 @@ public partial class MainViewModel : ObservableObject
         }
 
         Launch.CancelPending();
-        Download.Deactivate();
+        Download.Shutdown();
     }
 
     /// <summary>显示轻提示（1.6 秒后自动消失）。</summary>

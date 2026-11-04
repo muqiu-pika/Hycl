@@ -133,6 +133,7 @@ public partial class InstallTaskViewModel : ObservableObject
     private readonly LauncherServices _services;
     private readonly Action<string>? _toast;
     private CancellationTokenSource? _cts;
+    private Task? _actionTask;
     private int _runGeneration;
 
     public InstallTaskViewModel(LauncherServices services, Action<string>? toast)
@@ -272,7 +273,9 @@ public partial class InstallTaskViewModel : ObservableObject
                         ApplyProgress(value);
                     }
                 }));
-            var installedId = await action(progress, cts.Token).ConfigureAwait(true);
+            var actionTask = action(progress, cts.Token);
+            _actionTask = actionTask;
+            var installedId = await actionTask.ConfigureAwait(true);
             StageText = "安装完成";
             ProgressPercent = 100;
             ErrorText = "";
@@ -304,6 +307,7 @@ public partial class InstallTaskViewModel : ObservableObject
             if (ReferenceEquals(_cts, cts))
             {
                 _cts = null;
+                _actionTask = null;
                 IsInstalling = false;
                 // 未成功的任务不把进度停在半途，回到可再次发起的状态
                 ProgressPercent = StageText == "安装完成" ? 100 : 0;
@@ -364,6 +368,36 @@ public partial class InstallTaskViewModel : ObservableObject
 
         _cts!.Cancel();
         return true;
+    }
+
+    /// <summary>
+    /// 窗口关闭：无论处于哪个阶段都取消安装，并同步等待下载临时文件清理与半成品目录回滚完成，
+    /// 避免进程退出时把残缺文件留在磁盘上。等待有上限（默认 1 秒），不会卡住关闭流程。
+    /// </summary>
+    public void CancelForShutdown(int timeoutMilliseconds = 1000)
+    {
+        var cts = _cts;
+        if (cts is null)
+        {
+            return;
+        }
+
+        cts.Cancel();
+        var task = _actionTask;
+        if (task is null)
+        {
+            return;
+        }
+
+        try
+        {
+            // 安装/下载的收尾逻辑都走 ConfigureAwait(false)，不依赖 UI 线程，因此这里可以安全阻塞等待
+            task.Wait(timeoutMilliseconds);
+        }
+        catch (Exception ex) when (ex is AggregateException or OperationCanceledException)
+        {
+            // 收尾异常不影响关闭
+        }
     }
 
     [RelayCommand]
