@@ -47,13 +47,14 @@
                                 </Ellipse.Fill>
                             </Ellipse>
                             <c:McSkin SkinKey="{Binding ActiveProfile.SkinKey}"
+                                      SkinPath="{Binding ActiveProfile.SkinPath}"
                                       Scale="5"
                                       HorizontalAlignment="Center"
                                       VerticalAlignment="Bottom"
                                       Margin="0,0,0,12" />
                         </Panel>
 
-                        <TextBlock Text="{Binding ActiveProfile.Name}"
+                        <TextBlock Text="{Binding PlayerCardName}"
                                    FontSize="18"
                                    FontWeight="ExtraBold"
                                    Foreground="{DynamicResource TextBrush}"
@@ -67,7 +68,7 @@
                             <Ellipse Classes="type-dot"
                                      Classes.ms="{Binding ActiveProfile.IsMicrosoft}"
                                      VerticalAlignment="Center" />
-                            <TextBlock Text="{Binding ActiveProfile.AccountType}"
+                            <TextBlock Text="{Binding PlayerCardType}"
                                        FontSize="12"
                                        Foreground="{DynamicResource Gray3Brush}" />
                         </StackPanel>
@@ -160,6 +161,7 @@
                                         <Grid ColumnDefinitions="Auto,*,Auto">
                                             <Border Classes="pr-avatar">
                                                 <c:McSkin SkinKey="{Binding SkinKey}"
+                                                          SkinPath="{Binding SkinPath}"
                                                           Mode="Head"
                                                           Scale="4"
                                                           HorizontalAlignment="Center"
@@ -176,13 +178,21 @@
                                                            Foreground="{DynamicResource Gray3Brush}"
                                                            Margin="0,1,0,0" />
                                             </StackPanel>
-                                            <c:HyclIcon Grid.Column="2"
-                                                        Kind="check"
-                                                        Width="16"
-                                                        Height="16"
-                                                        Foreground="{DynamicResource PrimaryBrush}"
-                                                        IsVisible="{Binding IsActive}"
-                                                        VerticalAlignment="Center" />
+                                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                                <c:HyclIcon Kind="check"
+                                                            Width="16"
+                                                            Height="16"
+                                                            Foreground="{DynamicResource PrimaryBrush}"
+                                                            IsVisible="{Binding IsActive}"
+                                                            VerticalAlignment="Center" />
+                                                <Button Classes="pa-btn"
+                                                        ToolTip.Tip="删除该档案"
+                                                        IsVisible="{Binding !IsActive}"
+                                                        Command="{Binding $parent[UserControl].((vm:LaunchPageViewModel)DataContext).DeleteProfileCommand}"
+                                                        CommandParameter="{Binding}">
+                                                    <c:HyclIcon Kind="close" Width="13" Height="13" />
+                                                </Button>
+                                            </StackPanel>
                                         </Grid>
                                     </Button>
                                 </DataTemplate>
@@ -207,11 +217,10 @@
                     <StackPanel>
                     <Grid ColumnDefinitions="*,*,*">
                         <Grid ColumnDefinitions="Auto,*">
-                            <c:HyclIcon Kind="{Binding LoaderIconKey}"
-                                        Width="26"
-                                        Height="26"
-                                        Foreground="{Binding LoaderColor, Converter={StaticResource HexBrush}}"
-                                        VerticalAlignment="Center" />
+                            <c:BlockIcon Kind="{Binding CurrentIconKey}"
+                                         Width="28"
+                                         Height="28"
+                                         VerticalAlignment="Center" />
                             <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
                                 <TextBlock Text="Minecraft"
                                            FontSize="11"
@@ -336,6 +345,35 @@
     </Grid>
     </ScrollViewer>
 
+        <!-- 游戏崩溃横幅：非零退出码且找到崩溃报告时显示 -->
+        <Border Classes="crash-banner"
+                IsVisible="{Binding IsCrashBannerVisible}"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Top"
+                Margin="0,56,0,0">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <c:HyclIcon Kind="power"
+                            Width="17"
+                            Height="17"
+                            Foreground="{DynamicResource ErrorBrush}"
+                            VerticalAlignment="Center" />
+                <TextBlock Text="游戏异常退出，已定位最新崩溃报告"
+                           VerticalAlignment="Center"
+                           FontSize="12.5" />
+                <Button Classes="mc-btn"
+                        MinHeight="0"
+                        Padding="12,4"
+                        FontSize="12"
+                        Content="打开报告"
+                        Command="{Binding OpenCrashReportCommand}" />
+                <Button Classes="pa-btn"
+                        VerticalAlignment="Center"
+                        Command="{Binding DismissCrashBannerCommand}">
+                    <c:HyclIcon Kind="close" Width="12" Height="12" />
+                </Button>
+            </StackPanel>
+        </Border>
+
         <!-- 关闭游戏确认弹窗：遮罩 + 卡片，Esc 取消 / Enter 确认（键盘处理在代码后置） -->
         <Panel IsVisible="{Binding IsCloseGameConfirmVisible}"
                Background="{DynamicResource DialogScrimBrush}"
@@ -386,6 +424,68 @@
         </Panel>
 
         <!-- 添加账号弹窗：正版（设备码）/ 皮肤站（预留）/ 离线 -->
+        <Panel IsVisible="{Binding IsSkinPickerVisible}"
+               Background="{DynamicResource DialogScrimBrush}"
+               ZIndex="3">
+            <Border Classes="dialog-card"
+                    Width="430"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="9">
+                        <c:HyclIcon Kind="shirt"
+                                    Width="19"
+                                    Height="19"
+                                    Foreground="{DynamicResource PrimaryBrush}"
+                                    VerticalAlignment="Center" />
+                        <TextBlock Text="更换皮肤（离线档案）"
+                                   Classes="dialog-title"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+
+                    <TextBlock Classes="dialog-body"
+                               Margin="0,12,0,0"
+                               Text="选择 Hycl 内置的一款皮肤，仅对当前选中的离线档案生效。"
+                               TextWrapping="Wrap" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center" Margin="0,16,0,0">
+                        <Button Classes="skin-option"
+                                Command="{Binding ApplySkinCommand}"
+                                CommandParameter="steve">
+                            <StackPanel Spacing="6">
+                                <c:McSkin SkinKey="steve" Scale="4" HorizontalAlignment="Center" />
+                                <TextBlock Text="Steve" FontSize="12" HorizontalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                        <Button Classes="skin-option"
+                                Command="{Binding ApplySkinCommand}"
+                                CommandParameter="alex">
+                            <StackPanel Spacing="6">
+                                <c:McSkin SkinKey="alex" Scale="4" HorizontalAlignment="Center" />
+                                <TextBlock Text="Alex" FontSize="12" HorizontalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                        <Button Classes="skin-option"
+                                Command="{Binding ApplySkinCommand}"
+                                CommandParameter="zuri">
+                            <StackPanel Spacing="6">
+                                <c:McSkin SkinKey="zuri" Scale="4" HorizontalAlignment="Center" />
+                                <TextBlock Text="Zuri" FontSize="12" HorizontalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal"
+                                Spacing="10"
+                                HorizontalAlignment="Right"
+                                Margin="0,18,0,0">
+                        <Button Classes="mc-btn" MinWidth="88" Content="取消" Command="{Binding CloseSkinPickerCommand}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Panel>
+
+        <!-- 添加账号弹窗：正版（设备码）/ 皮肤站（预留）/ 离线 -->
         <Panel IsVisible="{Binding IsLoginDialogVisible}"
                Background="{DynamicResource DialogScrimBrush}"
                ZIndex="3">
@@ -427,7 +527,10 @@
 
                         <Border Classes="login-code"
                                 IsVisible="{Binding HasMsUserCode}"
-                                Margin="0,14,0,0">
+                                Margin="0,14,0,0"
+                                Cursor="Hand"
+                                ToolTip.Tip="点击再次复制代码"
+                                PointerReleased="OnUserCodeTapped">
                             <StackPanel HorizontalAlignment="Center">
                                 <TextBlock Text="在浏览器中输入此代码"
                                            FontSize="11.5"

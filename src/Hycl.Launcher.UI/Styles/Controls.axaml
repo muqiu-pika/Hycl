@@ -18,16 +18,26 @@
     <Style Selector="Button.mc-btn">
         <Setter Property="MinHeight" Value="34" />
         <Setter Property="Padding" Value="17,6" />
-        <Setter Property="CornerRadius" Value="7" />
+        <Setter Property="CornerRadius" Value="6" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Background" Value="{DynamicResource GlassSurfaceBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource Primary5Brush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <!-- PCL 风格：按钮文字用主题蓝而非深灰，与边框同色系 -->
+        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Transitions">
+            <Transitions>
+                <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.08" />
+                <BrushTransition Property="Background" Duration="0:0:0.12" />
+            </Transitions>
+        </Setter>
+    </Style>
+    <Style Selector="Button.mc-btn:pressed">
+        <Setter Property="RenderTransform" Value="scale(0.97)" />
     </Style>
     <Style Selector="Button.mc-btn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
@@ -52,6 +62,23 @@
         <Setter Property="Background" Value="{DynamicResource PrimaryGradientBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
         <Setter Property="Foreground" Value="White" />
+    </Style>
+    <!-- 次主按钮（PCL 风格）：浅底描边蓝字，替代页面里大片常蓝实底 -->
+    <Style Selector="Button.mc-btn.primary-soft">
+        <Setter Property="Background" Value="{DynamicResource GlassSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Primary5Brush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
+    </Style>
+    <Style Selector="Button.mc-btn.primary-soft:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
+    </Style>
+    <Style Selector="Button.mc-btn.primary-soft:pointerover">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+    </Style>
+    <Style Selector="Button.mc-btn.primary-soft:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Primary7Brush}" />
     </Style>
     <Style Selector="Button.mc-btn.primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource PrimaryLightBrush}" />
@@ -477,6 +504,31 @@
     </Style>
     <Style Selector="Button.dl-fab:pressed /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource Primary5Brush}" />
+    </Style>
+
+    <!-- 游戏崩溃横幅 -->
+    <Style Selector="Border.crash-banner">
+        <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource ErrorBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="14,9" />
+        <Setter Property="BoxShadow" Value="0 6 18 0 #33343D4A" />
+    </Style>
+
+    <!-- 皮肤选择弹窗（离线档案内置皮肤） -->
+    <Style Selector="Button.skin-option">
+        <Setter Property="Padding" Value="14,10" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Background" Value="{DynamicResource GlassSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Primary6Brush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.skin-option:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
     </Style>
 
     <!-- ============================================================

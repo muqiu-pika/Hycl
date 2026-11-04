@@ -104,6 +104,10 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     [ObservableProperty]
     private string _currentVersionTag = "无";
 
+    /// <summary>当前版本的方块图标键（与版本管理页实例列表同源，grass-block / forge / package…）。</summary>
+    [ObservableProperty]
+    private string _currentIconKey = "grass-block";
+
     /// <summary>当前版本的 Mod 加载器图标键（vanilla / forge / neoforge / fabric / quilt / optifine / liteloader）。</summary>
     [ObservableProperty]
     private string _loaderIconKey = "vanilla";
@@ -334,6 +338,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         {
             CurrentVersion = "未安装";
             CurrentVersionTag = "无";
+            CurrentIconKey = "grass-block";
             LoaderIconKey = "vanilla";
             LoaderColor = "#3E9B4F";
             LoaderName = "Vanilla";
@@ -342,16 +347,26 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
 
         CurrentVersion = target.GameVersion;
         CurrentVersionTag = TypeLabel(target.Type);
+        // 与版本管理页同一套图标来源（扫描实例时的加载器/类型判定），不再用线条图标兜底
+        CurrentIconKey = string.IsNullOrWhiteSpace(target.IconKey) || target.IconKey == "generic"
+            ? LoaderIcon(target.Loader)
+            : target.IconKey;
         LoaderIconKey = LoaderIcon(target.Loader);
         LoaderColor = LoaderColorOf(target.Loader);
         LoaderName = LoaderNameOf(target.Loader);
     }
 
+    /// <summary>玩家卡显示名：无账号时给友好占位。</summary>
+    public string PlayerCardName => ActiveProfile?.Name ?? "未登录";
+
+    /// <summary>玩家卡显示的账号类型：无账号时为空。</summary>
+    public string PlayerCardType => ActiveProfile?.AccountType ?? "";
+
     private void BuildProfiles()
     {
         var accounts = _services.Accounts.Accounts;
         var selected = _services.Accounts.SelectedAccount;
-        var selectedIndex = Math.Max(0, accounts.IndexOf(selected));
+        var selectedIndex = selected is null ? 0 : Math.Max(0, accounts.IndexOf(selected));
         Profiles.Clear();
         for (var index = 0; index < accounts.Count; index++)
         {
@@ -360,26 +375,118 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                 "p" + index,
                 account.Name,
                 DescribeAccountType(account),
-                SkinFor(index),
+                ResolveSkinKey(account),
                 account.IsMicrosoft,
-                isActive: index == selectedIndex));
+                isActive: index == selectedIndex,
+                accountUuid: account.Uuid,
+                skinPath: account.SkinPath));
         }
 
         ActiveProfile = Profiles.FirstOrDefault(x => x.IsActive) ?? Profiles.FirstOrDefault();
+        OnPropertyChanged(nameof(PlayerCardName));
+        OnPropertyChanged(nameof(PlayerCardType));
     }
+
+    /// <summary>档案头像的皮肤键：本地缓存皮肤存在时无需回退；离线账号用自选皮肤。</summary>
+    private static string ResolveSkinKey(PlayerAccount account)
+        => account.Type switch
+        {
+            "offline" => string.IsNullOrWhiteSpace(account.SkinKey) ? SkinForAccount(account) : account.SkinKey,
+            _ => SkinForAccount(account)
+        };
+
+    private static string SkinForAccount(PlayerAccount account)
+    {
+        // 稳定哈希取模分派内置皮肤；无 Uuid 时按名字派生
+        var index = Math.Abs(string.IsNullOrWhiteSpace(account.Uuid)
+            ? (account.Name ?? "").GetHashCode()
+            : account.Uuid.GetHashCode());
+        var remainder = index - index / 3 * 3;
+        return remainder switch
+        {
+            1 => "alex",
+            2 => "zuri",
+            _ => "steve"
+        };
+    }
+
+    /// <summary>档案删除（档案面板的小删除按钮）。</summary>
+    [RelayCommand]
+    private async Task DeleteProfileAsync(PlayerProfileViewModel? profile)
+    {
+        if (profile is null || string.IsNullOrEmpty(profile.AccountUuid))
+        {
+            return;
+        }
+
+        if (_services.Accounts.RemoveById(profile.AccountUuid))
+        {
+            await _services.Accounts.SaveAsync().ConfigureAwait(true);
+            BuildProfiles();
+            _toast?.Invoke($"已删除档案：{profile.Name}");
+        }
+    }
+
+    /// <summary>皮肤下载到缓存并回填 SkinPath；失败静默（皮肤非关键数据）。返回是否成功。</summary>
+    private async Task<bool> DownloadSkinAsync(PlayerAccount account, string skinUrl)
+    {
+        try
+        {
+            var directory = Path.Combine(_services.Paths.CacheDirectory, "skins");
+            Directory.CreateDirectory(directory);
+            var skinPath = Path.Combine(directory, account.Uuid + ".png");
+            await _services.DownloadClient
+                .DownloadFileAsync([skinUrl], skinPath, null, null, null, CancellationToken.None)
+                .ConfigureAwait(false);
+            account.SkinPath = skinPath;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _services.Logger.Warn($"下载皮肤失败（忽略）：{ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>离线皮肤更换：把内置皮肤键写回当前账号。</summary>
+    [RelayCommand]
+    private async Task ApplySkinAsync(string skinKey)
+    {
+        var account = _services.Accounts.SelectedAccount;
+        if (account is null)
+        {
+            _toast?.Invoke("请先添加账号");
+            return;
+        }
+
+        if (account.Type != "offline")
+        {
+            _toast?.Invoke(account.Type == "msa"
+                ? "正版账号的皮肤跟随微软档案自动获取"
+                : "皮肤站账号的皮肤跟随皮肤站设置");
+            return;
+        }
+
+        if (!BuiltInSkinKeys.Contains(skinKey))
+        {
+            return;
+        }
+
+        account.SkinKey = skinKey;
+        account.SkinPath = "";
+        await _services.Accounts.SaveAsync().ConfigureAwait(true);
+        BuildProfiles();
+        IsSkinPickerVisible = false;
+        _toast?.Invoke($"已更换皮肤：{skinKey}");
+    }
+
+    public static readonly IReadOnlyList<string> BuiltInSkinKeys = ["steve", "alex", "zuri"];
 
     private static string DescribeAccountType(PlayerAccount account) => account.Type switch
     {
         "msa" => "微软正版",
         "authlib" => string.IsNullOrWhiteSpace(account.ServerName) ? "皮肤站" : account.ServerName,
         _ => "离线账户"
-    };
-
-    private static string SkinFor(int index) => (index % 3) switch
-    {
-        1 => "alex",
-        2 => "zuri",
-        _ => "steve"
     };
 
     private static string TypeLabel(string type) => type switch
@@ -467,6 +574,13 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         {
             var config = _services.Config;
             var account = _services.Accounts.SelectedAccount;
+            if (account is null)
+            {
+                _toast?.Invoke("请先添加账号（正版 / 皮肤站 / 离线）");
+                IsLoginDialogVisible = true;
+                IsLaunching = false;
+                return;
+            }
 
             // 正版账号：令牌临近过期先静默续期（refresh_token），失败则中止本次启动
             if (account.Type == "msa" && account.IsTokenNearExpiry)
@@ -594,7 +708,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             // 进程创建不等于启动成功：继续等待游戏窗口真正可见
             LaunchStageText = "正在启动 JVM…";
             SetLaunchProgress(0.6);
-            _ = WatchSessionAsync(session);
+            _ = WatchSessionAsync(session, config.EffectiveGameDirectory);
 
             var result = await LaunchService.WaitForGameWindowAsync(
                 session,
@@ -711,12 +825,35 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         }
     }
 
-    private async Task WatchSessionAsync(GameSession session)
+    private async Task WatchSessionAsync(GameSession session, string gameDirectory)
     {
         try
         {
             await session.WaitForExitAsync().ConfigureAwait(false);
             var exitCode = session.ExitCode;
+
+            // 非零退出码 = 游戏崩溃：定位最新崩溃报告并引导玩家（对齐 PCL-CE 的崩溃后体验）
+            string? crashReportPath = null;
+            if (exitCode != 0)
+            {
+                try
+                {
+                    var crashDirectory = Path.Combine(gameDirectory, "crash-reports");
+                    if (Directory.Exists(crashDirectory))
+                    {
+                        crashReportPath = Directory
+                            .EnumerateFiles(crashDirectory, "*.txt")
+                            .Concat(Directory.EnumerateFiles(crashDirectory, "*.html"))
+                            .OrderByDescending(File.GetLastWriteTime)
+                            .FirstOrDefault();
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    _services.Logger.Warn($"查找崩溃报告失败：{ex.Message}");
+                }
+            }
+
             _services.Dispatcher.Post(() =>
             {
                 if (ReferenceEquals(_session, session))
@@ -729,7 +866,22 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                 IsClosing = false;
                 LaunchStageText = "";
                 SetLaunchProgress(0d);
-                _toast?.Invoke($"游戏已退出（退出码 {exitCode}）");
+                if (exitCode != 0)
+                {
+                    _toast?.Invoke(crashReportPath is null
+                        ? $"游戏异常退出（退出码 {exitCode}），可在「工具 → 日志」查看输出"
+                        : $"游戏异常退出（退出码 {exitCode}），已为你定位最新崩溃报告");
+                    if (crashReportPath is not null)
+                    {
+                        LatestCrashReportPath = crashReportPath;
+                        IsCrashBannerVisible = true;
+                    }
+                }
+                else
+                {
+                    _toast?.Invoke($"游戏已正常退出");
+                    IsCrashBannerVisible = false;
+                }
             });
         }
         catch (Exception ex)
@@ -873,13 +1025,70 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         _toast?.Invoke($"已创建新的离线档案：{name}");
     }
 
+    /// <summary>打开离线皮肤选择弹窗（正版/皮肤站账号的皮肤自动获取，不在此更换）。</summary>
     [RelayCommand]
-    private void ChangeSkin() => _toast?.Invoke("皮肤更换暂未支持，当前展示内置皮肤");
+    private void ChangeSkin()
+    {
+        var account = _services.Accounts.SelectedAccount;
+        if (account is null)
+        {
+            _toast?.Invoke("请先添加账号");
+            return;
+        }
+
+        if (account.Type != "offline")
+        {
+            _toast?.Invoke(account.Type == "msa"
+                ? "正版账号的皮肤跟随微软档案自动获取"
+                : "皮肤站账号的皮肤跟随皮肤站设置");
+            return;
+        }
+
+        IsSkinPickerVisible = true;
+    }
+
+    [ObservableProperty]
+    private bool _isSkinPickerVisible;
+
+    [RelayCommand]
+    private void CloseSkinPicker() => IsSkinPickerVisible = false;
 
     // ------------------------- 登录对话框（添加账号：正版 / 皮肤站 / 离线） -------------------------
 
     [ObservableProperty]
     private bool _isLoginDialogVisible;
+
+    /// <summary>游戏崩溃横幅：退出码非 0 且找到崩溃报告时显示。</summary>
+    [ObservableProperty]
+    private bool _isCrashBannerVisible;
+
+    /// <summary>最新崩溃报告文件路径。</summary>
+    [ObservableProperty]
+    private string? _latestCrashReportPath;
+
+    /// <summary>用系统默认程序打开崩溃报告（对齐 PCL-CE 的崩溃后引导）。</summary>
+    [RelayCommand]
+    private void OpenCrashReport()
+    {
+        if (string.IsNullOrWhiteSpace(LatestCrashReportPath) || !File.Exists(LatestCrashReportPath))
+        {
+            _toast?.Invoke("崩溃报告文件不存在");
+            return;
+        }
+
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo(LatestCrashReportPath) { UseShellExecute = true });
+            IsCrashBannerVisible = false;
+        }
+        catch (Exception ex)
+        {
+            _toast?.Invoke($"无法打开崩溃报告：{ex.Message}");
+        }
+    }
+
+    [RelayCommand]
+    private void DismissCrashBanner() => IsCrashBannerVisible = false;
 
     /// <summary>0 正版 / 1 皮肤站（预留）/ 2 离线。</summary>
     [ObservableProperty]
@@ -945,6 +1154,9 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         _msLoginCts?.Cancel();
         IsLoginDialogVisible = false;
     }
+
+    /// <summary>供视图层（剪贴板等 UI 关切）使用统一 toast 通道。</summary>
+    public void ShowToast(string message) => _toast?.Invoke(message);
 
     [RelayCommand]
     private void OpenMsVerificationPage()
@@ -1014,6 +1226,19 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                     BuildProfiles();
                     _toast?.Invoke($"正版登录成功：{poll.Result.UserName}");
                     IsLoginDialogVisible = false;
+
+                    // 登录后自动拉取玩家真实皮肤并刷新首页纸娃娃
+                    if (!string.IsNullOrWhiteSpace(poll.Result.SkinUrl))
+                    {
+                        var account = _services.Accounts.Accounts
+                            .FirstOrDefault(x => x.Uuid.Equals(poll.Result.Uuid, StringComparison.OrdinalIgnoreCase));
+                        if (account is not null)
+                        {
+                            _ = DownloadSkinAsync(account, poll.Result.SkinUrl)
+                                .ContinueWith(_ => _services.Dispatcher.Post(BuildProfiles), TaskScheduler.Default);
+                        }
+                    }
+
                     return;
                 }
 
@@ -1272,6 +1497,24 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         _pendingAuthlibUsername = "";
         IsLoginDialogVisible = false;
         _toast?.Invoke($"皮肤站登录成功：{result.UserName}（{result.ServerName}）");
+
+        // 登录后自动拉取皮肤站皮肤并刷新首页纸娃娃
+        var account = _services.Accounts.Accounts.FirstOrDefault(x =>
+            x.Type == "authlib" && x.Uuid.Equals(result.Uuid, StringComparison.OrdinalIgnoreCase));
+        if (account is not null)
+        {
+            _ = Task.Run(async () =>
+            {
+                var skinUrl = await _services.AuthlibAuth
+                    .TryGetSkinUrlAsync(result.ApiRoot, result.Uuid)
+                    .ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(skinUrl))
+                {
+                    await DownloadSkinAsync(account, skinUrl).ConfigureAwait(false);
+                    _services.Dispatcher.Post(BuildProfiles);
+                }
+            });
+        }
     }
 
     [RelayCommand]
