@@ -378,8 +378,9 @@
                                                     <StackPanel IsVisible="{Binding IsExpanded}" Margin="4,8,0,0">
                                                         <c:McLoading Width="60"
                                                                      Height="50"
+                                                                     IconSize="26"
                                                                      IsVisible="{Binding IsLoading}"
-                                                                     HorizontalAlignment="Left" />
+                                                                     HorizontalAlignment="Center" />
                                                         <TextBlock FontSize="12"
                                                                    Margin="4,2"
                                                                    Foreground="{DynamicResource ErrorBrush}"
@@ -480,8 +481,9 @@
                                         <StackPanel>
                                             <c:McLoading Width="60"
                                                          Height="50"
+                                                         IconSize="26"
                                                          IsVisible="{Binding Wizard.ActiveLoaderCard.IsLoading}"
-                                                         HorizontalAlignment="Left" />
+                                                         HorizontalAlignment="Center" />
                                             <TextBlock FontSize="12"
                                                        Margin="4,2"
                                                        Foreground="{DynamicResource ErrorBrush}"
@@ -587,7 +589,7 @@
                                     <c:McLoading Width="120"
                                                  Height="70"
                                                  Text="正在搜索"
-                                                 HorizontalAlignment="Left"
+                                                 HorizontalAlignment="Center"
                                                  IsVisible="{Binding ActiveCompSection.IsSearching}" />
                                 </StackPanel>
                             </Border>
@@ -706,10 +708,16 @@
                                                     Command="{Binding ActiveCompSection.CloseDetailCommand}" />
                                         </StackPanel>
                                         <c:McLoading Grid.Column="1"
-                                                     Width="60"
-                                                     Height="40"
+                                                     Width="56"
+                                                     Height="48"
+                                                     IconSize="24"
+                                                     HorizontalAlignment="Right"
                                                      IsVisible="{Binding ActiveCompSection.IsLoadingVersions}" />
                                     </Grid>
+                                    <TextBlock Text="{Binding ActiveCompSection.SelectedProjectDescription}"
+                                               FontSize="11.5"
+                                               TextWrapping="Wrap"
+                                               Foreground="{DynamicResource Gray3Brush}" />
                                     <TextBlock Classes="sline"
                                                Foreground="{DynamicResource ErrorBrush}"
                                                Text="{Binding ActiveCompSection.VersionErrorText}"

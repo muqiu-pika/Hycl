@@ -183,12 +183,12 @@
                 </StackPanel>
             </ScrollViewer>
 
-            <c:BouncingLogo Source="avares://Hycl.Launcher.UI/Assets/hycl.png"
-                            Text="正在加载设置…"
-                            Foreground="{DynamicResource Gray2Brush}"
-                            HorizontalAlignment="Center"
-                            VerticalAlignment="Center"
-                            IsVisible="{Binding IsLoading}" />
+            <c:McLoading Text="正在加载设置…"
+                         IconSize="48"
+                         Foreground="{DynamicResource Gray2Brush}"
+                         HorizontalAlignment="Center"
+                         VerticalAlignment="Center"
+                         IsVisible="{Binding IsLoading}" />
         </Panel>
     </Grid>
 </UserControl>

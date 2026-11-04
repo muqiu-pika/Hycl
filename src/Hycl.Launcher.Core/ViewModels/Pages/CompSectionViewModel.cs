@@ -13,25 +13,14 @@ public sealed class CompProjectItemViewModel
     public CompProjectItemViewModel(CompProject project)
     {
         Project = project;
-        Title = project.Title;
-        Description = project.Description;
+        Title = CompLocalization.DisplayTitle(project);
+        Description = CompLocalization.DisplayDescription(project);
         IconUrl = project.IconUrl;
         SourceText = project.FromCurseForge ? "CurseForge" : "Modrinth";
         DownloadText = project.DownloadCount >= 10000
             ? $"{project.DownloadCount / 10000.0:0.#} 万下载"
             : $"{project.DownloadCount} 下载";
-        Tags = project.ModLoaders
-            .Select(l => l switch
-            {
-                "forge" => "Forge",
-                "fabric" => "Fabric",
-                "quilt" => "Quilt",
-                "neoforge" => "NeoForge",
-                _ => l
-            })
-            .Concat(project.Categories.Take(3))
-            .Take(5)
-            .ToList();
+        Tags = CompLocalization.DisplayTags(project);
     }
 
     public CompProject Project { get; }
@@ -56,7 +45,7 @@ public sealed partial class CompFileItemViewModel : ObservableObject
     {
         File = file;
         _owner = owner;
-        Title = string.IsNullOrWhiteSpace(file.DisplayName) ? file.FileName : file.DisplayName;
+        Title = CompLocalization.DisplayFileName(file);
         StatusText = file.StatusText;
         DateText = file.ReleaseDate?.ToLocalTime().ToString("yyyy-MM-dd") ?? "";
         SizeText = file.Size >= 1024 * 1024
@@ -79,11 +68,20 @@ public sealed partial class CompFileItemViewModel : ObservableObject
 
     public string SourceText { get; }
 
-    public string GameVersionText => File.GameVersions.Count == 0
-        ? ""
-        : File.GameVersions.Count == 1
-            ? File.GameVersions[0]
-            : $"{File.GameVersions[0]} ~ {File.GameVersions[^1]}";
+    public string GameVersionText
+    {
+        get
+        {
+            if (File.GameVersions.Count == 0)
+            {
+                return "";
+            }
+
+            var first = CompLocalization.GameVersionName(File.GameVersions[0]);
+            var last = CompLocalization.GameVersionName(File.GameVersions[^1]);
+            return File.GameVersions.Count == 1 ? first : $"{first} ~ {last}";
+        }
+    }
 
     [ObservableProperty]
     private bool _isInstalling;
@@ -176,6 +174,10 @@ public partial class CompSectionViewModel : ObservableObject
     /// <summary>选中的项目（非空时下方展示版本列表）。</summary>
     [ObservableProperty]
     private CompProjectItemViewModel? _selectedProject;
+
+    /// <summary>选中项目的中文简介（在线翻译可用时替换原文，失败回退原文）。</summary>
+    [ObservableProperty]
+    private string _selectedProjectDescription = "";
 
     [ObservableProperty]
     private bool _isLoadingVersions;
@@ -299,9 +301,11 @@ public partial class CompSectionViewModel : ObservableObject
         }
 
         SelectedProject = item;
+        SelectedProjectDescription = CompLocalization.DisplayDescription(item.Project);
         VersionErrorText = "";
         VersionFiles.Clear();
         IsLoadingVersions = true;
+        var translation = CompLocalization.TranslateDescriptionAsync(_services.DownloadClient, item.Project);
         try
         {
             var files = item.Project.FromCurseForge
@@ -326,10 +330,20 @@ public partial class CompSectionViewModel : ObservableObject
         {
             IsLoadingVersions = false;
         }
+
+        var translated = await translation.ConfigureAwait(true);
+        if (SelectedProject == item)
+        {
+            SelectedProjectDescription = translated;
+        }
     }
 
     [RelayCommand]
-    private void CloseDetail() => SelectedProject = null;
+    private void CloseDetail()
+    {
+        SelectedProject = null;
+        SelectedProjectDescription = "";
+    }
 
     /// <summary>安装资源：ModPack 走整合包流程（自动装原版与加载器），其余落盘到实例对应目录。</summary>
     public async Task InstallFileAsync(CompFileItemViewModel item)

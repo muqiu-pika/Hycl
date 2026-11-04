@@ -78,6 +78,9 @@ public sealed record CompProject
     /// <summary>项目分类标签（slug，如 optimization / technology）。</summary>
     public IReadOnlyList<string> Categories { get; init; } = [];
 
+    /// <summary>CurseForge 分类数字 Id（用于中文分类映射；Modrinth 为空）。</summary>
+    public IReadOnlyList<long> CategoryIds { get; init; } = [];
+
     public string WebsiteUrl { get; init; } = "";
 }
 
@@ -130,9 +133,9 @@ public sealed record CompFile
 
     public string StatusText => Status switch
     {
-        CompFileStatus.Beta => "Beta",
-        CompFileStatus.Alpha => "Alpha",
-        _ => "Release"
+        CompFileStatus.Beta => "测试版",
+        CompFileStatus.Alpha => "早期测试版",
+        _ => "正式版"
     };
 }
 

@@ -265,6 +265,7 @@ public sealed class CurseForgeClient(CompRequester requester)
             FromCurseForge = true,
             ModLoaders = loaders,
             Categories = (json.Categories ?? []).Select(c => c.Slug ?? "").Where(s => s.Length > 0).ToList(),
+            CategoryIds = (json.Categories ?? []).Select(c => c.Id).ToList(),
             WebsiteUrl = website
         };
     }
