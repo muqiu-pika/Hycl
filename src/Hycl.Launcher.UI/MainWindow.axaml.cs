@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Animation;
 using Avalonia.Controls;
@@ -200,17 +201,20 @@ public partial class MainWindow : Window
         view.RenderTransform = new TransformGroup { Children = { scale, translate } };
         view.Opacity = 0;
 
-        await Task.WhenAll(
-            // 新页单独淡入并轻微归位：此时旧页已完全隐藏，不会与任何图层叠加
-            RunAnimationAsync(view, token, Visual.OpacityProperty, TimeSpan.FromMilliseconds(150),
-                (0d, 1d, null), (1d, 1d, EnterEaseOut)),
-            RunAnimationAsync(view, token, TranslateTransform.YProperty, TimeSpan.FromMilliseconds(180),
-                (0d, 10d, null), (1d, 0d, EnterEaseOut)),
-            RunAnimationAsync(view, token, ScaleTransform.ScaleXProperty, TimeSpan.FromMilliseconds(180),
-                (0d, 0.99d, null), (0.7d, 1.003d, EnterEaseOut), (1d, 1d, EnterSettle)),
-            RunAnimationAsync(view, token, ScaleTransform.ScaleYProperty, TimeSpan.FromMilliseconds(180),
-                (0d, 0.99d, null), (0.7d, 1.003d, EnterEaseOut), (1d, 1d, EnterSettle)))
-            .ConfigureAwait(true);
+        await AnimateAsync(TimeSpan.FromMilliseconds(180), token, t =>
+        {
+            // 淡入在 150ms 内完成，随后保持完全不透明
+            var opacityT = Math.Min(1d, t * 1.2d);
+            view.Opacity = EnterEaseOut.GetSplineProgress(opacityT);
+
+            translate.Y = 10d * (1d - EnterEaseOut.GetSplineProgress(t));
+
+            var scaleT = t < 0.7d
+                ? 0.99d + 0.013d * EnterEaseOut.GetSplineProgress(t / 0.7d)
+                : 1.003d - 0.003d * EnterSettle.GetSplineProgress((t - 0.7d) / 0.3d);
+            scale.ScaleX = scaleT;
+            scale.ScaleY = scaleT;
+        }).ConfigureAwait(true);
     }
 
     private static async Task PlayPageExitAsync(Control view, CancellationToken token)
@@ -220,48 +224,38 @@ public partial class MainWindow : Window
         view.RenderTransformOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative);
         view.RenderTransform = new TransformGroup { Children = { scale, translate } };
 
-        await Task.WhenAll(
-            // 旧页在单独一层上快速退场，不参与交叉混合
-            RunAnimationAsync(view, token, Visual.OpacityProperty, TimeSpan.FromMilliseconds(90),
-                (0d, 1d, null), (1d, 0d, ExitEaseIn)),
-            RunAnimationAsync(view, token, TranslateTransform.YProperty, TimeSpan.FromMilliseconds(90),
-                (0d, 0d, null), (1d, 6d, ExitEaseIn)),
-            RunAnimationAsync(view, token, ScaleTransform.ScaleXProperty, TimeSpan.FromMilliseconds(90),
-                (0d, 1d, null), (1d, 0.995d, ExitEaseIn)),
-            RunAnimationAsync(view, token, ScaleTransform.ScaleYProperty, TimeSpan.FromMilliseconds(90),
-                (0d, 1d, null), (1d, 0.995d, ExitEaseIn)))
-            .ConfigureAwait(true);
+        await AnimateAsync(TimeSpan.FromMilliseconds(90), token, t =>
+        {
+            var eased = ExitEaseIn.GetSplineProgress(t);
+            view.Opacity = 1d - eased;
+            translate.Y = 6d * eased;
+            var s = 1d - 0.005d * eased;
+            scale.ScaleX = s;
+            scale.ScaleY = s;
+        }).ConfigureAwait(true);
     }
 
-    private static Task RunAnimationAsync(
-        Control control,
-        CancellationToken token,
-        AvaloniaProperty property,
-        TimeSpan duration,
-        params (double Cue, double Value, KeySpline? Spline)[] frames)
+    /// <summary>
+    /// 手动逐帧驱动过渡：Avalonia 12 的 <c>Animation.RunAsync</c> 在本项目实测不产生中间帧
+    /// （直接跳到终值，页面切换退化为硬切），因此改为按 60fps 回写属性，保证过渡真实可见。
+    /// </summary>
+    private static async Task AnimateAsync(TimeSpan duration, CancellationToken token, Action<double> apply)
     {
-        var animation = new Animation
+        var start = Stopwatch.GetTimestamp();
+        var totalMs = duration.TotalMilliseconds;
+        while (true)
         {
-            Duration = duration,
-            IterationCount = new IterationCount(1),
-            FillMode = FillMode.Forward,
-        };
-        foreach (var (cue, value, spline) in frames)
-        {
-            var frame = new KeyFrame
+            token.ThrowIfCancellationRequested();
+            var elapsedMs = (Stopwatch.GetTimestamp() - start) * 1000d / Stopwatch.Frequency;
+            var t = Math.Clamp(elapsedMs / totalMs, 0d, 1d);
+            apply(t);
+            if (t >= 1d)
             {
-                Cue = new Cue(cue),
-                Setters = { new Setter(property, value) },
-            };
-            if (spline is not null)
-            {
-                frame.KeySpline = spline;
+                return;
             }
 
-            animation.Children.Add(frame);
+            await Task.Delay(14, token).ConfigureAwait(true);
         }
-
-        return animation.RunAsync(control, token);
     }
 
     /// <summary>
@@ -379,11 +373,15 @@ public partial class MainWindow : Window
         };
     }
 
-    /// <summary>最大化时去除外留白与圆角，避免出现透明缝隙。</summary>
+    /// <summary>最大化时去除外留白与圆角，并停用边缘缩放手柄（避免与系统最大化行为冲突）。</summary>
     private void UpdateFrameForState()
     {
         var maximized = WindowState == WindowState.Maximized;
         MainFrame.Margin = maximized ? new Thickness(0) : new Thickness(18);
         MainFrame.CornerRadius = maximized ? new CornerRadius(0) : new CornerRadius(12);
+        if (this.FindControl<Control>("ResizeLayer") is { } layer)
+        {
+            layer.IsHitTestVisible = !maximized;
+        }
     }
 }

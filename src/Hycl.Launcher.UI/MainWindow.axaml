@@ -38,7 +38,7 @@
                             <TextBlock Text="Hyplay Craft Launcher"
                                        FontSize="15"
                                        FontWeight="SemiBold"
-                                       Foreground="White"
+                                       Foreground="{DynamicResource TitleTabBrush}"
                                        VerticalAlignment="Center" />
                         </StackPanel>
 
@@ -69,13 +69,13 @@
                                     HorizontalAlignment="Right"
                                     VerticalAlignment="Center">
                             <Button Classes="winbtn" ToolTip.Tip="帮助" Click="OnHelpClick">
-                                <c:HyclIcon Kind="help" Width="16" Height="16" Foreground="White" />
+                                <c:HyclIcon Kind="help" Width="16" Height="16" Foreground="{DynamicResource TitleTabBrush}" />
                             </Button>
                             <Button Classes="winbtn" ToolTip.Tip="最小化" Click="OnMinimizeClick">
-                                <c:HyclIcon Kind="minus" Width="16" Height="16" Foreground="White" />
+                                <c:HyclIcon Kind="minus" Width="16" Height="16" Foreground="{DynamicResource TitleTabBrush}" />
                             </Button>
                             <Button Classes="winbtn close" ToolTip.Tip="关闭" Click="OnCloseClick">
-                                <c:HyclIcon Kind="close" Width="16" Height="16" Foreground="White" />
+                                <c:HyclIcon Kind="close" Width="16" Height="16" Foreground="{DynamicResource TitleTabBrush}" />
                             </Button>
                         </StackPanel>
                     </Grid>
@@ -98,19 +98,25 @@
                         <TextBlock Text="{Binding ToastMessage}" />
                     </Border>
                 </Grid>
+
+                <!--
+                    无边框窗口缩放手柄：放在可视区域内侧的 5px 贴边带（位于圆角裁切范围内），
+                    不占用卡片外部的阴影留白；内容与滚动条都有 ≥15px 的页面边距，不会被压住。
+                -->
+                <Grid Name="ResizeLayer"
+                      Grid.RowSpan="2"
+                      RowDefinitions="5,*,5"
+                      ColumnDefinitions="5,*,5">
+                    <Border Name="rzTopLeft" Grid.Row="0" Grid.Column="0" Background="Transparent" />
+                    <Border Name="rzTop" Grid.Row="0" Grid.Column="1" Background="Transparent" />
+                    <Border Name="rzTopRight" Grid.Row="0" Grid.Column="2" Background="Transparent" />
+                    <Border Name="rzLeft" Grid.Row="1" Grid.Column="0" Background="Transparent" />
+                    <Border Name="rzRight" Grid.Row="1" Grid.Column="2" Background="Transparent" />
+                    <Border Name="rzBottomLeft" Grid.Row="2" Grid.Column="0" Background="Transparent" />
+                    <Border Name="rzBottom" Grid.Row="2" Grid.Column="1" Background="Transparent" />
+                    <Border Name="rzBottomRight" Grid.Row="2" Grid.Column="2" Background="Transparent" />
+                </Grid>
             </Grid>
         </Border>
-
-        <!-- 无边框窗口的缩放手柄（位于卡片外围的阴影留白中） -->
-        <Grid RowDefinitions="14,*,14" ColumnDefinitions="14,*,14">
-            <Border Name="rzTopLeft" Grid.Row="0" Grid.Column="0" Background="Transparent" Cursor="TopLeftCorner" />
-            <Border Name="rzTop" Grid.Row="0" Grid.Column="1" Background="Transparent" Cursor="TopSide" />
-            <Border Name="rzTopRight" Grid.Row="0" Grid.Column="2" Background="Transparent" Cursor="TopRightCorner" />
-            <Border Name="rzLeft" Grid.Row="1" Grid.Column="0" Background="Transparent" Cursor="LeftSide" />
-            <Border Name="rzRight" Grid.Row="1" Grid.Column="2" Background="Transparent" Cursor="RightSide" />
-            <Border Name="rzBottomLeft" Grid.Row="2" Grid.Column="0" Background="Transparent" Cursor="BottomLeftCorner" />
-            <Border Name="rzBottom" Grid.Row="2" Grid.Column="1" Background="Transparent" Cursor="BottomSide" />
-            <Border Name="rzBottomRight" Grid.Row="2" Grid.Column="2" Background="Transparent" Cursor="BottomRightCorner" />
-        </Grid>
     </Grid>
 </Window>

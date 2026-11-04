@@ -45,6 +45,12 @@
             <SolidColorBrush x:Key="MsBlueBrush" Color="#2F7DE1" />
             <SolidColorBrush x:Key="ToastBrush" Color="#EB343D4A" />
 
+            <!-- 标题栏前景：默认白色文字/图标（选中态改为 Primary 蓝） -->
+            <SolidColorBrush x:Key="TitleTabBrush" Color="#FFFFFF" />
+
+            <!-- 标题栏未选中项 Hover：半透明白，保持白字可读 -->
+            <SolidColorBrush x:Key="TitleHoverBrush" Color="#33FFFFFF" />
+
             <!-- 主色渐变：图标底座与主按钮 -->
             <LinearGradientBrush x:Key="PrimaryGradientBrush" StartPoint="0%,0%" EndPoint="100%,100%">
                 <GradientStop Color="#4C97F8" Offset="0" />
@@ -55,10 +61,11 @@
             <SolidColorBrush x:Key="SoftLineBrush" Color="#26343D4A" />
             <SolidColorBrush x:Key="GlassSurfaceBrush" Color="#E6FFFFFF" />
 
-            <!-- 标题栏渐变：90deg #1370F3 → #0B5BCB -->
+            <!-- 标题栏渐变：横向「左深右浅」#0B5BCB → #2570E8；
+                 两端相对白色的对比度分别为 6.16:1 / 4.58:1，白色文字与图标均可读 -->
             <LinearGradientBrush x:Key="TitleGradientBrush" StartPoint="0%,50%" EndPoint="100%,50%">
-                <GradientStop Color="#1370F3" Offset="0" />
-                <GradientStop Color="#0B5BCB" Offset="1" />
+                <GradientStop Color="#0B5BCB" Offset="0" />
+                <GradientStop Color="#2570E8" Offset="1" />
             </LinearGradientBrush>
 
             <!-- 窗口背景：165deg 浅蓝 → 白 -->
@@ -100,6 +107,9 @@
 
             <SolidColorBrush x:Key="MsBlueBrush" Color="#4C93EE" />
             <SolidColorBrush x:Key="ToastBrush" Color="#EBD6DAE1" />
+
+            <SolidColorBrush x:Key="TitleTabBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="TitleHoverBrush" Color="#33FFFFFF" />
 
             <LinearGradientBrush x:Key="PrimaryGradientBrush" StartPoint="0%,0%" EndPoint="100%,100%">
                 <GradientStop Color="#2E5C9E" Offset="0" />

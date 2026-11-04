@@ -133,6 +133,7 @@ public partial class CompSectionViewModel : ObservableObject
     private int _searchGeneration;
     private int _detailGeneration;
     private bool _attached = true;
+    private bool _searchInterrupted;
 
     public CompSectionViewModel(
         LauncherServices services,
@@ -179,6 +180,12 @@ public partial class CompSectionViewModel : ObservableObject
 
         _attached = true;
         _install.PropertyChanged += _installWatcher;
+
+        // 上次离开页面时搜索结果被取消且列表仍为空：重新发起一次，保证再次进入能自动加载
+        if (_searchInterrupted && Results.Count == 0)
+        {
+            _ = SearchAsync();
+        }
     }
 
     /// <summary>页面离开时取消在途搜索/详情请求并退订安装进度监听。</summary>
@@ -196,6 +203,7 @@ public partial class CompSectionViewModel : ObservableObject
     /// <summary>取消本分区所有在途的页面级请求：搜索、详情文件列表与简介翻译。</summary>
     public void CancelPending()
     {
+        _searchInterrupted |= IsSearching;
         CancelAndDispose(ref _searchCts);
         CancelAndDispose(ref _detailCts);
         _searchGeneration++;
@@ -326,6 +334,7 @@ public partial class CompSectionViewModel : ObservableObject
         _searchCts = cts;
         var token = cts.Token;
         var generation = ++_searchGeneration;
+        _searchInterrupted = false;
         IsSearching = true;
         ErrorText = "";
         try
