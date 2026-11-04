@@ -35,15 +35,23 @@ public partial class App : Application
                 {
                     var main = new MainWindow();
                     desktop.MainWindow = main;
-                    main.Show();
-                    // 至少展示一个完整弹跳周期，避免一闪而过（PCL-CE 的 splash 也驻留片刻）
-                    main.Opened += async (_, _) =>
+
+                    // 关闭挂钩必须先于 Show() 注册：Avalonia 在 Show() 内部同步触发 Opened，
+                    // 之后再订阅会永远错过（splash 将一直悬浮在主窗口之上）
+                    EventHandler closeSplash = (_, _) => splash.Close();
+                    main.Opened += closeSplash;
+                    main.Closed += closeSplash;
+
+                    // 兜底：无论事件是否如期触发，15 秒后强制关闭 splash
+                    var failsafe = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
+                    failsafe.Tick += (_, _) =>
                     {
-                        await Task.Delay(700);
+                        failsafe.Stop();
                         splash.Close();
                     };
-                    // 主窗口异常关闭时保证 splash 一并退出
-                    main.Closed += (_, _) => splash.Close();
+                    failsafe.Start();
+
+                    main.Show();
                 },
                 DispatcherPriority.Background);
         }
