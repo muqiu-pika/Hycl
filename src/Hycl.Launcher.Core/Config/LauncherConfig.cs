@@ -102,6 +102,12 @@ public sealed class LauncherConfig
     /// <summary>light / dark。</summary>
     public string Theme { get; set; } = "light";
 
+    /// <summary>
+    /// 实例级覆盖设置，键为 versions 下的实例目录名。
+    /// 未设置或留空的字段回退到本类中的全局设置（实例覆盖 &gt; 全局）。
+    /// </summary>
+    public Dictionary<string, InstanceSettings> InstanceSettings { get; set; } = new();
+
     [JsonIgnore]
     public string EffectiveGameDirectory =>
         string.IsNullOrWhiteSpace(GameDirectory)
@@ -158,7 +164,45 @@ public sealed class LauncherConfig
         {
             Theme = "light";
         }
+
+        // 实例键统一为不区分大小写，并收敛各覆盖值到可用范围
+        if (InstanceSettings.Count > 0)
+        {
+            var normalized = new Dictionary<string, InstanceSettings>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pair in InstanceSettings)
+            {
+                if (string.IsNullOrWhiteSpace(pair.Key) || pair.Value is null)
+                {
+                    continue;
+                }
+
+                pair.Value.Normalize();
+                normalized[pair.Key] = pair.Value;
+            }
+
+            InstanceSettings = normalized;
+        }
     }
+
+    /// <summary>读取实例覆盖设置；不存在时创建空设置（空值表示跟随全局）。</summary>
+    public InstanceSettings GetOrCreateInstanceSettings(string instanceId)
+    {
+        if (InstanceSettings.TryGetValue(instanceId, out var settings) && settings is not null)
+        {
+            return settings;
+        }
+
+        settings = new InstanceSettings();
+        InstanceSettings[instanceId] = settings;
+        return settings;
+    }
+
+    /// <summary>读取实例覆盖设置；不存在时返回 null（不写入配置）。</summary>
+    public InstanceSettings? FindInstanceSettings(string instanceId) =>
+        InstanceSettings.TryGetValue(instanceId, out var settings) ? settings : null;
+
+    /// <summary>删除实例覆盖设置（删除/重命名实例时调用）。</summary>
+    public void RemoveInstanceSettings(string instanceId) => InstanceSettings.Remove(instanceId);
 
     /// <summary>实际分配给游戏的堆内存（MB）。</summary>
     public int GetEffectiveMemoryMegabytes()
@@ -177,5 +221,55 @@ public sealed class LauncherConfig
         var half = totalMb / 2;
         var rounded = half / 256 * 256;
         return Math.Clamp(rounded, 512, 8192);
+    }
+}
+
+/// <summary>
+/// 单个实例的覆盖设置。数值为哨兵值时回退到全局配置：
+/// 内存 0、初始内存 -1、窗口模式 -1、窗口宽高 0、JVM/Java/存档目录为空字符串。
+/// </summary>
+public sealed class InstanceSettings
+{
+    /// <summary>备注（仅启动器内显示，不改实例目录名）。</summary>
+    public string Remark { get; set; } = "";
+
+    /// <summary>版本隔离：开启时 saves/mods/resourcepacks/shaderpacks 位于实例目录下。</summary>
+    public bool VersionIsolation { get; set; } = true;
+
+    /// <summary>独立存档目录；空字符串表示使用版本隔离规则下的 saves。</summary>
+    public string SavesDirectory { get; set; } = "";
+
+    /// <summary>覆盖的 Java 路径；空字符串表示跟随全局。</summary>
+    public string JavaPath { get; set; } = "";
+
+    /// <summary>覆盖的最大堆内存（MB）；0 表示跟随全局。</summary>
+    public int MemoryMegabytes { get; set; }
+
+    /// <summary>覆盖的初始堆内存（MB）；-1 表示跟随全局。</summary>
+    public int InitialMemoryMegabytes { get; set; } = -1;
+
+    /// <summary>覆盖的附加 JVM 参数；空字符串表示跟随全局。</summary>
+    public string ExtraJvmArguments { get; set; } = "";
+
+    /// <summary>覆盖的窗口模式（0 默认 / 1 全屏 / 2 与启动器相同 / 3 自定义 / 4 最大化）；-1 表示跟随全局。</summary>
+    public int WindowType { get; set; } = -1;
+
+    /// <summary>覆盖的窗口宽度；0 表示跟随全局。</summary>
+    public int WindowWidth { get; set; }
+
+    /// <summary>覆盖的窗口高度；0 表示跟随全局。</summary>
+    public int WindowHeight { get; set; }
+
+    internal void Normalize()
+    {
+        Remark ??= "";
+        SavesDirectory ??= "";
+        JavaPath ??= "";
+        ExtraJvmArguments ??= "";
+        MemoryMegabytes = Math.Clamp(MemoryMegabytes, 0, 65536);
+        InitialMemoryMegabytes = Math.Clamp(InitialMemoryMegabytes, -1, 65536);
+        WindowType = Math.Clamp(WindowType, -1, 4);
+        WindowWidth = Math.Clamp(WindowWidth, 0, 7680);
+        WindowHeight = Math.Clamp(WindowHeight, 0, 4320);
     }
 }

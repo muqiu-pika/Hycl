@@ -17,6 +17,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     private readonly Action<string>? _toast;
     private GameSession? _session;
     private MinecraftInstance? _selectedInstance;
+    private bool _suppressInstanceSelection;
     private CancellationTokenSource? _refreshCts;
     private CancellationTokenSource? _progressCts;
 
@@ -85,6 +86,13 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
 
     /// <summary>已安装实例列表（仅内部维护，启动页按当前选中实例展示）。</summary>
     public ObservableCollection<MinecraftInstance> Instances { get; } = [];
+
+    /// <summary>启动页版本下拉框的选项（实例目录名）。</summary>
+    public ObservableCollection<string> InstanceNames { get; } = [];
+
+    /// <summary>启动页版本下拉框的当前项；切换即写入配置并刷新展示。</summary>
+    [ObservableProperty]
+    private string? _selectedInstanceName;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(VersionSummary))]
@@ -173,28 +181,23 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             }
 
             Instances.Clear();
+            InstanceNames.Clear();
             foreach (var instance in list)
             {
                 Instances.Add(instance);
+                InstanceNames.Add(instance.Id);
             }
 
             var target = FindTarget(list, preferredId);
             _selectedInstance = target;
+            _suppressInstanceSelection = true;
+            SelectedInstanceName = target?.Id;
+            _suppressInstanceSelection = false;
+            ApplyInstance(target);
             if (target is null)
             {
-                CurrentVersion = "未安装";
-                CurrentVersionTag = "无";
-                LoaderIconKey = "vanilla";
-                LoaderColor = "#3E9B4F";
-                LoaderName = "Vanilla";
                 return;
             }
-
-            CurrentVersion = target.GameVersion;
-            CurrentVersionTag = TypeLabel(target.Type);
-            LoaderIconKey = LoaderIcon(target.Loader);
-            LoaderColor = LoaderColorOf(target.Loader);
-            LoaderName = LoaderNameOf(target.Loader);
 
             if (!target.Id.Equals(_services.Config.SelectedVersion, StringComparison.OrdinalIgnoreCase))
             {
@@ -277,6 +280,69 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         }
 
         return list[0];
+    }
+
+    /// <summary>外部（版本管理页）切换当前实例后，启动页同步选中项。</summary>
+    public async Task SelectInstanceAsync(string instanceId)
+    {
+        var match = Instances.FirstOrDefault(x => x.Id.Equals(instanceId, StringComparison.OrdinalIgnoreCase));
+        if (match is null)
+        {
+            await RefreshInstancesAsync(instanceId).ConfigureAwait(true);
+            return;
+        }
+
+        _selectedInstance = match;
+        _suppressInstanceSelection = true;
+        SelectedInstanceName = match.Id;
+        _suppressInstanceSelection = false;
+        ApplyInstance(match);
+        if (!match.Id.Equals(_services.Config.SelectedVersion, StringComparison.OrdinalIgnoreCase))
+        {
+            _services.Config.SelectedVersion = match.Id;
+            await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
+        }
+    }
+
+    partial void OnSelectedInstanceNameChanged(string? value)
+    {
+        if (_suppressInstanceSelection || string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        var instance = Instances.FirstOrDefault(x => x.Id.Equals(value, StringComparison.OrdinalIgnoreCase));
+        if (instance is null)
+        {
+            return;
+        }
+
+        _selectedInstance = instance;
+        ApplyInstance(instance);
+        if (!instance.Id.Equals(_services.Config.SelectedVersion, StringComparison.OrdinalIgnoreCase))
+        {
+            _services.Config.SelectedVersion = instance.Id;
+            _ = _services.ConfigStore.SaveAsync();
+        }
+    }
+
+    private void ApplyInstance(MinecraftInstance? target)
+    {
+        if (target is null)
+        {
+            CurrentVersion = "未安装";
+            CurrentVersionTag = "无";
+            LoaderIconKey = "vanilla";
+            LoaderColor = "#3E9B4F";
+            LoaderName = "Vanilla";
+            return;
+        }
+
+        CurrentVersion = target.GameVersion;
+        CurrentVersionTag = TypeLabel(target.Type);
+        LoaderIconKey = LoaderIcon(target.Loader);
+        LoaderColor = LoaderColorOf(target.Loader);
+        LoaderName = LoaderNameOf(target.Loader);
     }
 
     private void BuildProfiles()
@@ -391,18 +457,35 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         {
             var config = _services.Config;
             var account = _services.Accounts.SelectedAccount;
+            var instanceSettings = config.FindInstanceSettings(instance.Id);
+            var isolated = instanceSettings?.VersionIsolation ?? true;
             var options = new LaunchOptions
             {
                 InstanceId = instance.Id,
                 GameDirectory = config.EffectiveGameDirectory,
-                JavaPath = config.JavaPath,
-                MemoryMegabytes = config.GetEffectiveMemoryMegabytes(),
-                InitialMemoryMegabytes = config.InitialMemoryMegabytes,
+                InstanceDirectory = isolated ? instance.Directory : "",
+                JavaPath = string.IsNullOrWhiteSpace(instanceSettings?.JavaPath)
+                    ? config.JavaPath
+                    : instanceSettings.JavaPath,
+                MemoryMegabytes = instanceSettings is { MemoryMegabytes: > 0 }
+                    ? instanceSettings.MemoryMegabytes
+                    : config.GetEffectiveMemoryMegabytes(),
+                InitialMemoryMegabytes = instanceSettings is { InitialMemoryMegabytes: >= 0 }
+                    ? instanceSettings.InitialMemoryMegabytes
+                    : config.InitialMemoryMegabytes,
                 LockMemory = config.LockMemory,
-                WindowType = config.WindowType,
-                WindowWidth = config.WindowWidth,
-                WindowHeight = config.WindowHeight,
-                ExtraJvmArguments = config.ExtraJvmArguments,
+                WindowType = instanceSettings is { WindowType: >= 0 }
+                    ? instanceSettings.WindowType
+                    : config.WindowType,
+                WindowWidth = instanceSettings is { WindowWidth: > 0 }
+                    ? instanceSettings.WindowWidth
+                    : config.WindowWidth,
+                WindowHeight = instanceSettings is { WindowHeight: > 0 }
+                    ? instanceSettings.WindowHeight
+                    : config.WindowHeight,
+                ExtraJvmArguments = string.IsNullOrWhiteSpace(instanceSettings?.ExtraJvmArguments)
+                    ? config.ExtraJvmArguments
+                    : instanceSettings.ExtraJvmArguments,
                 ExtraGameArguments = config.ExtraGameArguments,
                 PlayerName = account.Name,
                 PlayerUuid = account.Uuid,
@@ -722,9 +805,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     private async Task ManageInstanceAsync()
     {
         await RefreshInstancesAsync().ConfigureAwait(true);
-        _toast?.Invoke(Instances.Count == 0
-            ? "尚未安装任何版本"
-            : $"已安装 {Instances.Count} 个版本：{string.Join("、", Instances.Select(x => x.Name))}");
+        NavigateRequested?.Invoke(this, "instances");
     }
 
     [RelayCommand]
@@ -735,17 +816,18 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             return;
         }
 
-        if (link.Title == "下载游戏")
+        switch (link.Title)
         {
-            NavigateRequested?.Invoke(this, "download");
-            return;
+            case "下载游戏":
+                NavigateRequested?.Invoke(this, "download");
+                return;
+            case "版本列表":
+                _ = ManageInstanceAsync();
+                return;
         }
 
         _toast?.Invoke(link.Title switch
         {
-            "版本列表" => Instances.Count == 0
-                ? "尚未安装任何版本"
-                : $"已安装 {Instances.Count} 个版本：{string.Join("、", Instances.Select(x => x.Name))}",
             "快速联机" => "联机功能暂未支持",
             _ => "整合包安装暂未支持"
         });

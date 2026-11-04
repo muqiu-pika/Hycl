@@ -19,6 +19,9 @@ public sealed class LaunchOptions
 
     public required string GameDirectory { get; init; }
 
+    /// <summary>版本隔离时的实例目录；空字符串表示使用 GameDirectory。</summary>
+    public string InstanceDirectory { get; init; } = "";
+
     public string JavaPath { get; init; } = "";
 
     public int MemoryMegabytes { get; init; } = 2048;
@@ -491,12 +494,16 @@ public sealed class LaunchService
             : options.WindowType == 2 ? options.LauncherWindowHeight : 480;
         // 自定义信息覆盖 version_type（显示在游戏主界面左下角与 F3，对应 PCL-CE LaunchArgumentInfo）
         var versionType = string.IsNullOrWhiteSpace(options.TypeInfo) ? info.Type ?? "release" : options.TypeInfo;
+        // 版本隔离：game_directory 指向实例目录，让 saves/mods 等落在实例内
+        var instanceDirectory = string.IsNullOrWhiteSpace(options.InstanceDirectory)
+            ? gameDirectory
+            : Path.GetFullPath(options.InstanceDirectory);
 
         return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["auth_player_name"] = options.PlayerName,
             ["version_name"] = options.InstanceId,
-            ["game_directory"] = gameDirectory,
+            ["game_directory"] = instanceDirectory,
             ["assets_root"] = assetsDirectory,
             ["assets_index_name"] = assetIndex,
             ["game_assets"] = virtualAssets,

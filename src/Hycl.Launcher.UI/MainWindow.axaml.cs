@@ -268,7 +268,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void PrewarmPages()
     {
-        var pages = new object[] { _viewModel.Launch, _viewModel.Download, _viewModel.Settings, _viewModel.Tools };
+        var pages = new object[] { _viewModel.Launch, _viewModel.Download, _viewModel.Instances, _viewModel.Settings, _viewModel.Tools };
         foreach (var page in pages)
         {
             var view = GetOrCreateView(page);
@@ -310,6 +310,7 @@ public partial class MainWindow : Window
         {
             LaunchPageViewModel => new LaunchPage(),
             DownloadPageViewModel => new DownloadPage(),
+            InstancesViewModel => new InstancesPage(),
             SettingsPageViewModel => new SettingsPage(),
             ToolsPageViewModel => new ToolsPage(),
             _ => throw new NotSupportedException($"未知的页面类型：{page.GetType().Name}"),

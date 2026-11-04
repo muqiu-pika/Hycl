@@ -257,11 +257,24 @@
                         </Grid>
                     </Grid>
 
+                    <!-- 切换当前实例/版本：下拉即写入配置，与版本管理页联动 -->
+                    <Grid ColumnDefinitions="Auto,*" Margin="0,14,0,0">
+                        <TextBlock Text="切换版本"
+                                   FontSize="11.5"
+                                   Foreground="{DynamicResource Gray2Brush}"
+                                   VerticalAlignment="Center" />
+                        <c:McComboBox Grid.Column="1"
+                                      Margin="10,0,0,0"
+                                      HorizontalAlignment="Stretch"
+                                      Items="{Binding InstanceNames}"
+                                      SelectedItem="{Binding SelectedInstanceName, Mode=TwoWay}" />
+                    </Grid>
+
                     <!-- 管理实例：蓝色线条框 + 主题色图标/文字 -->
                     <Button Classes="line-btn"
                             Height="38"
                             HorizontalAlignment="Stretch"
-                            Margin="0,14,0,0"
+                            Margin="0,10,0,0"
                             Command="{Binding ManageInstanceCommand}">
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <c:HyclIcon Kind="settings"

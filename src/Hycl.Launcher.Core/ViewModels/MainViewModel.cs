@@ -16,6 +16,7 @@ public partial class MainViewModel : ObservableObject
     [
         new("启动", "play"),
         new("下载", "download"),
+        new("版本", "list"),
         new("设置", "settings"),
         new("工具", "wrench"),
     ];
@@ -23,6 +24,8 @@ public partial class MainViewModel : ObservableObject
     public LaunchPageViewModel Launch { get; }
 
     public DownloadPageViewModel Download { get; }
+
+    public InstancesViewModel Instances { get; }
 
     public SettingsPageViewModel Settings { get; }
 
@@ -48,11 +51,25 @@ public partial class MainViewModel : ObservableObject
     {
         Launch = new LaunchPageViewModel(services, ShowToast);
         Download = new DownloadPageViewModel(services, ShowToast);
+        Instances = new InstancesViewModel(services);
         Settings = new SettingsPageViewModel(services, ShowToast);
         Tools = new ToolsPageViewModel(ShowToast);
         _currentPage = Launch;
 
         Download.Installed += (_, instanceId) => _ = Launch.RefreshInstancesAsync(instanceId);
+        Instances.SelectionChanged += (_, instanceId) =>
+        {
+            if (!string.IsNullOrWhiteSpace(instanceId))
+            {
+                _ = Launch.SelectInstanceAsync(instanceId);
+            }
+        };
+        Instances.LaunchRequested += async (_, instanceId) =>
+        {
+            await Launch.SelectInstanceAsync(instanceId);
+            SelectedTabIndex = 0;
+            Launch.LaunchCommand.Execute(null);
+        };
         Launch.CloseRequested += (_, _) => CloseRequested?.Invoke(this, EventArgs.Empty);
         Launch.LauncherVisibilityChanged += (_, kind) =>
         {
@@ -71,6 +88,10 @@ public partial class MainViewModel : ObservableObject
             {
                 SelectedTabIndex = 1;
             }
+            else if (key == "instances")
+            {
+                SelectedTabIndex = 2;
+            }
         };
 
         _ = Launch.RefreshInstancesAsync();
@@ -84,7 +105,7 @@ public partial class MainViewModel : ObservableObject
             leaving.Deactivate();
         }
 
-        if (value == 2)
+        if (value == 3)
         {
             _ = Settings.EnsureLoadedAsync();
         }
@@ -94,11 +115,17 @@ public partial class MainViewModel : ObservableObject
             _ = Launch.RefreshInstancesAsync();
         }
 
+        if (value == 2)
+        {
+            _ = Instances.RefreshAsync();
+        }
+
         CurrentPage = value switch
         {
             1 => Download,
-            2 => Settings,
-            3 => Tools,
+            2 => Instances,
+            3 => Settings,
+            4 => Tools,
             _ => Launch,
         };
 
