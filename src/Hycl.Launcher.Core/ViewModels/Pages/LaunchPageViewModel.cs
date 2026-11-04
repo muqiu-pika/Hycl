@@ -705,10 +705,11 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                 .ConfigureAwait(true);
             _session = session;
 
-            // 进程创建不等于启动成功：继续等待游戏窗口真正可见
+            // 进程创建不等于启动成功：继续等待游戏窗口真正可见。
+            // 退出看护不在这里启动——否则窗口检测失败/退出的两条分支会与看护互相覆盖状态
+            //（按钮显示「运行中」而游戏早已退出），等窗口检测结果出来后再按分支启动。
             LaunchStageText = "正在启动 JVM…";
             SetLaunchProgress(0.6);
-            _ = WatchSessionAsync(session, config.EffectiveGameDirectory);
 
             var result = await LaunchService.WaitForGameWindowAsync(
                 session,
@@ -738,8 +739,11 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                 }
                 else
                 {
-                    // 进程仍在运行但未检测到窗口：不无限等待，保留「关闭游戏」入口
+                    // 进程仍在运行但未检测到窗口：保留「关闭游戏」入口，
+                    // 退出看护此刻才启动（复位按钮状态），不再与窗口检测竞争
                     IsGameRunning = true;
+                    LaunchStageText = "未检测到游戏窗口，游戏可能仍在加载";
+                    _ = WatchSessionAsync(session, config.EffectiveGameDirectory);
                     _toast?.Invoke($"{result.Message}；进程仍在运行，可点击「关闭游戏」");
                 }
 
@@ -753,6 +757,8 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             IsLaunching = false;
             LaunchStageText = "";
             IsGameRunning = true;
+            // 窗口已确认出现后才启动退出看护
+            _ = WatchSessionAsync(session, config.EffectiveGameDirectory);
             _services.Logger.Info($"启动完成：{result.Message}");
             _toast?.Invoke($"已启动 {instance.Name}（PID {session.Id}）");
 
