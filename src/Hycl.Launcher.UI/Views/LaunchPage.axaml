@@ -9,6 +9,7 @@
 
     <!-- 对应网页版 LaunchView：左栏玩家 / 档案（互斥切换），右栏启动 + 快捷方式
          大屏时内容按 MinHeight 绑定视口高度铺满；小屏时整页纵向滚动，不裁切 -->
+    <Panel>
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <Grid ColumnDefinitions="300,*" MinHeight="{Binding $parent[ScrollViewer].Bounds.Height}">
             <!-- ================= 左栏 ================= -->
@@ -84,53 +85,48 @@
 
                         <!-- 启动按钮固定在玩家栏底部（蓝色线条框 + 主题色图标/文字） -->
                         <Button Grid.Row="1"
+                                x:Name="LaunchButton"
                                 Classes="line-btn launch-btn"
                                 Classes.launching="{Binding IsLaunching}"
+                                Classes.running="{Binding IsGameRunning}"
+                                Classes.closing="{Binding IsClosing}"
                                 HorizontalAlignment="Stretch"
                                 VerticalAlignment="Bottom"
                                 Margin="0,16,0,0"
                                 Command="{Binding LaunchCommand}"
-                                IsEnabled="{Binding CanLaunch}">
+                                IsEnabled="{Binding PrimaryEnabled}">
                             <Panel>
                                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                                     <StackPanel Orientation="Horizontal"
                                                 Spacing="8"
                                                 HorizontalAlignment="Center">
-                                        <c:HyclIcon Kind="play"
+                                        <c:HyclIcon Kind="{Binding LaunchIconKey}"
                                                     Width="17"
                                                     Height="17"
-                                                    Foreground="{DynamicResource PrimaryBrush}"
                                                     VerticalAlignment="Center" />
                                         <TextBlock Text="{Binding LaunchText}"
+                                                   Classes="launch-title"
                                                    FontSize="17"
                                                    FontWeight="Bold"
-                                                   Foreground="{DynamicResource PrimaryDeepBrush}"
                                                    VerticalAlignment="Center" />
                                     </StackPanel>
-                                    <TextBlock Text="{Binding VersionSummary}"
-                                               IsVisible="{Binding !IsLaunching}"
+                                    <TextBlock Text="{Binding LaunchSubText}"
+                                               Classes="launch-sub"
                                                FontSize="11"
-                                               Foreground="{DynamicResource PrimaryBrush}"
-                                               Opacity="0.8"
-                                               HorizontalAlignment="Center"
-                                               Margin="0,3,0,0" />
-                                    <TextBlock Text="{Binding LaunchStageText}"
-                                               IsVisible="{Binding IsLaunching}"
-                                               FontSize="11"
-                                               Foreground="{DynamicResource PrimaryBrush}"
-                                               Opacity="0.9"
                                                HorizontalAlignment="Center"
                                                TextTrimming="CharacterEllipsis"
                                                Margin="0,3,0,0" />
                                 </StackPanel>
-                                <!-- 启动中的不定进度条贴在按钮底边，不参与内容布局、不改变按钮尺寸 -->
-                                <ProgressBar IsIndeterminate="True"
+                                <!-- 阶段式进度条贴在按钮底边，不参与内容布局、不改变按钮尺寸 -->
+                                <ProgressBar Classes="launch-progress"
+                                             IsIndeterminate="False"
+                                             Minimum="0"
+                                             Maximum="1"
+                                             Value="{Binding LaunchProgress}"
                                              IsVisible="{Binding IsLaunching}"
                                              Height="3"
                                              Margin="14,0"
-                                             VerticalAlignment="Bottom"
-                                             Foreground="{DynamicResource PrimaryBrush}"
-                                             Background="{DynamicResource Primary8Brush}" />
+                                             VerticalAlignment="Bottom" />
                             </Panel>
                         </Button>
                     </Grid>
@@ -317,4 +313,54 @@
             </Grid>
     </Grid>
     </ScrollViewer>
+
+        <!-- 关闭游戏确认弹窗：遮罩 + 卡片，Esc 取消 / Enter 确认（键盘处理在代码后置） -->
+        <Panel IsVisible="{Binding IsCloseGameConfirmVisible}"
+               Background="{DynamicResource DialogScrimBrush}"
+               ZIndex="2">
+            <Border Classes="dialog-card"
+                    Width="440"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="9">
+                        <c:HyclIcon Kind="power"
+                                    Width="19"
+                                    Height="19"
+                                    Foreground="{DynamicResource ErrorBrush}"
+                                    VerticalAlignment="Center" />
+                        <TextBlock Text="关闭游戏？"
+                                   Classes="dialog-title"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+
+                    <TextBlock Classes="dialog-body"
+                               Margin="0,12,0,0"
+                               Text="关闭游戏可能导致未保存的世界进度丢失、存档损坏，正在写入的 MOD 配置也可能损坏。建议先回到游戏内通过菜单正常退出。"
+                               TextWrapping="Wrap" />
+
+                    <Border Classes="dialog-warning" Margin="0,14,0,0">
+                        <TextBlock Text="若游戏未在 8 秒内正常退出，将强制结束进程。"
+                                   TextWrapping="Wrap" />
+                    </Border>
+
+                    <StackPanel Orientation="Horizontal"
+                                Spacing="10"
+                                HorizontalAlignment="Right"
+                                Margin="0,20,0,0">
+                        <Button x:Name="CancelCloseButton"
+                                Classes="mc-btn"
+                                MinWidth="88"
+                                Content="取消"
+                                Command="{Binding CancelCloseGameCommand}" />
+                        <Button x:Name="ConfirmCloseButton"
+                                Classes="mc-btn danger"
+                                MinWidth="104"
+                                Content="确认关闭"
+                                Command="{Binding ConfirmCloseGameCommand}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Panel>
+    </Panel>
 </UserControl>

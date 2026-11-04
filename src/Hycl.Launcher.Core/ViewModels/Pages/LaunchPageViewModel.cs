@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Hycl.Launcher.Core.Game;
@@ -17,6 +18,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     private GameSession? _session;
     private MinecraftInstance? _selectedInstance;
     private CancellationTokenSource? _refreshCts;
+    private CancellationTokenSource? _progressCts;
 
     public LaunchPageViewModel(LauncherServices services, Action<string>? toast = null)
     {
@@ -41,25 +43,52 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(LaunchText))]
     [NotifyPropertyChangedFor(nameof(CanLaunch))]
+    [NotifyPropertyChangedFor(nameof(PrimaryEnabled))]
+    [NotifyPropertyChangedFor(nameof(LaunchIconKey))]
+    [NotifyPropertyChangedFor(nameof(LaunchSubText))]
     private bool _isLaunching;
 
-    /// <summary>游戏进程是否仍在运行（启动成功后按钮保持禁用，避免重复启动）。</summary>
+    /// <summary>游戏进程是否仍在运行（运行中按钮切换为「关闭游戏」）。</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(LaunchText))]
     [NotifyPropertyChangedFor(nameof(CanLaunch))]
+    [NotifyPropertyChangedFor(nameof(PrimaryEnabled))]
+    [NotifyPropertyChangedFor(nameof(LaunchIconKey))]
+    [NotifyPropertyChangedFor(nameof(LaunchSubText))]
     private bool _isGameRunning;
+
+    /// <summary>是否正在优雅关闭游戏（关闭期间禁用按钮，避免重复触发）。</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(LaunchText))]
+    [NotifyPropertyChangedFor(nameof(CanLaunch))]
+    [NotifyPropertyChangedFor(nameof(PrimaryEnabled))]
+    [NotifyPropertyChangedFor(nameof(LaunchIconKey))]
+    private bool _isClosing;
 
     /// <summary>启动阶段提示（由 LaunchService 在准备各阶段回调）。</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(LaunchSubText))]
     private string _launchStageText = "";
 
-    public bool CanLaunch => !IsLaunching && !IsGameRunning;
+    /// <summary>启动进度（0~1）：阶段式平滑推进，不使用不定进度条。</summary>
+    [ObservableProperty]
+    private double _launchProgress;
+
+    /// <summary>关闭游戏确认弹窗是否显示（键盘与焦点管理由 UI 层负责）。</summary>
+    [ObservableProperty]
+    private bool _isCloseGameConfirmVisible;
+
+    public bool CanLaunch => !IsLaunching && !IsGameRunning && !IsClosing;
+
+    /// <summary>按钮是否可点击：启动中/关闭中禁用，运行中可点击（用于关闭游戏）。</summary>
+    public bool PrimaryEnabled => !IsLaunching && !IsClosing;
 
     /// <summary>已安装实例列表（仅内部维护，启动页按当前选中实例展示）。</summary>
     public ObservableCollection<MinecraftInstance> Instances { get; } = [];
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(VersionSummary))]
+    [NotifyPropertyChangedFor(nameof(LaunchSubText))]
     private string _currentVersion = "未安装";
 
     [ObservableProperty]
@@ -75,12 +104,29 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(VersionSummary))]
+    [NotifyPropertyChangedFor(nameof(LaunchSubText))]
     private string _loaderName = "Vanilla";
 
     /// <summary>启动按钮副标题：版本号 + 加载器。</summary>
     public string VersionSummary => $"{CurrentVersion} · {LoaderName}";
 
-    public string LaunchText => IsLaunching ? "正在启动…" : IsGameRunning ? "游戏运行中" : "启动游戏";
+    public string LaunchText => IsClosing
+        ? "正在关闭…"
+        : IsLaunching
+            ? "正在启动…"
+            : IsGameRunning
+                ? "关闭游戏"
+                : "启动游戏";
+
+    /// <summary>按钮图标键：运行中显示电源图标，其余显示播放图标。</summary>
+    public string LaunchIconKey => !IsLaunching && !IsClosing && IsGameRunning ? "power" : "play";
+
+    /// <summary>按钮副标题：启动中显示阶段提示，运行中提示可关闭，其余显示版本信息。</summary>
+    public string LaunchSubText => IsLaunching
+        ? LaunchStageText
+        : IsGameRunning
+            ? "游戏运行中 · 点击关闭"
+            : VersionSummary;
 
     /// <summary>本次运行内累计启动次数（对应 PCL-CE 的“启动次数”信息项）。</summary>
     [ObservableProperty]
@@ -318,6 +364,13 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     [RelayCommand]
     private async Task LaunchAsync()
     {
+        // 运行中点击同一个按钮 => 打开「关闭游戏」确认弹窗
+        if (IsGameRunning)
+        {
+            IsCloseGameConfirmVisible = true;
+            return;
+        }
+
         if (!CanLaunch)
         {
             return;
@@ -331,7 +384,9 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         }
 
         IsLaunching = true;
+        IsCloseGameConfirmVisible = false;
         LaunchStageText = "正在准备启动…";
+        SetLaunchProgress(0.04);
         try
         {
             var config = _services.Config;
@@ -369,14 +424,61 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                         if (IsLaunching)
                         {
                             LaunchStageText = stage;
+                            SetLaunchProgress(ProgressForStage(stage));
                         }
                     }))
                 .ConfigureAwait(true);
             _session = session;
+
+            // 进程创建不等于启动成功：继续等待游戏窗口真正可见
+            LaunchStageText = "正在启动 JVM…";
+            SetLaunchProgress(0.6);
+            _ = WatchSessionAsync(session);
+
+            var result = await LaunchService.WaitForGameWindowAsync(
+                session,
+                stage => _services.Dispatcher.Post(() =>
+                {
+                    if (IsLaunching)
+                    {
+                        LaunchStageText = stage;
+                        SetLaunchProgress(ProgressForMonitorStage(stage));
+                    }
+                })).ConfigureAwait(true);
+
+            if (!result.Success)
+            {
+                IsLaunching = false;
+                LaunchStageText = "";
+                _services.Logger.Warn(result.Message);
+                if (result.ProcessExited || session.HasExited)
+                {
+                    IsGameRunning = false;
+                    if (ReferenceEquals(_session, session))
+                    {
+                        _session = null;
+                    }
+
+                    _toast?.Invoke(result.Message);
+                }
+                else
+                {
+                    // 进程仍在运行但未检测到窗口：不无限等待，保留「关闭游戏」入口
+                    IsGameRunning = true;
+                    _toast?.Invoke($"{result.Message}；进程仍在运行，可点击「关闭游戏」");
+                }
+
+                return;
+            }
+
+            SetLaunchProgress(1d);
+            LaunchStageText = "游戏窗口已出现";
+            await Task.Delay(600).ConfigureAwait(true);
             LaunchCount++;
             IsLaunching = false;
-            IsGameRunning = true;
             LaunchStageText = "";
+            IsGameRunning = true;
+            _services.Logger.Info($"启动完成：{result.Message}");
             _toast?.Invoke($"已启动 {instance.Name}（PID {session.Id}）");
 
             // 启动器可见性（对应 PCL-CE LaunchArgumentVisible）：0 立即关闭 / 4 最小化 / 其余保持
@@ -388,14 +490,13 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             {
                 LauncherVisibilityChanged?.Invoke(this, config.LauncherVisibility);
             }
-
-            _ = WatchSessionAsync(session);
         }
         catch (LaunchException ex)
         {
             IsLaunching = false;
             IsGameRunning = false;
             LaunchStageText = "";
+            SetLaunchProgress(0d);
             _toast?.Invoke(ex.Message);
             _services.Logger.Error("启动游戏失败", ex);
         }
@@ -404,8 +505,48 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             IsLaunching = false;
             IsGameRunning = false;
             LaunchStageText = "";
+            SetLaunchProgress(0d);
             _toast?.Invoke($"启动失败：{ex.Message}");
             _services.Logger.Error("启动游戏失败", ex);
+        }
+    }
+
+    /// <summary>取消关闭游戏：弹窗关闭，不做任何动作。</summary>
+    [RelayCommand]
+    private void CancelCloseGame() => IsCloseGameConfirmVisible = false;
+
+    /// <summary>确认关闭：先请求正常退出，超时后强制结束；关闭后按钮恢复为可启动。</summary>
+    [RelayCommand]
+    private async Task ConfirmCloseGameAsync()
+    {
+        IsCloseGameConfirmVisible = false;
+        var session = _session;
+        if (!IsGameRunning || session is null)
+        {
+            return;
+        }
+
+        IsClosing = true;
+        try
+        {
+            await session.StopGracefullyAsync(line => _services.Logger.Info(line)).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            _services.Logger.Error("关闭游戏失败", ex);
+            _toast?.Invoke($"关闭游戏失败：{ex.Message}");
+        }
+        finally
+        {
+            IsClosing = false;
+            if (session.HasExited)
+            {
+                IsGameRunning = false;
+                if (ReferenceEquals(_session, session))
+                {
+                    _session = null;
+                }
+            }
         }
     }
 
@@ -424,7 +565,9 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
 
                 IsLaunching = false;
                 IsGameRunning = false;
+                IsClosing = false;
                 LaunchStageText = "";
+                SetLaunchProgress(0d);
                 _toast?.Invoke($"游戏已退出（退出码 {exitCode}）");
             });
         }
@@ -435,7 +578,9 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             {
                 IsLaunching = false;
                 IsGameRunning = false;
+                IsClosing = false;
                 LaunchStageText = "";
+                SetLaunchProgress(0d);
             });
         }
         finally
@@ -443,6 +588,85 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             session.Dispose();
         }
     }
+
+    /// <summary>按启动阶段平滑推进进度条（每段独立缓动，不做跳变）。</summary>
+    private void SetLaunchProgress(double target)
+    {
+        target = Math.Clamp(target, 0d, 1d);
+        var previous = _progressCts;
+        _progressCts = null;
+        if (previous is not null)
+        {
+            try
+            {
+                previous.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // 已被其它路径释放
+            }
+
+            previous.Dispose();
+        }
+
+        var cts = new CancellationTokenSource();
+        _progressCts = cts;
+        _ = AnimateProgressAsync(target, cts.Token);
+    }
+
+    private async Task AnimateProgressAsync(double target, CancellationToken token)
+    {
+        var start = LaunchProgress;
+        var delta = target - start;
+        if (Math.Abs(delta) < 0.001d)
+        {
+            LaunchProgress = target;
+            return;
+        }
+
+        var durationMs = Math.Clamp(Math.Abs(delta) * 1600d, 160d, 520d);
+        var startedAt = Stopwatch.GetTimestamp();
+        try
+        {
+            while (true)
+            {
+                token.ThrowIfCancellationRequested();
+                var t = Math.Clamp(
+                    Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds / durationMs, 0d, 1d);
+                var eased = 1d - Math.Pow(1d - t, 3d);
+                LaunchProgress = start + delta * eased;
+                if (t >= 1d)
+                {
+                    LaunchProgress = target;
+                    return;
+                }
+
+                await Task.Delay(16, token).ConfigureAwait(true);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // 后续阶段接管进度动画
+        }
+    }
+
+    private static double ProgressForStage(string stage) => stage switch
+    {
+        "正在检查版本文件…" => 0.10,
+        "正在检测 Java 运行环境…" => 0.22,
+        "正在准备启动参数…" => 0.36,
+        "正在启动游戏…" => 0.48,
+        _ => 0.52
+    };
+
+    private static double ProgressForMonitorStage(string stage) => stage switch
+    {
+        "正在启动 JVM…" => 0.6,
+        "正在加载 Forge 加载器窗口…" => 0.74,
+        "正在加载游戏窗口…" => 0.82,
+        "游戏窗口已出现，正在完成初始化…" => 0.95,
+        _ => 0.7
+    };
 
     [RelayCommand]
     private void OpenProfiles()

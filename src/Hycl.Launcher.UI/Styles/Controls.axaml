@@ -1,5 +1,6 @@
 <Styles xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:c="clr-namespace:Hycl.Launcher.UI.Controls">
 
     <!-- ============================================================
          按钮（对应网页版 McButton）
@@ -96,12 +97,12 @@
         <Setter Property="CornerRadius" Value="5" />
         <Setter Property="FontSize" Value="17" />
     </Style>
-    <!-- 启动中：底色与边框在 220ms 内平滑过渡到浅蓝强调色，不突兀跳变 -->
+    <!-- 启动中：底色与边框在 550ms 内平滑过渡到浅蓝强调色，阶段推进不跳变 -->
     <Style Selector="Button.launch-btn /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Transitions">
             <Transitions>
-                <BrushTransition Property="Background" Duration="0:0:0.22" />
-                <BrushTransition Property="BorderBrush" Duration="0:0:0.22" />
+                <BrushTransition Property="Background" Duration="0:0:0.55" />
+                <BrushTransition Property="BorderBrush" Duration="0:0:0.55" />
             </Transitions>
         </Setter>
     </Style>
@@ -109,9 +110,86 @@
         <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
     </Style>
+    <!-- 运行中：中性/警示浅红底，与启动态的蓝色区分 -->
+    <Style Selector="Button.launch-btn.running /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource ErrorSoftBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource ErrorBrush}" />
+    </Style>
+    <Style Selector="Button.launch-btn.running:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource ErrorSoftBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource ErrorDarkBrush}" />
+    </Style>
+    <Style Selector="Button.launch-btn.running TextBlock.launch-title">
+        <Setter Property="Foreground" Value="{DynamicResource ErrorDarkBrush}" />
+    </Style>
+    <Style Selector="Button.launch-btn.running TextBlock.launch-sub">
+        <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
+        <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Button.launch-btn.running c|HyclIcon">
+        <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
+    </Style>
+
+    <Style Selector="Button.launch-btn TextBlock.launch-title">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+    </Style>
+    <Style Selector="Button.launch-btn TextBlock.launch-sub">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}" />
+        <Setter Property="Opacity" Value="0.85" />
+    </Style>
+    <Style Selector="Button.launch-btn c|HyclIcon">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}" />
+    </Style>
     <!-- 启动中/游戏运行中虽被禁用，但保持完整不透明度，避免看起来“变灰失效” -->
     <Style Selector="Button.launch-btn:disabled">
         <Setter Property="Opacity" Value="1" />
+    </Style>
+
+    <!-- 阶段式进度条：数值在 300ms 内平滑变化 -->
+    <Style Selector="ProgressBar.launch-progress">
+        <Setter Property="MinHeight" Value="3" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}" />
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+        <Setter Property="Transitions">
+            <Transitions>
+                <DoubleTransition Property="Value" Duration="0:0:0.3" />
+            </Transitions>
+        </Setter>
+    </Style>
+
+    <!-- ============================================================
+         确认弹窗（对应 PCL-CE 的遮罩 + 圆角卡片）
+         ============================================================ -->
+
+    <Style Selector="Border.dialog-card">
+        <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="22" />
+        <Setter Property="BoxShadow" Value="0 18 48 0 #4D0B1B2E" />
+    </Style>
+    <Style Selector="TextBlock.dialog-title">
+        <Setter Property="FontSize" Value="17" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+    </Style>
+    <Style Selector="TextBlock.dialog-body">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{DynamicResource Gray2Brush}" />
+        <Setter Property="LineHeight" Value="21" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="Border.dialog-warning">
+        <Setter Property="Background" Value="{DynamicResource ErrorSoftBrush}" />
+        <Setter Property="CornerRadius" Value="7" />
+        <Setter Property="Padding" Value="12,9" />
+    </Style>
+    <Style Selector="Border.dialog-warning TextBlock">
+        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="Foreground" Value="{DynamicResource ErrorDarkBrush}" />
+        <Setter Property="LineHeight" Value="19" />
+        <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
 
     <!-- 危险按钮 -->
@@ -121,7 +199,7 @@
         <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
     </Style>
     <Style Selector="Button.mc-btn.danger:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="#FDECEC" />
+        <Setter Property="Background" Value="{DynamicResource ErrorSoftBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource ErrorDarkBrush}" />
     </Style>
     <Style Selector="Button.mc-btn.danger:pointerover">

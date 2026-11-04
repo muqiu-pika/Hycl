@@ -32,6 +32,10 @@
             <!-- 状态色 -->
             <SolidColorBrush x:Key="ErrorBrush" Color="#E74C3C" />
             <SolidColorBrush x:Key="ErrorDarkBrush" Color="#CE2111" />
+            <!-- 关闭游戏（警示态）浅红底与危险按钮悬停底 -->
+            <SolidColorBrush x:Key="ErrorSoftBrush" Color="#FDECEC" />
+            <!-- 弹窗遮罩 -->
+            <SolidColorBrush x:Key="DialogScrimBrush" Color="#660B1B2E" />
 
             <!-- 卡片表面（半透明白） -->
             <SolidColorBrush x:Key="CardBrush" Color="#FCFCFD" Opacity="0.9" />
@@ -97,6 +101,8 @@
 
             <SolidColorBrush x:Key="ErrorBrush" Color="#F07060" />
             <SolidColorBrush x:Key="ErrorDarkBrush" Color="#D94A3B" />
+            <SolidColorBrush x:Key="ErrorSoftBrush" Color="#3A2325" />
+            <SolidColorBrush x:Key="DialogScrimBrush" Color="#B3000000" />
 
             <SolidColorBrush x:Key="CardBrush" Color="#232933" Opacity="0.94" />
             <SolidColorBrush x:Key="SurfaceBrush" Color="#1C212B" />

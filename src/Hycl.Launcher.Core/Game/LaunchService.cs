@@ -73,17 +73,58 @@ public sealed class LaunchOptions
 public sealed class GameSession : IDisposable
 {
     private readonly Process _process;
+    private bool _disposed;
 
-    internal GameSession(Process process)
+    internal GameSession(Process process, GameLogSignal logSignal)
     {
         _process = process;
+        LogSignal = logSignal;
     }
+
+    internal Process Process => _process;
+
+    internal GameLogSignal LogSignal { get; }
+
+    /// <summary>启动成功后探测到的游戏主窗口句柄（非 Windows 或未探测到时为 0）。</summary>
+    internal nint WindowHandle { get; set; }
 
     public int Id => _process.Id;
 
-    public bool HasExited => _process.HasExited;
+    /// <summary>进程退出状态；即使 Process 已被释放也返回安全结果，避免 UI 线程异常。</summary>
+    public bool HasExited
+    {
+        get
+        {
+            if (_disposed)
+            {
+                return true;
+            }
 
-    public int ExitCode => _process.ExitCode;
+            try
+            {
+                return _process.HasExited;
+            }
+            catch (InvalidOperationException)
+            {
+                return true;
+            }
+        }
+    }
+
+    public int ExitCode
+    {
+        get
+        {
+            try
+            {
+                return _process.ExitCode;
+            }
+            catch (InvalidOperationException)
+            {
+                return -1;
+            }
+        }
+    }
 
     public Task WaitForExitAsync(CancellationToken cancellationToken = default)
         => _process.WaitForExitAsync(cancellationToken);
@@ -107,7 +148,101 @@ public sealed class GameSession : IDisposable
         }
     }
 
-    public void Dispose() => _process.Dispose();
+    /// <summary>
+    /// 优雅关闭：先向游戏窗口发送正常关闭请求（Windows 为 WM_CLOSE），
+    /// 超过宽限期仍未退出再强制结束进程；每一步都写入日志。
+    /// </summary>
+    public async Task StopGracefullyAsync(Action<string>? log = null, TimeSpan? gracePeriod = null)
+    {
+        if (HasExited)
+        {
+            return;
+        }
+
+        var grace = gracePeriod ?? TimeSpan.FromSeconds(8);
+        var requested = false;
+        var handle = WindowHandle;
+        if (handle == 0 && PlatformInfo.IsWindows)
+        {
+            handle = GameWindowProbe.Probe(_process.Id).Handle;
+        }
+
+        if (PlatformInfo.IsWindows && handle != 0)
+        {
+            // 新版 Minecraft 使用 SDL 窗口，直接向探测到的窗口发送 WM_CLOSE
+            requested = GameWindowProbe.RequestClose(handle);
+            if (requested)
+            {
+                log?.Invoke("已向游戏窗口发送关闭请求（WM_CLOSE），等待进程退出…");
+            }
+        }
+        else
+        {
+            try
+            {
+                requested = _process.CloseMainWindow();
+                if (requested)
+                {
+                    log?.Invoke("已向游戏窗口发送正常关闭请求，等待进程退出…");
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                // 进程已退出
+            }
+            catch (Win32Exception ex)
+            {
+                log?.Invoke($"发送正常关闭请求失败：{ex.Message}");
+            }
+        }
+
+        if (requested)
+        {
+            try
+            {
+                await _process.WaitForExitAsync().WaitAsync(grace).ConfigureAwait(false);
+                log?.Invoke("游戏已正常退出。");
+                return;
+            }
+            catch (TimeoutException)
+            {
+                log?.Invoke($"游戏在 {grace.TotalSeconds:0} 秒内未正常退出，准备强制结束…");
+            }
+            catch (InvalidOperationException)
+            {
+                return;
+            }
+        }
+        else
+        {
+            log?.Invoke($"{PlatformInfo.OperatingSystemName} 未能发送窗口关闭请求，准备强制结束…");
+        }
+
+        try
+        {
+            if (!HasExited)
+            {
+                _process.Kill(true);
+                await _process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                log?.Invoke("已强制结束游戏进程。");
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or TimeoutException)
+        {
+            log?.Invoke($"强制结束游戏进程失败：{ex.Message}");
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _process.Dispose();
+    }
 }
 
 /// <summary>
@@ -224,10 +359,12 @@ public sealed class LaunchService
             throw new LaunchException($"启动 Java 进程失败：{ex.Message}", ex);
         }
 
+        var logSignal = new GameLogSignal();
         process.OutputDataReceived += (_, args) =>
         {
             if (args.Data is not null)
             {
+                logSignal.Feed(args.Data);
                 onOutput?.Invoke(args.Data);
             }
         };
@@ -235,6 +372,7 @@ public sealed class LaunchService
         {
             if (args.Data is not null)
             {
+                logSignal.Feed(args.Data);
                 onOutput?.Invoke(args.Data);
             }
         };
@@ -249,7 +387,26 @@ public sealed class LaunchService
             _ = InjectWindowTitleAsync(process, options.WindowTitle, placeholders);
         }
 
-        return new GameSession(process);
+        return new GameSession(process, logSignal);
+    }
+
+    /// <summary>
+    /// 等待游戏窗口真正出现（启动成功的真实判定）；超时或进程提前退出时返回失败。
+    /// Windows 使用窗口枚举，macOS / Linux 降级为日志特征行 + 超时兜底。
+    /// </summary>
+    public static Task<GameStartResult> WaitForGameWindowAsync(
+        GameSession session,
+        Action<string>? onStage = null,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+    {
+        return GameStartMonitor.WaitAsync(
+            session.Process,
+            session.LogSignal,
+            onStage,
+            handle => session.WindowHandle = handle,
+            timeout ?? GameStartMonitor.DefaultTimeout,
+            cancellationToken);
     }
 
     private async Task<JavaInstallation> ResolveJavaAsync(
