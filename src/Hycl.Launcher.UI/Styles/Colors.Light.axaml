@@ -40,8 +40,10 @@
     <SolidColorBrush x:Key="SoftLineBrush" Color="#26343D4A" />
     <SolidColorBrush x:Key="GlassSurfaceBrush" Color="#E6FFFFFF" />
 
-    <!-- 标题栏：默认白色文字/图标；选中态由样式改为 PrimaryBrush 蓝 -->
+    <!-- 标题栏：默认白色文字/图标；选中态改为 PCL-CE 蓝，背景为白色胶囊 -->
     <SolidColorBrush x:Key="TitleTabBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="TitleTabSelectedBrush" Color="#1370F3" />
+    <SolidColorBrush x:Key="TitleSelectedPillBrush" Color="#FFFFFF" />
     <SolidColorBrush x:Key="TitleHoverBrush" Color="#33FFFFFF" />
 
     <!-- 横向「左深右浅」：#0B5BCB → #2570E8，两端白字对比度 6.16:1 / 4.58:1 -->

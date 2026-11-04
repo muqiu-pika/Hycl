@@ -49,8 +49,12 @@
             <SolidColorBrush x:Key="MsBlueBrush" Color="#2F7DE1" />
             <SolidColorBrush x:Key="ToastBrush" Color="#EB343D4A" />
 
-            <!-- 标题栏前景：默认白色文字/图标（选中态改为 Primary 蓝） -->
+            <!-- 标题栏前景：默认白色文字/图标（选中态改为 PCL-CE 蓝） -->
             <SolidColorBrush x:Key="TitleTabBrush" Color="#FFFFFF" />
+
+            <!-- 标题栏选中态：白色文字/图标改为 PCL-CE 蓝，背景保持白色胶囊 -->
+            <SolidColorBrush x:Key="TitleTabSelectedBrush" Color="#1370F3" />
+            <SolidColorBrush x:Key="TitleSelectedPillBrush" Color="#FFFFFF" />
 
             <!-- 标题栏未选中项 Hover：半透明白，保持白字可读 -->
             <SolidColorBrush x:Key="TitleHoverBrush" Color="#33FFFFFF" />
@@ -115,6 +119,8 @@
             <SolidColorBrush x:Key="ToastBrush" Color="#EBD6DAE1" />
 
             <SolidColorBrush x:Key="TitleTabBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="TitleTabSelectedBrush" Color="#1370F3" />
+            <SolidColorBrush x:Key="TitleSelectedPillBrush" Color="#FFFFFF" />
             <SolidColorBrush x:Key="TitleHoverBrush" Color="#33FFFFFF" />
 
             <LinearGradientBrush x:Key="PrimaryGradientBrush" StartPoint="0%,0%" EndPoint="100%,100%">

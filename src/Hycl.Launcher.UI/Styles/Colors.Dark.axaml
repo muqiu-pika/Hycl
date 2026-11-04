@@ -41,6 +41,8 @@
     <SolidColorBrush x:Key="GlassSurfaceBrush" Color="#E61C212B" />
 
     <SolidColorBrush x:Key="TitleTabBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="TitleTabSelectedBrush" Color="#1370F3" />
+    <SolidColorBrush x:Key="TitleSelectedPillBrush" Color="#FFFFFF" />
     <SolidColorBrush x:Key="TitleHoverBrush" Color="#26FFFFFF" />
 
     <LinearGradientBrush x:Key="TitleGradientBrush" StartPoint="0%,50%" EndPoint="100%,50%">

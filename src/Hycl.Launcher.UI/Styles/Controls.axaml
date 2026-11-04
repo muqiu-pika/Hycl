@@ -218,13 +218,13 @@
         <Setter Property="CornerRadius" Value="999" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderThickness" Value="0" />
-        <Setter Property="Foreground" Value="White" />
+        <Setter Property="Foreground" Value="{DynamicResource TitleTabBrush}" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="Cursor" Value="Hand" />
     </Style>
     <Style Selector="Button.winbtn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="#33FFFFFF" />
+        <Setter Property="Background" Value="{DynamicResource TitleHoverBrush}" />
         <Setter Property="BorderBrush" Value="Transparent" />
     </Style>
     <Style Selector="Button.winbtn.close:pointerover /template/ ContentPresenter#PART_ContentPresenter">
@@ -270,7 +270,14 @@
     <Style Selector="ListBox.tb-tabs ListBoxItem:pointerover">
         <Setter Property="Opacity" Value="1" />
     </Style>
-    <!-- 选中态：白底胶囊 + 图标/文字统一为 PCL-CE 顶栏选中蓝（Primary） -->
+    <!-- 默认态：文字与图标（Path 描边）统一为白色，图标不能只靠继承 -->
+    <Style Selector="ListBox.tb-tabs ListBoxItem TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource TitleTabBrush}" />
+    </Style>
+    <Style Selector="ListBox.tb-tabs ListBoxItem c|HyclIcon">
+        <Setter Property="Foreground" Value="{DynamicResource TitleTabBrush}" />
+    </Style>
+    <!-- 选中态：白色胶囊 + 文字/图标统一为 PCL-CE 顶栏选中蓝 -->
     <Style Selector="ListBox.tb-tabs ListBoxItem /template/ ContentPresenter">
         <Setter Property="Background" Value="Transparent" />
     </Style>
@@ -278,18 +285,24 @@
         <Setter Property="Background" Value="Transparent" />
     </Style>
     <Style Selector="ListBox.tb-tabs ListBoxItem:selected /template/ Border#root">
-        <Setter Property="Background" Value="White" />
+        <Setter Property="Background" Value="{DynamicResource TitleSelectedPillBrush}" />
     </Style>
     <Style Selector="ListBox.tb-tabs ListBoxItem:selected">
         <Setter Property="Opacity" Value="1" />
         <Setter Property="FontWeight" Value="Bold" />
-        <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TitleTabSelectedBrush}" />
+    </Style>
+    <Style Selector="ListBox.tb-tabs ListBoxItem:selected TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource TitleTabSelectedBrush}" />
+    </Style>
+    <Style Selector="ListBox.tb-tabs ListBoxItem:selected c|HyclIcon">
+        <Setter Property="Foreground" Value="{DynamicResource TitleTabSelectedBrush}" />
     </Style>
     <Style Selector="ListBox.tb-tabs ListBoxItem:selected:pointerover /template/ Border#root">
-        <Setter Property="Background" Value="White" />
+        <Setter Property="Background" Value="{DynamicResource TitleSelectedPillBrush}" />
     </Style>
     <Style Selector="ListBox.tb-tabs ListBoxItem:selected:pointerover">
-        <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TitleTabSelectedBrush}" />
         <Setter Property="Opacity" Value="1" />
     </Style>
 
