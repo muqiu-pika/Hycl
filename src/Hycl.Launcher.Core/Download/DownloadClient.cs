@@ -162,7 +162,8 @@ public sealed class DownloadClient : IDisposable
 
     /// <summary>
     /// 下载文件；若目标已存在且大小匹配则跳过。返回是否真正下载。
-    /// 多个 URL 按优先级依次尝试；中断后保留 .hycl-dl 临时文件，下次经 HTTP Range 续传。
+    /// 多个 URL 按优先级依次尝试；网络中断后保留 .hycl-dl 临时文件供下次续传，
+    /// 用户取消时删除该临时文件并关闭文件句柄。
     /// </summary>
     public async Task<bool> DownloadFileAsync(
         string url,
@@ -206,51 +207,60 @@ public sealed class DownloadClient : IDisposable
         var tempFile = destinationPath + TempSuffix;
         Exception? lastError = null;
         var retryCount = Math.Clamp(RetryCount, 0, 10);
-        for (var attempt = 0; attempt <= retryCount; attempt++)
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var resumeFrom = GetResumeLength(tempFile);
-            foreach (var url in candidateUrls)
+            for (var attempt = 0; attempt <= retryCount; attempt++)
             {
-                try
+                cancellationToken.ThrowIfCancellationRequested();
+                var resumeFrom = GetResumeLength(tempFile);
+                foreach (var url in candidateUrls)
                 {
-                    var state = new ResumeState(resumeFrom);
-                    var completed = await DownloadWithResumeAsync(
-                            url,
-                            tempFile,
-                            state,
-                            expectedSize,
-                            expectedSha1,
-                            progress,
-                            cancellationToken)
-                        .ConfigureAwait(false);
-                    resumeFrom = state.Offset;
-                    if (completed)
+                    try
                     {
-                        File.Move(tempFile, destinationPath, true);
-                        return true;
+                        var state = new ResumeState(resumeFrom);
+                        var completed = await DownloadWithResumeAsync(
+                                url,
+                                tempFile,
+                                state,
+                                expectedSize,
+                                expectedSha1,
+                                progress,
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                        resumeFrom = state.Offset;
+                        if (completed)
+                        {
+                            File.Move(tempFile, destinationPath, true);
+                            return true;
+                        }
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (ValidationFailure)
+                    {
+                        // 校验失败时丢弃临时文件重新下载（续传坏数据没有意义）
+                        TryDelete(tempFile);
+                        resumeFrom = 0;
+                        lastError = new IOException($"校验失败：{url}");
+                        _logger.Warn(lastError.Message);
+                    }
+                    catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException or UnauthorizedAccessException)
+                    {
+                        lastError = ex;
+                        _logger.Warn($"下载失败（第 {attempt + 1} 次）：{url} · {ex.Message}");
                     }
                 }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (ValidationFailure)
-                {
-                    // 校验失败时丢弃临时文件重新下载（续传坏数据没有意义）
-                    TryDelete(tempFile);
-                    resumeFrom = 0;
-                    lastError = new IOException($"校验失败：{url}");
-                    _logger.Warn(lastError.Message);
-                }
-                catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException or UnauthorizedAccessException)
-                {
-                    lastError = ex;
-                    _logger.Warn($"下载失败（第 {attempt + 1} 次）：{url} · {ex.Message}");
-                }
-            }
 
-            await DelayBeforeRetryAsync(attempt, retryCount, cancellationToken).ConfigureAwait(false);
+                await DelayBeforeRetryAsync(attempt, retryCount, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // 用户取消：文件流已随 using 关闭，这里删除本次未完成的续传临时文件，避免留下半截文件
+            TryDelete(tempFile);
+            throw;
         }
 
         throw new DownloadException($"下载失败：{candidateUrls.FirstOrDefault()}", lastError);

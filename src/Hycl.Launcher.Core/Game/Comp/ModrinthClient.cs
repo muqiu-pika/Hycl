@@ -23,6 +23,7 @@ public sealed class ModrinthClient(CompRequester requester)
         [JsonPropertyName("categories")] public List<string>? Categories { get; set; }
         [JsonPropertyName("display_categories")] public List<string>? DisplayCategories { get; set; }
         [JsonPropertyName("versions")] public List<string>? Versions { get; set; }
+        [JsonPropertyName("author")] public string? Author { get; set; }
         [JsonPropertyName("downloads")] public long Downloads { get; set; }
         [JsonPropertyName("date_modified")] public DateTimeOffset? DateModified { get; set; }
         [JsonPropertyName("icon_url")] public string? IconUrl { get; set; }
@@ -43,6 +44,7 @@ public sealed class ModrinthClient(CompRequester requester)
         [JsonPropertyName("description")] public string? Description { get; set; }
         [JsonPropertyName("categories")] public List<string>? Categories { get; set; }
         [JsonPropertyName("loaders")] public List<string>? Loaders { get; set; }
+        [JsonPropertyName("game_versions")] public List<string>? GameVersions { get; set; }
         [JsonPropertyName("downloads")] public long Downloads { get; set; }
         [JsonPropertyName("date_modified")] public DateTimeOffset? DateModified { get; set; }
         [JsonPropertyName("icon_url")] public string? IconUrl { get; set; }
@@ -160,6 +162,7 @@ public sealed class ModrinthClient(CompRequester requester)
             Slug = hit.Slug ?? "",
             Title = hit.Title ?? "",
             Description = hit.Description ?? "",
+            Author = hit.Author ?? "",
             IconUrl = string.IsNullOrWhiteSpace(hit.IconUrl) ? null : hit.IconUrl,
             DownloadCount = hit.Downloads,
             LastUpdate = hit.DateModified,
@@ -168,7 +171,8 @@ public sealed class ModrinthClient(CompRequester requester)
             ModLoaders = hit.DisplayCategories?
                 .Where(c => c is "forge" or "fabric" or "quilt" or "neoforge")
                 .ToList() ?? [],
-            Categories = hit.DisplayCategories ?? hit.Categories ?? []
+            Categories = hit.DisplayCategories ?? hit.Categories ?? [],
+            GameVersions = hit.Versions ?? []
         }).Where(p => !string.IsNullOrEmpty(p.Id)).ToList();
         return new CompSearchResult { Projects = projects, ModrinthTotal = response.TotalHits };
     }
@@ -192,6 +196,7 @@ public sealed class ModrinthClient(CompRequester requester)
             FromCurseForge = false,
             ModLoaders = json.Loaders ?? [],
             Categories = json.Categories ?? [],
+            GameVersions = json.GameVersions ?? [],
             WebsiteUrl = json.IssuesUrl ?? $"https://modrinth.com/{ToProjectType(FromProjectType(json.ProjectType))}/{json.Slug}"
         };
     }

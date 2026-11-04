@@ -51,111 +51,100 @@
             <ScrollViewer IsVisible="{Binding IsReady}"
                           HorizontalScrollBarVisibility="Disabled"
                           VerticalScrollBarVisibility="Auto">
-                <StackPanel>
+                <StackPanel Margin="0,0,6,0">
                     <TextBlock Classes="page-heading" Text="{Binding SelectedSection.Title}" />
-                    <StackPanel Spacing="12" IsVisible="{Binding CurrentSection, Converter={x:Static ObjectConverters.IsNotNull}}">
+                    <StackPanel IsVisible="{Binding CurrentSection, Converter={x:Static ObjectConverters.IsNotNull}}">
                         <ItemsControl ItemsSource="{Binding CurrentSection.Cards}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="m:SettingCardViewModel">
-                                    <Border Background="{DynamicResource GlassSurfaceBrush}"
-                                            BorderBrush="{DynamicResource CardBorderBrush}"
-                                            BorderThickness="1"
-                                            CornerRadius="9"
-                                            Padding="16,14"
-                                            Margin="0,0,0,12">
+                                    <Border Classes="setting-card" Margin="0,0,0,14">
                                         <StackPanel>
-                                            <TextBlock Text="{Binding Title}"
-                                                       FontSize="14"
-                                                       FontWeight="SemiBold"
-                                                       Foreground="{DynamicResource TextBrush}"
-                                                       Margin="0,0,0,4" />
+                                            <!-- 卡片标题层级（对应 PCL-CE MyCard 标题） -->
+                                            <TextBlock Classes="setting-card-title" Text="{Binding Title}" />
+                                            <Border Classes="setting-card-rule" />
                                             <ItemsControl ItemsSource="{Binding Rows}">
                                                 <ItemsControl.DataTemplates>
                                                     <DataTemplate x:DataType="m:ComboRowViewModel">
-                                                        <StackPanel>
-                                                            <Grid ColumnDefinitions="*,Auto" Margin="0,8,0,0">
-                                                                <TextBlock Classes="srow-label" Text="{Binding Label}" />
-                                                                <ComboBox Grid.Column="1"
-                                                                          Width="190"
+                                                        <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                                            <TextBlock Classes="srow-label" Text="{Binding Label}" />
+                                                            <c:McComboBox Grid.Column="1"
+                                                                          Width="210"
                                                                           HorizontalAlignment="Right"
-                                                                          ItemsSource="{Binding Options}"
+                                                                          VerticalAlignment="Center"
+                                                                          Items="{Binding Options}"
                                                                           SelectedItem="{Binding SelectedOption, Mode=TwoWay}" />
-                                                            </Grid>
-                                                            <Border Classes="srow-divider" Margin="0,10,0,0" />
-                                                        </StackPanel>
+                                                        </Grid>
                                                     </DataTemplate>
                                                     <DataTemplate x:DataType="m:ToggleRowViewModel">
-                                                        <StackPanel>
-                                                            <Grid ColumnDefinitions="*,Auto" Margin="0,8,0,0">
-                                                                <TextBlock Classes="srow-label" Text="{Binding Label}" />
-                                                                <ToggleSwitch Grid.Column="1"
-                                                                              OnContent=""
-                                                                              OffContent=""
-                                                                              IsChecked="{Binding IsOn, Mode=TwoWay}" />
-                                                            </Grid>
-                                                            <Border Classes="srow-divider" Margin="0,10,0,0" />
-                                                        </StackPanel>
+                                                        <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                                            <TextBlock Classes="srow-label" Text="{Binding Label}" />
+                                                            <ToggleSwitch Grid.Column="1"
+                                                                          HorizontalAlignment="Right"
+                                                                          VerticalAlignment="Center"
+                                                                          OnContent=""
+                                                                          OffContent=""
+                                                                          IsChecked="{Binding IsOn, Mode=TwoWay}" />
+                                                        </Grid>
                                                     </DataTemplate>
                                                     <DataTemplate x:DataType="m:TextRowViewModel">
-                                                        <StackPanel>
-                                                            <TextBlock Classes="srow-label" Text="{Binding Label}" Margin="0,8,0,4" />
-                                                            <TextBox Classes="stext"
+                                                        <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                                            <TextBlock Classes="srow-label" Text="{Binding Label}" />
+                                                            <TextBox Grid.Column="1"
+                                                                     Classes="stext"
+                                                                     HorizontalAlignment="Stretch"
+                                                                     VerticalAlignment="Center"
                                                                      Text="{Binding Text, Mode=TwoWay}"
                                                                      PlaceholderText="{Binding Placeholder}" />
-                                                            <Border Classes="srow-divider" Margin="0,10,0,0" />
-                                                        </StackPanel>
+                                                        </Grid>
                                                     </DataTemplate>
                                                     <DataTemplate x:DataType="m:InfoRowViewModel">
-                                                        <StackPanel>
-                                                            <Grid ColumnDefinitions="*,Auto" Margin="0,8,0,0">
-                                                                <TextBlock Classes="srow-label" Text="{Binding Label}" />
-                                                                <TextBlock Grid.Column="1"
-                                                                           Classes="srow-value"
-                                                                           Text="{Binding Value}"
-                                                                           TextWrapping="Wrap"
-                                                                           MaxWidth="360"
-                                                                           TextAlignment="Right" />
-                                                            </Grid>
-                                                            <Border Classes="srow-divider" Margin="0,10,0,0" />
-                                                        </StackPanel>
+                                                        <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                                            <TextBlock Classes="srow-label" Text="{Binding Label}" />
+                                                            <TextBlock Grid.Column="1"
+                                                                       Classes="srow-value"
+                                                                       MaxWidth="420"
+                                                                       HorizontalAlignment="Right"
+                                                                       Text="{Binding Value}"
+                                                                       TextWrapping="Wrap"
+                                                                       TextAlignment="Right" />
+                                                        </Grid>
                                                     </DataTemplate>
                                                     <DataTemplate x:DataType="m:MutableInfoRowViewModel">
-                                                        <StackPanel>
-                                                            <Grid ColumnDefinitions="*,Auto" Margin="0,8,0,0">
-                                                                <TextBlock Classes="srow-label" Text="{Binding Label}" />
-                                                                <TextBlock Grid.Column="1"
-                                                                           Classes="srow-value"
-                                                                           Text="{Binding Value}"
-                                                                           TextWrapping="Wrap"
-                                                                           MaxWidth="360"
-                                                                           TextAlignment="Right" />
-                                                            </Grid>
-                                                            <Border Classes="srow-divider" Margin="0,10,0,0" />
-                                                        </StackPanel>
+                                                        <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                                            <TextBlock Classes="srow-label" Text="{Binding Label}" />
+                                                            <TextBlock Grid.Column="1"
+                                                                       Classes="srow-value"
+                                                                       MaxWidth="420"
+                                                                       HorizontalAlignment="Right"
+                                                                       Text="{Binding Value}"
+                                                                       TextWrapping="Wrap"
+                                                                       TextAlignment="Right" />
+                                                        </Grid>
                                                     </DataTemplate>
                                                     <DataTemplate x:DataType="m:TextLineRowViewModel">
-                                                        <StackPanel>
-                                                            <TextBlock Classes="sline" Text="{Binding Text}" />
-                                                            <Border Classes="srow-divider" Margin="0,10,0,0" />
-                                                        </StackPanel>
+                                                        <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                                            <TextBlock Grid.ColumnSpan="2" Classes="sline" Text="{Binding Text}" />
+                                                        </Grid>
                                                     </DataTemplate>
                                                     <DataTemplate x:DataType="m:LogRowViewModel">
-                                                        <Border Classes="slog" Margin="0,8,0,0">
+                                                        <Border Classes="slog" Margin="0,4,0,8">
                                                             <SelectableTextBlock Text="{Binding Text}"
                                                                                  FontFamily="Consolas,monospace"
                                                                                  FontSize="12" />
                                                         </Border>
                                                     </DataTemplate>
                                                     <DataTemplate x:DataType="m:ButtonsRowViewModel">
-                                                        <ItemsControl ItemsSource="{Binding Buttons}" Margin="0,8,0,0">
+                                                        <ItemsControl ItemsSource="{Binding Buttons}" Margin="0,4,0,8">
                                                             <ItemsControl.ItemsPanel>
                                                                 <ItemsPanelTemplate>
-                                                                    <StackPanel Orientation="Horizontal" Spacing="8" />
+                                                                    <!-- 小窗口下按钮自动换行，不撑出横向滚动条 -->
+                                                                    <WrapPanel />
                                                                 </ItemsPanelTemplate>
                                                             </ItemsControl.ItemsPanel>
                                                             <ItemsControl.ItemTemplate>
                                                                 <DataTemplate x:DataType="m:SettingButtonViewModel">
                                                                     <Button Classes="mc-btn"
+                                                                            Margin="0,0,8,0"
                                                                             Classes.primary="{Binding IsPrimary}"
                                                                             Command="{Binding Command}">
                                                                         <StackPanel Orientation="Horizontal" Spacing="6">

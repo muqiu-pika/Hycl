@@ -150,9 +150,11 @@ public sealed class LaunchService
     public async Task<GameSession> LaunchAsync(
         LaunchOptions options,
         Action<string>? onOutput = null,
+        Action<string>? onStage = null,
         CancellationToken cancellationToken = default)
     {
         var gameDirectory = Path.GetFullPath(options.GameDirectory);
+        onStage?.Invoke("正在检查版本文件…");
         var resolved = await _resolver.ResolveAsync(gameDirectory, options.InstanceId, cancellationToken).ConfigureAwait(false)
                        ?? throw new LaunchException($"版本不完整或不存在：{options.InstanceId}");
 
@@ -170,9 +172,11 @@ public sealed class LaunchService
         var libraries = LibraryResolver.CollectLibraries(resolved.Info, environment, DownloadPolicy.Default);
         var classPath = BuildClassPath(libraries, librariesDirectory, resolved.ClientJarPath);
 
+        onStage?.Invoke("正在检测 Java 运行环境…");
         var java = await ResolveJavaAsync(options, resolved, cancellationToken).ConfigureAwait(false);
         _logger.Info($"启动 {options.InstanceId}：Java {java.VersionText}（{java.ExecutablePath}）");
 
+        onStage?.Invoke("正在准备启动参数…");
         var placeholders = BuildPlaceholders(options, resolved, gameDirectory, assetsDirectory, librariesDirectory, classPath);
 
         // 启动前执行命令（对应 PCL-CE LaunchAdvanceRun）
@@ -209,6 +213,7 @@ public sealed class LaunchService
 
         _logger.Info($"命令：{java.ExecutablePath} {string.Join(' ', jvmArguments)} {mainClass}");
 
+        onStage?.Invoke("正在启动游戏…");
         Process process;
         try
         {

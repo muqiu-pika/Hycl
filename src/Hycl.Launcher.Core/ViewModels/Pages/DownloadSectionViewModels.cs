@@ -11,14 +11,15 @@ namespace Hycl.Launcher.Core.ViewModels.Pages;
 /// <summary>下载页左侧分区（安装包）的通用数据模型。</summary>
 public partial class LoaderSectionViewModel : ObservableObject
 {
-    private readonly Func<Task<IReadOnlyList<VersionGroupViewModel>>> _loader;
+    private readonly Func<CancellationToken, Task<IReadOnlyList<VersionGroupViewModel>>> _loader;
     private bool _loaded;
+    private CancellationTokenSource? _refreshCts;
 
     public LoaderSectionViewModel(
         string kind,
         string title,
         string hint,
-        Func<Task<IReadOnlyList<VersionGroupViewModel>>> loader)
+        Func<CancellationToken, Task<IReadOnlyList<VersionGroupViewModel>>> loader)
     {
         Kind = kind;
         Title = title;
@@ -44,6 +45,15 @@ public partial class LoaderSectionViewModel : ObservableObject
     [ObservableProperty]
     private string _errorText = "";
 
+    /// <summary>分区版本列表单选：只有被点中的条目保持选中，切换时清除上一条。</summary>
+    public void SelectItem(VersionItemViewModel? item)
+    {
+        foreach (var candidate in Groups.SelectMany(group => group.Items))
+        {
+            candidate.IsSelected = ReferenceEquals(candidate, item);
+        }
+    }
+
     public async Task RefreshAsync(bool force = false)
     {
         if (_loaded && !force)
@@ -51,12 +61,16 @@ public partial class LoaderSectionViewModel : ObservableObject
             return;
         }
 
+        CancelPending();
+        var cts = new CancellationTokenSource();
+        _refreshCts = cts;
         IsLoading = true;
         IsFailed = false;
         ErrorText = "";
         try
         {
-            var groups = await _loader().ConfigureAwait(true);
+            var groups = await _loader(cts.Token).ConfigureAwait(true);
+            cts.Token.ThrowIfCancellationRequested();
             Groups.Clear();
             foreach (var group in groups)
             {
@@ -65,6 +79,10 @@ public partial class LoaderSectionViewModel : ObservableObject
 
             _loaded = true;
         }
+        catch (OperationCanceledException) when (cts.Token.IsCancellationRequested)
+        {
+            // 切换分区/离开下载页时取消：保留已有列表，不写错误
+        }
         catch (Exception ex)
         {
             IsFailed = true;
@@ -72,8 +90,37 @@ public partial class LoaderSectionViewModel : ObservableObject
         }
         finally
         {
-            IsLoading = false;
+            if (ReferenceEquals(_refreshCts, cts))
+            {
+                _refreshCts = null;
+                IsLoading = false;
+            }
+
+            cts.Dispose();
         }
+    }
+
+    /// <summary>取消在途的版本列表请求（切换分区或离开下载页时调用）。</summary>
+    public void CancelPending()
+    {
+        var current = _refreshCts;
+        _refreshCts = null;
+        if (current is null)
+        {
+            return;
+        }
+
+        try
+        {
+            current.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // 已被其它路径释放
+        }
+
+        current.Dispose();
+        IsLoading = false;
     }
 }
 
@@ -86,6 +133,7 @@ public partial class InstallTaskViewModel : ObservableObject
     private readonly LauncherServices _services;
     private readonly Action<string>? _toast;
     private CancellationTokenSource? _cts;
+    private int _runGeneration;
 
     public InstallTaskViewModel(LauncherServices services, Action<string>? toast)
     {
@@ -107,6 +155,10 @@ public partial class InstallTaskViewModel : ObservableObject
 
     [ObservableProperty]
     private double _progressPercent;
+
+    /// <summary>最近一次安装/下载的失败原因（成功或开始时清空），供详情页就地提示。</summary>
+    [ObservableProperty]
+    private string _errorText = "";
 
     /// <summary>安装结束（成功）后携带实际安装的版本目录名。</summary>
     public event EventHandler<string>? Completed;
@@ -188,44 +240,66 @@ public partial class InstallTaskViewModel : ObservableObject
             return;
         }
 
-        _cts = new CancellationTokenSource();
+        _cts?.Cancel();
+        _cts?.Dispose();
+        var cts = new CancellationTokenSource();
+        _cts = cts;
+        var generation = ++_runGeneration;
         IsInstalling = true;
         InstallingName = displayName;
         StageText = "准备中";
         TransferText = "";
         ProgressPercent = 0;
+        ErrorText = "";
         try
         {
             var progress = new Progress<InstallProgress>(
-                value => _services.Dispatcher.Post(() => ApplyProgress(value)));
-            var installedId = await action(progress, _cts.Token).ConfigureAwait(true);
+                value => _services.Dispatcher.Post(() =>
+                {
+                    // 取消/新一轮任务后，丢弃仍在队列中的旧进度，避免遮罩文字“复活”
+                    if (generation == _runGeneration && !cts.IsCancellationRequested)
+                    {
+                        ApplyProgress(value);
+                    }
+                }));
+            var installedId = await action(progress, cts.Token).ConfigureAwait(true);
             StageText = "安装完成";
             ProgressPercent = 100;
+            ErrorText = "";
             _toast?.Invoke($"安装完成：{installedId}");
             // 安装新实例后自动选定该实例（对应 PCL-CE ToolDownloadAutoSelectVersion）
             if (_services.Config.AutoSelectInstance)
             {
                 _services.Config.SelectedVersion = installedId;
-                await _services.ConfigStore.SaveAsync(_cts.Token).ConfigureAwait(true);
+                await _services.ConfigStore.SaveAsync(cts.Token).ConfigureAwait(true);
             }
 
             Completed?.Invoke(this, installedId);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
             StageText = "已取消";
+            TransferText = "";
+            ErrorText = "";
         }
         catch (Exception ex)
         {
             StageText = "安装失败";
+            ErrorText = ex.Message;
             _toast?.Invoke($"安装失败：{ex.Message}");
             _services.Logger.Error("安装失败", ex);
         }
         finally
         {
-            IsInstalling = false;
-            _cts?.Dispose();
-            _cts = null;
+            if (ReferenceEquals(_cts, cts))
+            {
+                _cts = null;
+                IsInstalling = false;
+                // 未成功的任务不把进度停在半途，回到可再次发起的状态
+                ProgressPercent = StageText == "安装完成" ? 100 : 0;
+            }
+
+            cts.Dispose();
         }
     }
 

@@ -5,6 +5,15 @@
          按钮（对应网页版 McButton）
          ============================================================ -->
 
+    <!-- 全局 Hover 兜底：没有自定义类的原生按钮（加载器卡片、图标按钮等）
+         也统一使用与首页一致的浅蓝悬停色，避免出现主题默认的灰色 -->
+    <Style Selector="Button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+    </Style>
+    <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Primary7Brush}" />
+    </Style>
+
     <Style Selector="Button.mc-btn">
         <Setter Property="MinHeight" Value="34" />
         <Setter Property="Padding" Value="17,6" />
@@ -87,6 +96,23 @@
         <Setter Property="CornerRadius" Value="5" />
         <Setter Property="FontSize" Value="17" />
     </Style>
+    <!-- 启动中：底色与边框在 220ms 内平滑过渡到浅蓝强调色，不突兀跳变 -->
+    <Style Selector="Button.launch-btn /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Transitions">
+            <Transitions>
+                <BrushTransition Property="Background" Duration="0:0:0.22" />
+                <BrushTransition Property="BorderBrush" Duration="0:0:0.22" />
+            </Transitions>
+        </Setter>
+    </Style>
+    <Style Selector="Button.launch-btn.launching /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
+    </Style>
+    <!-- 启动中/游戏运行中虽被禁用，但保持完整不透明度，避免看起来“变灰失效” -->
+    <Style Selector="Button.launch-btn:disabled">
+        <Setter Property="Opacity" Value="1" />
+    </Style>
 
     <!-- 危险按钮 -->
     <Style Selector="Button.mc-btn.danger">
@@ -161,7 +187,7 @@
         </Setter>
     </Style>
     <Style Selector="ListBox.tb-tabs ListBoxItem:pointerover /template/ Border#root">
-        <Setter Property="Background" Value="#33EAF2FE" />
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
     </Style>
     <Style Selector="ListBox.tb-tabs ListBoxItem:pointerover">
         <Setter Property="Opacity" Value="1" />
@@ -243,10 +269,10 @@
         <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
     </Style>
     <Style Selector="Button.side-item.active /template/ Border#root">
-        <Setter Property="Background" Value="{DynamicResource Primary7Brush}" />
+        <Setter Property="Background" Value="{DynamicResource Primary6Brush}" />
     </Style>
     <Style Selector="Button.side-item.active:pointerover /template/ Border#root">
-        <Setter Property="Background" Value="{DynamicResource Primary7Brush}" />
+        <Setter Property="Background" Value="{DynamicResource Primary6Brush}" />
     </Style>
     <Style Selector="Button.side-item.active /template/ Rectangle#accent">
         <Setter Property="IsVisible" Value="True" />
@@ -382,7 +408,7 @@
         <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
     </Style>
     <Style Selector="ListBox.combo-list ListBoxItem:selected /template/ Border#itemRoot">
-        <Setter Property="Background" Value="{DynamicResource Primary7Brush}" />
+        <Setter Property="Background" Value="{DynamicResource Primary6Brush}" />
     </Style>
     <Style Selector="ListBox.combo-list ListBoxItem:selected">
         <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
@@ -481,8 +507,8 @@
         <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
     </Style>
     <Style Selector="Button.profile-row.active /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource Primary6Brush}" />
+        <Setter Property="Background" Value="{DynamicResource Primary6Brush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Primary5Brush}" />
     </Style>
 
     <Style Selector="Border.pr-avatar">
@@ -699,8 +725,33 @@
          设置行（对应网页版 SettingsView 的通用行）
          ============================================================ -->
 
+    <Style Selector="Border.setting-card">
+        <Setter Property="Background" Value="{DynamicResource GlassSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="9" />
+        <Setter Property="Padding" Value="20,16,20,14" />
+    </Style>
+    <Style Selector="TextBlock.setting-card-title">
+        <Setter Property="FontSize" Value="14.5" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="Margin" Value="0,0,0,6" />
+    </Style>
+    <Style Selector="Border.setting-card-rule">
+        <Setter Property="Height" Value="1" />
+        <Setter Property="Background" Value="{DynamicResource Gray6Brush}" />
+        <Setter Property="Opacity" Value="0.7" />
+        <Setter Property="Margin" Value="0,0,0,2" />
+    </Style>
+    <!-- 设置行统一 170px 标签列 + 可伸缩控件列，同类控件的左边界与行高保持一致 -->
+    <Style Selector="Grid.setting-row">
+        <Setter Property="MinHeight" Value="44" />
+        <Setter Property="Margin" Value="0,1" />
+    </Style>
+
     <Style Selector="TextBlock.srow-label">
-        <Setter Property="Width" Value="150" />
+        <Setter Property="Width" Value="170" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="VerticalAlignment" Value="Center" />
@@ -725,15 +776,7 @@
         <Setter Property="Margin" Value="0,24" />
     </Style>
 
-    <Style Selector="Border.srow-divider">
-        <Setter Property="Height" Value="1" />
-        <Setter Property="Background" Value="{DynamicResource Gray6Brush}" />
-        <Setter Property="Opacity" Value="0.85" />
-        <Setter Property="VerticalAlignment" Value="Bottom" />
-    </Style>
-
     <Style Selector="TextBox.stext">
-        <Setter Property="Width" Value="300" />
         <Setter Property="MinHeight" Value="32" />
         <Setter Property="Padding" Value="10,4" />
         <Setter Property="FontSize" Value="13" />
@@ -812,7 +855,7 @@
         <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
     </Style>
     <Style Selector="Button.ver-row.selected /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource Primary7Brush}" />
+        <Setter Property="Background" Value="{DynamicResource Primary6Brush}" />
     </Style>
 
     <!-- 社区资源项目行：三行内容（标题/描述/标签），固定更高的统一行高 -->
@@ -852,7 +895,7 @@
         <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
     </Style>
     <Style Selector="Button.loader-item.selected /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+        <Setter Property="Background" Value="{DynamicResource Primary6Brush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource Primary5Brush}" />
     </Style>
 

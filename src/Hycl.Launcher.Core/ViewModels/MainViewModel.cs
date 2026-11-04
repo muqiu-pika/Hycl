@@ -78,6 +78,12 @@ public partial class MainViewModel : ObservableObject
 
     partial void OnSelectedTabIndexChanged(int value)
     {
+        // 离开当前页：取消该页在途的加载/下载，避免后台任务继续跑
+        if (_currentPage is IPageLifecycle leaving)
+        {
+            leaving.Deactivate();
+        }
+
         if (value == 2)
         {
             _ = Settings.EnsureLoadedAsync();
@@ -95,6 +101,20 @@ public partial class MainViewModel : ObservableObject
             3 => Tools,
             _ => Launch,
         };
+
+        (CurrentPage as IPageLifecycle)?.Activate();
+    }
+
+    /// <summary>窗口关闭：取消所有页面级在途任务并释放取消令牌。</summary>
+    public void Shutdown()
+    {
+        if (CurrentPage is IPageLifecycle lifecycle)
+        {
+            lifecycle.Deactivate();
+        }
+
+        Launch.CancelPending();
+        Download.Deactivate();
     }
 
     /// <summary>显示轻提示（1.6 秒后自动消失）。</summary>
@@ -118,3 +138,13 @@ public partial class MainViewModel : ObservableObject
 
 /// <summary>顶部标签页条目。</summary>
 public sealed record TabItemViewModel(string Label, string IconKey);
+
+/// <summary>页面级生命周期：切换标签页/关闭窗口时取消该页在途的加载与下载。</summary>
+public interface IPageLifecycle
+{
+    /// <summary>进入页面：恢复事件订阅。</summary>
+    void Activate();
+
+    /// <summary>离开页面：取消在途请求并退订临时事件。</summary>
+    void Deactivate();
+}

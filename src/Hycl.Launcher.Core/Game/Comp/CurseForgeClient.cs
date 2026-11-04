@@ -68,7 +68,13 @@ public sealed class CurseForgeClient(CompRequester requester)
         [JsonPropertyName("logo")] public CurseForgeLogoJson? Logo { get; set; }
         [JsonPropertyName("links")] public CurseForgeLinksJson? Links { get; set; }
         [JsonPropertyName("categories")] public List<CurseForgeCategoryJson>? Categories { get; set; }
+        [JsonPropertyName("authors")] public List<CurseForgeAuthorJson>? Authors { get; set; }
         [JsonPropertyName("latestFilesIndexes")] public List<CurseForgeFileIndexJson>? LatestFilesIndexes { get; set; }
+    }
+
+    private sealed class CurseForgeAuthorJson
+    {
+        [JsonPropertyName("name")] public string? Name { get; set; }
     }
 
     private sealed class CurseForgeLogoJson
@@ -258,6 +264,9 @@ public sealed class CurseForgeClient(CompRequester requester)
             Slug = json.Slug ?? "",
             Title = json.Name ?? "",
             Description = json.Summary ?? "",
+            Author = (json.Authors ?? [])
+                .Select(a => a.Name ?? "")
+                .FirstOrDefault(n => n.Length > 0) ?? "",
             IconUrl = json.Logo?.ThumbnailUrl ?? json.Logo?.Url,
             DownloadCount = json.DownloadCount,
             LastUpdate = json.DateModified ?? json.DateReleased,
@@ -266,6 +275,11 @@ public sealed class CurseForgeClient(CompRequester requester)
             ModLoaders = loaders,
             Categories = (json.Categories ?? []).Select(c => c.Slug ?? "").Where(s => s.Length > 0).ToList(),
             CategoryIds = (json.Categories ?? []).Select(c => c.Id).ToList(),
+            GameVersions = (json.LatestFilesIndexes ?? [])
+                .Select(i => i.GameVersion ?? "")
+                .Where(v => v.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList(),
             WebsiteUrl = website
         };
     }

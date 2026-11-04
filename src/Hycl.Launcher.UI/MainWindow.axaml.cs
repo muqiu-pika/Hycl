@@ -1,7 +1,10 @@
 using Avalonia;
+using Avalonia.Animation;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using Hycl.Launcher.Core.ViewModels;
 using Hycl.Launcher.Core.ViewModels.Pages;
@@ -19,6 +22,17 @@ public partial class MainWindow : Window
     private readonly Panel _pageHost;
 
     private Control? _activeView;
+
+    private CancellationTokenSource? _pageSwitchCts;
+
+    private int _pageSwitchGeneration;
+
+    // 与 PCL-CE 页面切换一致的节奏：内容进入 100~350ms 缓出，旧页退场 120ms 缓入
+    private static readonly KeySpline EnterEaseOut = new(0.16, 1, 0.3, 1);
+
+    private static readonly KeySpline ExitEaseIn = new(0.7, 0, 0.84, 0);
+
+    private static readonly KeySpline EnterSettle = new(0.4, 0, 0.2, 1);
 
     /// <summary>主窗口 ViewModel 就绪回调（供主题等跨切面在启动时应用配置）。</summary>
     public static event Action<MainViewModel>? ViewModelReady;
@@ -46,6 +60,15 @@ public partial class MainWindow : Window
         _viewModel.CloseRequested += (_, _) => Close();
         _viewModel.MinimizeRequested += (_, _) => WindowState = WindowState.Minimized;
         ShowPage(_viewModel.CurrentPage);
+
+        // 窗口关闭：取消页面切换动画与所有页面级在途任务，关闭文件句柄
+        Closing += (_, _) =>
+        {
+            _pageSwitchCts?.Cancel();
+            _pageSwitchCts?.Dispose();
+            _pageSwitchCts = null;
+            _viewModel.Shutdown();
+        };
 
         // 窗口显示后在后台预热其余页面，避免首次切换标签页时再实例化大页面造成卡顿。
         Opened += (_, _) => Dispatcher.UIThread.Post(PrewarmPages, DispatcherPriority.Background);
@@ -93,12 +116,152 @@ public partial class MainWindow : Window
             return;
         }
 
+        var previous = _activeView;
+        _activeView = view;
+
+        // 快速连续切页：作废旧过渡，避免上一段的退场动画仍把新页压到 0 透明度
+        _pageSwitchCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _pageSwitchCts = cts;
+        var generation = ++_pageSwitchGeneration;
+
         foreach (var child in _pageHost.Children)
         {
-            child.IsVisible = child == view;
+            if (child != view && child != previous)
+            {
+                child.IsVisible = false;
+                child.Opacity = 1;
+                child.RenderTransform = null;
+            }
         }
 
-        _activeView = view;
+        // 新页置于上层但先保持完全透明：旧页退场期间画面上只有一层可见，避免双层叠影
+        view.Opacity = 0;
+        view.ZIndex = 1;
+        view.IsVisible = true;
+        if (previous is not null)
+        {
+            previous.ZIndex = 0;
+        }
+
+        _ = RunPageSwitchAsync(view, previous, generation, cts.Token);
+    }
+
+    /// <summary>
+    /// 页面切换分两段串行执行，任一时刻屏幕上只有一层页面：
+    /// 1. 旧页单独快速淡出（约 90ms 缓入，带轻微下移/缩小）；
+    /// 2. 旧页彻底隐藏后，新页淡入 + 上移 + 轻微缩放回正（约 180ms 缓出）。
+    /// 不做交叉淡入淡出，因此不会出现两层半透明页面叠在一起的拖影。
+    /// </summary>
+    private async Task RunPageSwitchAsync(Control view, Control? previous, int generation, CancellationToken token)
+    {
+        try
+        {
+            if (previous is not null && !ReferenceEquals(previous, view))
+            {
+                await PlayPageExitAsync(previous, token).ConfigureAwait(true);
+                if (generation != _pageSwitchGeneration)
+                {
+                    return;
+                }
+
+                previous.IsVisible = false;
+                previous.Opacity = 1;
+                previous.RenderTransform = null;
+            }
+
+            await PlayPageEnterAsync(view, token).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            // 被下一次切页接管：交由最新的过渡负责收尾
+        }
+        finally
+        {
+            if (generation == _pageSwitchGeneration)
+            {
+                view.Opacity = 1;
+                view.RenderTransform = null;
+                if (previous is not null && !ReferenceEquals(previous, _activeView))
+                {
+                    previous.IsVisible = false;
+                    previous.Opacity = 1;
+                    previous.RenderTransform = null;
+                }
+            }
+        }
+    }
+
+    private static async Task PlayPageEnterAsync(Control view, CancellationToken token)
+    {
+        var scale = new ScaleTransform(0.99, 0.99);
+        var translate = new TranslateTransform(0, 10);
+        view.RenderTransformOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative);
+        view.RenderTransform = new TransformGroup { Children = { scale, translate } };
+        view.Opacity = 0;
+
+        await Task.WhenAll(
+            // 新页单独淡入并轻微归位：此时旧页已完全隐藏，不会与任何图层叠加
+            RunAnimationAsync(view, token, Visual.OpacityProperty, TimeSpan.FromMilliseconds(150),
+                (0d, 1d, null), (1d, 1d, EnterEaseOut)),
+            RunAnimationAsync(view, token, TranslateTransform.YProperty, TimeSpan.FromMilliseconds(180),
+                (0d, 10d, null), (1d, 0d, EnterEaseOut)),
+            RunAnimationAsync(view, token, ScaleTransform.ScaleXProperty, TimeSpan.FromMilliseconds(180),
+                (0d, 0.99d, null), (0.7d, 1.003d, EnterEaseOut), (1d, 1d, EnterSettle)),
+            RunAnimationAsync(view, token, ScaleTransform.ScaleYProperty, TimeSpan.FromMilliseconds(180),
+                (0d, 0.99d, null), (0.7d, 1.003d, EnterEaseOut), (1d, 1d, EnterSettle)))
+            .ConfigureAwait(true);
+    }
+
+    private static async Task PlayPageExitAsync(Control view, CancellationToken token)
+    {
+        var scale = new ScaleTransform(1, 1);
+        var translate = new TranslateTransform(0, 0);
+        view.RenderTransformOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative);
+        view.RenderTransform = new TransformGroup { Children = { scale, translate } };
+
+        await Task.WhenAll(
+            // 旧页在单独一层上快速退场，不参与交叉混合
+            RunAnimationAsync(view, token, Visual.OpacityProperty, TimeSpan.FromMilliseconds(90),
+                (0d, 1d, null), (1d, 0d, ExitEaseIn)),
+            RunAnimationAsync(view, token, TranslateTransform.YProperty, TimeSpan.FromMilliseconds(90),
+                (0d, 0d, null), (1d, 6d, ExitEaseIn)),
+            RunAnimationAsync(view, token, ScaleTransform.ScaleXProperty, TimeSpan.FromMilliseconds(90),
+                (0d, 1d, null), (1d, 0.995d, ExitEaseIn)),
+            RunAnimationAsync(view, token, ScaleTransform.ScaleYProperty, TimeSpan.FromMilliseconds(90),
+                (0d, 1d, null), (1d, 0.995d, ExitEaseIn)))
+            .ConfigureAwait(true);
+    }
+
+    private static Task RunAnimationAsync(
+        Control control,
+        CancellationToken token,
+        AvaloniaProperty property,
+        TimeSpan duration,
+        params (double Cue, double Value, KeySpline? Spline)[] frames)
+    {
+        var animation = new Animation
+        {
+            Duration = duration,
+            IterationCount = new IterationCount(1),
+            FillMode = FillMode.Forward,
+        };
+        foreach (var (cue, value, spline) in frames)
+        {
+            var frame = new KeyFrame
+            {
+                Cue = new Cue(cue),
+                Setters = { new Setter(property, value) },
+            };
+            if (spline is not null)
+            {
+                frame.KeySpline = spline;
+            }
+
+            animation.Children.Add(frame);
+        }
+
+        return animation.RunAsync(control, token);
     }
 
     /// <summary>

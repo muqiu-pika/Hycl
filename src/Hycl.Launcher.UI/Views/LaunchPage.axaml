@@ -8,10 +8,11 @@
              x:CompileBindings="True">
 
     <!-- 对应网页版 LaunchView：左栏玩家 / 档案（互斥切换），右栏启动 + 快捷方式
-         页面固定铺满、不滚动：左侧玩家卡拉伸到整列高度 -->
-    <Grid ColumnDefinitions="300,*" Margin="18">
+         大屏时内容按 MinHeight 绑定视口高度铺满；小屏时整页纵向滚动，不裁切 -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <Grid ColumnDefinitions="300,*" MinHeight="{Binding $parent[ScrollViewer].Bounds.Height}">
             <!-- ================= 左栏 ================= -->
-            <Grid Margin="0,0,15,0">
+            <Grid Margin="18,18,15,18">
                 <!-- 玩家卡 -->
                 <c:McCard Title="玩家" IsVisible="{Binding IsPlayerPanel}">
                     <Grid RowDefinitions="*,Auto">
@@ -84,33 +85,53 @@
                         <!-- 启动按钮固定在玩家栏底部（蓝色线条框 + 主题色图标/文字） -->
                         <Button Grid.Row="1"
                                 Classes="line-btn launch-btn"
+                                Classes.launching="{Binding IsLaunching}"
                                 HorizontalAlignment="Stretch"
                                 VerticalAlignment="Bottom"
                                 Margin="0,16,0,0"
                                 Command="{Binding LaunchCommand}"
-                                IsEnabled="{Binding !IsLaunching}">
-                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <StackPanel Orientation="Horizontal"
-                                            Spacing="8"
-                                            HorizontalAlignment="Center">
-                                    <c:HyclIcon Kind="play"
-                                                Width="17"
-                                                Height="17"
-                                                Foreground="{DynamicResource PrimaryBrush}"
-                                                VerticalAlignment="Center" />
-                                    <TextBlock Text="{Binding LaunchText}"
-                                               FontSize="17"
-                                               FontWeight="Bold"
-                                               Foreground="{DynamicResource PrimaryDeepBrush}"
-                                               VerticalAlignment="Center" />
+                                IsEnabled="{Binding CanLaunch}">
+                            <Panel>
+                                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal"
+                                                Spacing="8"
+                                                HorizontalAlignment="Center">
+                                        <c:HyclIcon Kind="play"
+                                                    Width="17"
+                                                    Height="17"
+                                                    Foreground="{DynamicResource PrimaryBrush}"
+                                                    VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding LaunchText}"
+                                                   FontSize="17"
+                                                   FontWeight="Bold"
+                                                   Foreground="{DynamicResource PrimaryDeepBrush}"
+                                                   VerticalAlignment="Center" />
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding VersionSummary}"
+                                               IsVisible="{Binding !IsLaunching}"
+                                               FontSize="11"
+                                               Foreground="{DynamicResource PrimaryBrush}"
+                                               Opacity="0.8"
+                                               HorizontalAlignment="Center"
+                                               Margin="0,3,0,0" />
+                                    <TextBlock Text="{Binding LaunchStageText}"
+                                               IsVisible="{Binding IsLaunching}"
+                                               FontSize="11"
+                                               Foreground="{DynamicResource PrimaryBrush}"
+                                               Opacity="0.9"
+                                               HorizontalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis"
+                                               Margin="0,3,0,0" />
                                 </StackPanel>
-                                <TextBlock Text="{Binding VersionSummary}"
-                                           FontSize="11"
-                                           Foreground="{DynamicResource PrimaryBrush}"
-                                           Opacity="0.8"
-                                           HorizontalAlignment="Center"
-                                           Margin="0,3,0,0" />
-                            </StackPanel>
+                                <!-- 启动中的不定进度条贴在按钮底边，不参与内容布局、不改变按钮尺寸 -->
+                                <ProgressBar IsIndeterminate="True"
+                                             IsVisible="{Binding IsLaunching}"
+                                             Height="3"
+                                             Margin="14,0"
+                                             VerticalAlignment="Bottom"
+                                             Foreground="{DynamicResource PrimaryBrush}"
+                                             Background="{DynamicResource Primary8Brush}" />
+                            </Panel>
                         </Button>
                     </Grid>
                 </c:McCard>
@@ -175,7 +196,7 @@
             </Grid>
 
             <!-- ================= 右栏 ================= -->
-            <Grid Grid.Column="1" RowDefinitions="Auto,*">
+            <Grid Grid.Column="1" RowDefinitions="Auto,*" Margin="0,18,18,18">
                 <!-- 当前版本：仿照 PCL-CE 的版本信息项（图标 + 标签 + 值），只展示版本真实属性 -->
                 <c:McCard Title="当前版本" Margin="0,0,0,15">
                     <StackPanel>
@@ -295,4 +316,5 @@
                 </c:McCard>
             </Grid>
     </Grid>
+    </ScrollViewer>
 </UserControl>

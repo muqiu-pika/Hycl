@@ -296,6 +296,87 @@ public static class CompLocalization
         return tags.Count > 5 ? tags.GetRange(0, 5) : tags;
     }
 
+    /// <summary>作者：源站字段缺失时回退固定文案，绝不为空。</summary>
+    public static string DisplayAuthor(CompProject project)
+    {
+        var raw = Normalize(project.Author);
+        return raw.Length > 0 ? raw : "未知作者";
+    }
+
+    /// <summary>分类（只含分类，不含加载器）：CurseForge 数字 Id → 中文，Modrinth slug → 中文，始终非空。</summary>
+    public static string DisplayCategoryText(CompProject project)
+    {
+        var list = new List<string>();
+        if (project.FromCurseForge)
+        {
+            if (project.CategoryIds.Count > 0)
+            {
+                foreach (var id in project.CategoryIds)
+                {
+                    AddUnique(list, CurseForgeCategories.TryGetValue(id, out var name) ? name : UnknownCategory);
+                }
+            }
+            else
+            {
+                foreach (var slug in project.Categories)
+                {
+                    AddUnique(list, CategorySlugName(slug));
+                }
+            }
+        }
+        else
+        {
+            foreach (var slug in project.Categories)
+            {
+                if (!LoaderSlugs.Contains(slug, StringComparer.OrdinalIgnoreCase))
+                {
+                    AddUnique(list, CategorySlugName(slug));
+                }
+            }
+        }
+
+        return list.Count > 0 ? string.Join("、", list) : UnknownCategory;
+    }
+
+    /// <summary>加载器中文名；项目未标注加载器时给出通用兜底，避免空白。</summary>
+    public static string DisplayLoaderText(CompProject project)
+    {
+        var list = new List<string>();
+        foreach (var loader in project.ModLoaders)
+        {
+            AddUnique(list, LoaderName(loader));
+        }
+
+        return list.Count > 0 ? string.Join("、", list) : "原版 / 通用";
+    }
+
+    /// <summary>项目支持的游戏版本：过滤加载器等非版本项，过多时折叠为“等 N 个版本”。</summary>
+    public static string DisplayGameVersions(CompProject project)
+    {
+        var list = new List<string>();
+        foreach (var version in project.GameVersions)
+        {
+            var name = GameVersionName(version);
+            if (name.Length > 0 && name.Any(char.IsDigit))
+            {
+                AddUnique(list, name);
+            }
+        }
+
+        if (list.Count == 0)
+        {
+            return "未知";
+        }
+
+        return list.Count <= 6
+            ? string.Join("、", list)
+            : string.Join("、", list.Take(5)) + $" 等 {list.Count} 个版本";
+    }
+
+    /// <summary>更新时间：缺失时返回固定文案。</summary>
+    public static string DisplayUpdateTime(CompProject project)
+        => project.LastUpdate?.ToLocalTime().ToString("yyyy-MM-dd") ?? "未知";
+
     /// <summary>加载器 slug → 显示名；未知值原文首字母大写，空值返回空串（由调用方跳过）。</summary>
     public static string LoaderName(string loader)
     {

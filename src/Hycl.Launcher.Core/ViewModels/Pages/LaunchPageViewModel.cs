@@ -10,12 +10,13 @@ namespace Hycl.Launcher.Core.ViewModels.Pages;
 /// 启动页 ViewModel：玩家档案切换、当前版本展示、启动与快捷方式。
 /// 表现层数据来自 Hycl (2) 的启动页，业务调用继续使用现有 Core 的实例扫描与启动服务。
 /// </summary>
-public partial class LaunchPageViewModel : ObservableObject
+public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
 {
     private readonly LauncherServices _services;
     private readonly Action<string>? _toast;
     private GameSession? _session;
     private MinecraftInstance? _selectedInstance;
+    private CancellationTokenSource? _refreshCts;
 
     public LaunchPageViewModel(LauncherServices services, Action<string>? toast = null)
     {
@@ -39,7 +40,20 @@ public partial class LaunchPageViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(LaunchText))]
+    [NotifyPropertyChangedFor(nameof(CanLaunch))]
     private bool _isLaunching;
+
+    /// <summary>游戏进程是否仍在运行（启动成功后按钮保持禁用，避免重复启动）。</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(LaunchText))]
+    [NotifyPropertyChangedFor(nameof(CanLaunch))]
+    private bool _isGameRunning;
+
+    /// <summary>启动阶段提示（由 LaunchService 在准备各阶段回调）。</summary>
+    [ObservableProperty]
+    private string _launchStageText = "";
+
+    public bool CanLaunch => !IsLaunching && !IsGameRunning;
 
     /// <summary>已安装实例列表（仅内部维护，启动页按当前选中实例展示）。</summary>
     public ObservableCollection<MinecraftInstance> Instances { get; } = [];
@@ -66,7 +80,7 @@ public partial class LaunchPageViewModel : ObservableObject
     /// <summary>启动按钮副标题：版本号 + 加载器。</summary>
     public string VersionSummary => $"{CurrentVersion} · {LoaderName}";
 
-    public string LaunchText => IsLaunching ? "正在启动…" : "启动游戏";
+    public string LaunchText => IsLaunching ? "正在启动…" : IsGameRunning ? "游戏运行中" : "启动游戏";
 
     /// <summary>本次运行内累计启动次数（对应 PCL-CE 的“启动次数”信息项）。</summary>
     [ObservableProperty]
@@ -98,11 +112,19 @@ public partial class LaunchPageViewModel : ObservableObject
     /// </summary>
     public async Task RefreshInstancesAsync(string? preferredId = null)
     {
+        CancelAndDisposeRefresh();
+        var cts = new CancellationTokenSource();
+        _refreshCts = cts;
         try
         {
             var list = await _services.Instances
-                .ScanAsync(_services.Config.EffectiveGameDirectory)
+                .ScanAsync(_services.Config.EffectiveGameDirectory, cts.Token)
                 .ConfigureAwait(true);
+            cts.Token.ThrowIfCancellationRequested();
+            if (!ReferenceEquals(_refreshCts, cts))
+            {
+                return;
+            }
 
             Instances.Clear();
             foreach (var instance in list)
@@ -131,13 +153,64 @@ public partial class LaunchPageViewModel : ObservableObject
             if (!target.Id.Equals(_services.Config.SelectedVersion, StringComparison.OrdinalIgnoreCase))
             {
                 _services.Config.SelectedVersion = target.Id;
-                await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
+                await _services.ConfigStore.SaveAsync(cts.Token).ConfigureAwait(true);
             }
+        }
+        catch (OperationCanceledException) when (cts.Token.IsCancellationRequested)
+        {
+            // 离开启动页导致的正常取消：不写错误，返回后可直接再次刷新
         }
         catch (Exception ex)
         {
             _services.Logger.Error("刷新启动页实例失败", ex);
         }
+        finally
+        {
+            if (ReferenceEquals(_refreshCts, cts))
+            {
+                _refreshCts = null;
+            }
+
+            cts.Dispose();
+        }
+    }
+
+    /// <summary>离开启动页：取消在途的实例扫描/配置保存。</summary>
+    public void CancelPending()
+    {
+        CancelAndDisposeRefresh();
+    }
+
+    /// <summary>进入启动页：实例刷新由 MainViewModel 触发，这里无需额外动作。</summary>
+    public void Activate()
+    {
+    }
+
+    /// <summary>离开启动页：取消在途的实例扫描/配置保存。</summary>
+    public void Deactivate()
+    {
+        CancelPending();
+    }
+
+    private void CancelAndDisposeRefresh()
+    {
+        var current = _refreshCts;
+        _refreshCts = null;
+        if (current is null)
+        {
+            return;
+        }
+
+        try
+        {
+            current.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // 已被其它路径释放
+        }
+
+        current.Dispose();
     }
 
     private MinecraftInstance? FindTarget(IReadOnlyList<MinecraftInstance> list, string? preferredId)
@@ -245,7 +318,7 @@ public partial class LaunchPageViewModel : ObservableObject
     [RelayCommand]
     private async Task LaunchAsync()
     {
-        if (IsLaunching)
+        if (!CanLaunch)
         {
             return;
         }
@@ -258,6 +331,7 @@ public partial class LaunchPageViewModel : ObservableObject
         }
 
         IsLaunching = true;
+        LaunchStageText = "正在准备启动…";
         try
         {
             var config = _services.Config;
@@ -287,10 +361,22 @@ public partial class LaunchPageViewModel : ObservableObject
             };
 
             var session = await _services.Launch
-                .LaunchAsync(options, line => _services.Logger.Info(line))
+                .LaunchAsync(
+                    options,
+                    line => _services.Logger.Info(line),
+                    stage => _services.Dispatcher.Post(() =>
+                    {
+                        if (IsLaunching)
+                        {
+                            LaunchStageText = stage;
+                        }
+                    }))
                 .ConfigureAwait(true);
             _session = session;
             LaunchCount++;
+            IsLaunching = false;
+            IsGameRunning = true;
+            LaunchStageText = "";
             _toast?.Invoke($"已启动 {instance.Name}（PID {session.Id}）");
 
             // 启动器可见性（对应 PCL-CE LaunchArgumentVisible）：0 立即关闭 / 4 最小化 / 其余保持
@@ -308,12 +394,16 @@ public partial class LaunchPageViewModel : ObservableObject
         catch (LaunchException ex)
         {
             IsLaunching = false;
+            IsGameRunning = false;
+            LaunchStageText = "";
             _toast?.Invoke(ex.Message);
             _services.Logger.Error("启动游戏失败", ex);
         }
         catch (Exception ex)
         {
             IsLaunching = false;
+            IsGameRunning = false;
+            LaunchStageText = "";
             _toast?.Invoke($"启动失败：{ex.Message}");
             _services.Logger.Error("启动游戏失败", ex);
         }
@@ -333,13 +423,20 @@ public partial class LaunchPageViewModel : ObservableObject
                 }
 
                 IsLaunching = false;
+                IsGameRunning = false;
+                LaunchStageText = "";
                 _toast?.Invoke($"游戏已退出（退出码 {exitCode}）");
             });
         }
         catch (Exception ex)
         {
             _services.Logger.Warn($"等待游戏退出时出错：{ex.Message}");
-            _services.Dispatcher.Post(() => IsLaunching = false);
+            _services.Dispatcher.Post(() =>
+            {
+                IsLaunching = false;
+                IsGameRunning = false;
+                LaunchStageText = "";
+            });
         }
         finally
         {

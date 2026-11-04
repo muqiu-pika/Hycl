@@ -134,24 +134,33 @@ public sealed class CompInstallService
             .ConfigureAwait(false);
         reporter.FileCompleted(file.Size);
 
-        var modpackType = DetectModpackType(packPath);
-        var gameVersion = modpackType switch
+        try
         {
-            "modrinth" => await InstallModrinthPackAsync(
-                    packPath, gameDirectory, instanceName, reporter, policy, threads, cancellationToken, downloadAssets)
-                .ConfigureAwait(false),
-            "curseforge" => await InstallCurseForgePackAsync(
-                    packPath, gameDirectory, instanceName, reporter, policy, threads, cancellationToken, downloadAssets)
-                .ConfigureAwait(false),
-            _ => throw new CompException(
-                "暂不支持该整合包格式：当前支持 Modrinth（.mrpack）与 CurseForge（manifest.json）；" +
-                "MultiMC/HMCL 等格式可解压后将 overrides 导入 versions 目录手动使用。")
-        };
+            var modpackType = DetectModpackType(packPath);
+            var gameVersion = modpackType switch
+            {
+                "modrinth" => await InstallModrinthPackAsync(
+                        packPath, gameDirectory, instanceName, reporter, policy, threads, cancellationToken, downloadAssets)
+                    .ConfigureAwait(false),
+                "curseforge" => await InstallCurseForgePackAsync(
+                        packPath, gameDirectory, instanceName, reporter, policy, threads, cancellationToken, downloadAssets)
+                    .ConfigureAwait(false),
+                _ => throw new CompException(
+                    "暂不支持该整合包格式：当前支持 Modrinth（.mrpack）与 CurseForge（manifest.json）；" +
+                    "MultiMC/HMCL 等格式可解压后将 overrides 导入 versions 目录手动使用。")
+            };
 
-        TryDeleteFile(packPath);
-        reporter.Stage("安装完成");
-        _logger.Info($"整合包安装完成：{instanceName}（{modpackType}，MC {gameVersion}）");
-        return instanceName;
+            TryDeleteFile(packPath);
+            reporter.Stage("安装完成");
+            _logger.Info($"整合包安装完成：{instanceName}（{modpackType}，MC {gameVersion}）");
+            return instanceName;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // 取消：删除已下载的整合包临时文件（zip 句柄已随 using 关闭）
+            TryDeleteFile(packPath);
+            throw;
+        }
     }
 
     /// <summary>识别整合包类型（对应 PCL-CE _DetectModpackType 的常用分支）。</summary>

@@ -26,7 +26,9 @@
             </StackPanel>
         </Border>
 
-        <ScrollViewer Grid.Row="2" Margin="22,14,18,18">
+        <ScrollViewer Grid.Row="2" Margin="22,14,18,18"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
             <ItemsControl ItemsSource="{Binding Tools}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>

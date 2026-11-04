@@ -14,7 +14,7 @@ namespace Hycl.Launcher.Core.ViewModels.Pages;
 /// 下载页 ViewModel：左侧分区导航 + 安装向导 + 底部安装条。
 /// 界面结构来自 Hycl (2)，网络与安装动作全部调用 Core 的加载器安装门面。
 /// </summary>
-public partial class DownloadPageViewModel : ObservableObject
+public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
 {
     private readonly LauncherServices _services;
 
@@ -117,22 +117,46 @@ public partial class DownloadPageViewModel : ObservableObject
         kind,
         title,
         $"点击 Minecraft 版本可为该版本安装 {title} 的最新稳定版；具体加载器版本请在向导中选择。",
-        () => LoadLoaderGroupsAsync(kind, iconKey));
+        token => LoadLoaderGroupsAsync(kind, iconKey, token));
 
-    private async Task<IReadOnlyList<VersionGroupViewModel>> LoadClientGroupsAsync()
+    private async Task<IReadOnlyList<VersionGroupViewModel>> LoadClientGroupsAsync(CancellationToken token)
     {
         var versions = await _services.Installer
-            .GetVersionListAsync(DownloadPolicy.FromConfig(_services.Config))
+            .GetVersionListAsync(DownloadPolicy.FromConfig(_services.Config), token)
             .ConfigureAwait(true);
         return InstallWizardViewModel.BuildGroups(versions);
     }
 
-    private async Task<IReadOnlyList<VersionGroupViewModel>> LoadLoaderGroupsAsync(string kind, string iconKey)
+    private async Task<IReadOnlyList<VersionGroupViewModel>> LoadLoaderGroupsAsync(
+        string kind,
+        string iconKey,
+        CancellationToken token)
     {
         var policy = DownloadPolicy.FromConfig(_services.Config);
         var provider = _services.LoaderProviders.Get(Enum.Parse<LoaderKind>(kind, true));
-        var mcVersions = await provider.GetSupportedMcVersionsAsync(policy).ConfigureAwait(true);
+        var mcVersions = await provider.GetSupportedMcVersionsAsync(policy, token).ConfigureAwait(true);
         return InstallWizardViewModel.BuildMcVersionGroups(mcVersions, iconKey);
+    }
+
+    /// <summary>离开下载页：取消在途的版本列表、社区搜索/详情与安装下载，回到可再次发起的状态。</summary>
+    public void Deactivate()
+    {
+        Wizard.CancelPending();
+        Install.Cancel();
+        ActiveSection?.CancelPending();
+        foreach (var section in CompSections)
+        {
+            section.Detach();
+        }
+    }
+
+    /// <summary>重新进入下载页：恢复社区分区的安装进度监听。</summary>
+    public void Activate()
+    {
+        foreach (var section in CompSections)
+        {
+            section.Attach();
+        }
     }
 
     partial void OnSelectedSectionChanged(NavItemViewModel? value)
@@ -142,6 +166,8 @@ public partial class DownloadPageViewModel : ObservableObject
             item.IsActive = ReferenceEquals(item, value);
         }
 
+        // 切换分区时取消上一个分区仍在进行的版本列表请求
+        ActiveSection?.CancelPending();
         if (value?.Section is LoaderSectionViewModel section)
         {
             ActiveSection = section;
@@ -198,6 +224,8 @@ public partial class DownloadPageViewModel : ObservableObject
             return;
         }
 
+        // 版本行单选：点谁只高亮谁，避免整组条目共享同一个选中状态
+        ActiveSection.SelectItem(item);
         var kind = ActiveSection.Kind.ToLowerInvariant();
         if (kind is "client")
         {

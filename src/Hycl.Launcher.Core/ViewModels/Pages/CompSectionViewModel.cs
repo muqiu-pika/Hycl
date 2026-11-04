@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Hycl.Launcher.Core.Download;
@@ -15,12 +16,17 @@ public sealed class CompProjectItemViewModel
         Project = project;
         Title = CompLocalization.DisplayTitle(project);
         Description = CompLocalization.DisplayDescription(project);
+        Author = CompLocalization.DisplayAuthor(project);
+        CategoryText = CompLocalization.DisplayCategoryText(project);
+        UpdateText = CompLocalization.DisplayUpdateTime(project);
         IconUrl = project.IconUrl;
         SourceText = project.FromCurseForge ? "CurseForge" : "Modrinth";
         DownloadText = project.DownloadCount >= 10000
             ? $"{project.DownloadCount / 10000.0:0.#} 万下载"
             : $"{project.DownloadCount} 下载";
         Tags = CompLocalization.DisplayTags(project);
+        GameVersionText = CompLocalization.DisplayGameVersions(project);
+        LoaderText = CompLocalization.DisplayLoaderText(project);
     }
 
     public CompProject Project { get; }
@@ -28,6 +34,16 @@ public sealed class CompProjectItemViewModel
     public string Title { get; }
 
     public string Description { get; }
+
+    public string Author { get; }
+
+    public string CategoryText { get; }
+
+    public string UpdateText { get; }
+
+    public string GameVersionText { get; }
+
+    public string LoaderText { get; }
 
     public string? IconUrl { get; }
 
@@ -96,21 +112,27 @@ public sealed partial class CompFileItemViewModel : ObservableObject
 public partial class CompSectionViewModel : ObservableObject
 {
     /// <summary>常用游戏版本筛选（对应 PCL-CE TextSearchVersion 预置列表）。</summary>
-    public static readonly string[] CommonGameVersions =
+    public static readonly IReadOnlyList<string> CommonGameVersions =
     [
         "全部版本", "1.21.1", "1.21", "1.20.6", "1.20.4", "1.20.1", "1.19.4", "1.19.2",
         "1.18.2", "1.16.5", "1.12.2", "1.10.2", "1.8.9", "1.7.10"
     ];
 
-    public static readonly string[] LoaderOptions = ["全部加载器", "Forge", "NeoForge", "Fabric", "Quilt"];
+    public static readonly IReadOnlyList<string> LoaderOptions = ["全部加载器", "Forge", "NeoForge", "Fabric", "Quilt"];
 
-    public static readonly string[] SortOptions = ["综合排序", "相关性", "下载量", "关注数", "最新发布", "最近更新"];
+    public static readonly IReadOnlyList<string> SortOptions = ["综合排序", "相关性", "下载量", "关注数", "最新发布", "最近更新"];
 
     private readonly LauncherServices _services;
     private readonly Action<string>? _toast;
+    private readonly PropertyChangedEventHandler _installWatcher;
     private CompSearchResult? _lastResult;
     private int _pageIndex;
     private string? _lastQuerySignature;
+    private CancellationTokenSource? _searchCts;
+    private CancellationTokenSource? _detailCts;
+    private int _searchGeneration;
+    private int _detailGeneration;
+    private bool _attached = true;
 
     public CompSectionViewModel(
         LauncherServices services,
@@ -128,6 +150,79 @@ public partial class CompSectionViewModel : ObservableObject
         Title = title;
         IconKey = iconKey;
         Description = description;
+        _installWatcher = OnInstallPropertyChanged;
+        _install.PropertyChanged += _installWatcher;
+    }
+
+    private void OnInstallPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(InstallTaskViewModel.IsInstalling)
+            or nameof(InstallTaskViewModel.InstallingName)
+            or nameof(InstallTaskViewModel.StageText)
+            or nameof(InstallTaskViewModel.ProgressPercent)
+            or nameof(InstallTaskViewModel.ErrorText))
+        {
+            OnPropertyChanged(nameof(IsDownloading));
+            OnPropertyChanged(nameof(DownloadPercent));
+            OnPropertyChanged(nameof(DownloadStateText));
+            OnPropertyChanged(nameof(DownloadErrorText));
+        }
+    }
+
+    /// <summary>页面离开时挂接安装进度监听；与 <see cref="Detach"/> 成对调用，避免切页累积回调。</summary>
+    public void Attach()
+    {
+        if (_attached)
+        {
+            return;
+        }
+
+        _attached = true;
+        _install.PropertyChanged += _installWatcher;
+    }
+
+    /// <summary>页面离开时取消在途搜索/详情请求并退订安装进度监听。</summary>
+    public void Detach()
+    {
+        if (_attached)
+        {
+            _attached = false;
+            _install.PropertyChanged -= _installWatcher;
+        }
+
+        CancelPending();
+    }
+
+    /// <summary>取消本分区所有在途的页面级请求：搜索、详情文件列表与简介翻译。</summary>
+    public void CancelPending()
+    {
+        CancelAndDispose(ref _searchCts);
+        CancelAndDispose(ref _detailCts);
+        _searchGeneration++;
+        _detailGeneration++;
+        IsSearching = false;
+        IsLoadingVersions = false;
+    }
+
+    private static void CancelAndDispose(ref CancellationTokenSource? source)
+    {
+        var current = source;
+        source = null;
+        if (current is null)
+        {
+            return;
+        }
+
+        try
+        {
+            current.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // 已被其它路径释放
+        }
+
+        current.Dispose();
     }
 
     private readonly InstallTaskViewModel _install;
@@ -180,6 +275,35 @@ public partial class CompSectionViewModel : ObservableObject
     private string _selectedProjectDescription = "";
 
     [ObservableProperty]
+    private string _selectedProjectAuthor = "";
+
+    [ObservableProperty]
+    private string _selectedProjectCategoryText = "";
+
+    [ObservableProperty]
+    private string _selectedProjectUpdateText = "";
+
+    [ObservableProperty]
+    private string _selectedProjectDownloadText = "";
+
+    [ObservableProperty]
+    private string _selectedProjectGameVersionText = "";
+
+    [ObservableProperty]
+    private string _selectedProjectLoaderText = "";
+
+    /// <summary>详情页下载进度：直接映射底部安装任务状态，供详情内联展示。</summary>
+    public bool IsDownloading => _install.IsInstalling;
+
+    public double DownloadPercent => _install.ProgressPercent;
+
+    public string DownloadStateText => _install.IsInstalling
+        ? $"{_install.InstallingName} · {_install.StageText} · {_install.ProgressPercent:0}%"
+        : "";
+
+    public string DownloadErrorText => _install.ErrorText;
+
+    [ObservableProperty]
     private bool _isLoadingVersions;
 
     [ObservableProperty]
@@ -197,11 +321,11 @@ public partial class CompSectionViewModel : ObservableObject
     [RelayCommand]
     public async Task SearchAsync(bool nextPage = false)
     {
-        if (IsSearching)
-        {
-            return;
-        }
-
+        CancelAndDispose(ref _searchCts);
+        var cts = new CancellationTokenSource();
+        _searchCts = cts;
+        var token = cts.Token;
+        var generation = ++_searchGeneration;
         IsSearching = true;
         ErrorText = "";
         try
@@ -224,15 +348,21 @@ public partial class CompSectionViewModel : ObservableObject
             var tasks = new List<Task<CompSearchResult>>();
             if (source.HasFlag(CompSourceType.CurseForge))
             {
-                tasks.Add(CurseForge.SearchAsync(request));
+                tasks.Add(CurseForge.SearchAsync(request, token));
             }
 
             if (source.HasFlag(CompSourceType.Modrinth))
             {
-                tasks.Add(Modrinth.SearchAsync(request));
+                tasks.Add(Modrinth.SearchAsync(request, token));
             }
 
             var results = await Task.WhenAll(tasks).ConfigureAwait(true);
+            token.ThrowIfCancellationRequested();
+            if (generation != _searchGeneration)
+            {
+                return;
+            }
+
             foreach (var result in results)
             {
                 projects.AddRange(result.Projects);
@@ -257,7 +387,7 @@ public partial class CompSectionViewModel : ObservableObject
                 Results.Add(new CompProjectItemViewModel(project));
             }
 
-            ResultSummary = $"共 {projects.Count} 条结果（CurseForge {Math.Max(0, cfTotal)} / Modrinth {Math.Max(0, mrTotal)}）";
+            ResultSummary = $"共 {projects.Count} 条结果";
             CanGoPrevious = _pageIndex > 0;
             CanGoNext = projects.Count >= 40
                         && (cfTotal > (_pageIndex + 1) * 40 || mrTotal > (_pageIndex + 1) * 40);
@@ -266,20 +396,29 @@ public partial class CompSectionViewModel : ObservableObject
                 SelectedProject = null;
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
-            throw;
+            // 正常取消（切页/重新搜索）：不写错误、不阻塞页面，返回后可直接再次发起
         }
         catch (Exception ex)
         {
-            ErrorText = $"搜索失败：{ex.Message}";
-            _services.Logger.Error("社区资源搜索失败", ex);
+            if (generation == _searchGeneration)
+            {
+                ErrorText = $"搜索失败：{ex.Message}";
+                _services.Logger.Error("社区资源搜索失败", ex);
+            }
         }
         finally
         {
-            IsSearching = false;
-            OnPropertyChanged(nameof(CanGoPrevious));
-            OnPropertyChanged(nameof(CanGoNext));
+            if (ReferenceEquals(_searchCts, cts))
+            {
+                _searchCts = null;
+                IsSearching = false;
+                OnPropertyChanged(nameof(CanGoPrevious));
+                OnPropertyChanged(nameof(CanGoNext));
+            }
+
+            cts.Dispose();
         }
     }
 
@@ -300,17 +439,35 @@ public partial class CompSectionViewModel : ObservableObject
             return;
         }
 
+        CancelAndDispose(ref _detailCts);
+        var cts = new CancellationTokenSource();
+        _detailCts = cts;
+        var token = cts.Token;
+        var generation = ++_detailGeneration;
+
         SelectedProject = item;
         SelectedProjectDescription = CompLocalization.DisplayDescription(item.Project);
+        SelectedProjectAuthor = item.Author;
+        SelectedProjectCategoryText = item.CategoryText;
+        SelectedProjectUpdateText = item.UpdateText;
+        SelectedProjectDownloadText = item.DownloadText;
+        SelectedProjectGameVersionText = item.GameVersionText;
+        SelectedProjectLoaderText = item.LoaderText;
         VersionErrorText = "";
         VersionFiles.Clear();
         IsLoadingVersions = true;
-        var translation = CompLocalization.TranslateDescriptionAsync(_services.DownloadClient, item.Project);
+        var translation = CompLocalization.TranslateDescriptionAsync(_services.DownloadClient, item.Project, token);
         try
         {
             var files = item.Project.FromCurseForge
-                ? await CurseForge.GetFilesAsync(item.Project.Id, Type).ConfigureAwait(true)
-                : await Modrinth.GetFilesAsync(item.Project.Id, Type).ConfigureAwait(true);
+                ? await CurseForge.GetFilesAsync(item.Project.Id, Type, token).ConfigureAwait(true)
+                : await Modrinth.GetFilesAsync(item.Project.Id, Type, token).ConfigureAwait(true);
+            token.ThrowIfCancellationRequested();
+            if (generation != _detailGeneration)
+            {
+                return;
+            }
+
             VersionFiles.Clear();
             foreach (var file in files.Take(60))
             {
@@ -321,28 +478,52 @@ public partial class CompSectionViewModel : ObservableObject
             {
                 VersionErrorText = "该项目没有可下载的文件";
             }
+
+            var translated = await translation.ConfigureAwait(true);
+            if (generation == _detailGeneration && ReferenceEquals(SelectedProject, item))
+            {
+                SelectedProjectDescription = translated;
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // 返回/切换项目/切页导致取消：保持页面可再次发起，不写入错误
         }
         catch (Exception ex)
         {
-            VersionErrorText = $"获取版本列表失败：{ex.Message}";
+            if (generation == _detailGeneration)
+            {
+                VersionErrorText = $"获取版本列表失败：{ex.Message}";
+            }
         }
         finally
         {
-            IsLoadingVersions = false;
-        }
+            if (ReferenceEquals(_detailCts, cts))
+            {
+                _detailCts = null;
+                IsLoadingVersions = false;
+            }
 
-        var translated = await translation.ConfigureAwait(true);
-        if (SelectedProject == item)
-        {
-            SelectedProjectDescription = translated;
+            cts.Dispose();
         }
     }
 
     [RelayCommand]
     private void CloseDetail()
     {
+        CancelAndDispose(ref _detailCts);
+        _detailGeneration++;
+        IsLoadingVersions = false;
         SelectedProject = null;
         SelectedProjectDescription = "";
+        SelectedProjectAuthor = "";
+        SelectedProjectCategoryText = "";
+        SelectedProjectUpdateText = "";
+        SelectedProjectDownloadText = "";
+        SelectedProjectGameVersionText = "";
+        SelectedProjectLoaderText = "";
+        VersionFiles.Clear();
+        VersionErrorText = "";
     }
 
     /// <summary>安装资源：ModPack 走整合包流程（自动装原版与加载器），其余落盘到实例对应目录。</summary>
@@ -371,6 +552,12 @@ public partial class CompSectionViewModel : ObservableObject
         var target = await _services.CompInstall
             .ResolveTargetAsync(gameDirectory, item.File)
             .ConfigureAwait(true);
+        if (!_attached)
+        {
+            // 页面已离开，不再发起新的下载
+            return;
+        }
+
         if (target is null)
         {
             _toast?.Invoke("尚未安装任何 Minecraft 版本，请先在「Minecraft」分区安装原版或加载器");

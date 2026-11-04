@@ -62,6 +62,9 @@ public sealed record CompProject
 
     public string Description { get; init; } = "";
 
+    /// <summary>作者/团队名（CurseForge authors、Modrinth 搜索 author 字段；缺失时为空）。</summary>
+    public string Author { get; init; } = "";
+
     public string? IconUrl { get; init; }
 
     public long DownloadCount { get; init; }
@@ -80,6 +83,9 @@ public sealed record CompProject
 
     /// <summary>CurseForge 分类数字 Id（用于中文分类映射；Modrinth 为空）。</summary>
     public IReadOnlyList<long> CategoryIds { get; init; } = [];
+
+    /// <summary>项目支持的游戏版本（CurseForge latestFilesIndexes / Modrinth game_versions）。</summary>
+    public IReadOnlyList<string> GameVersions { get; init; } = [];
 
     public string WebsiteUrl { get; init; } = "";
 }

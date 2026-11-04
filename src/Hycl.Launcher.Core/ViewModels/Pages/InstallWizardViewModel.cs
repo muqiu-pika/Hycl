@@ -88,7 +88,8 @@ public partial class LoaderCardViewModel : ObservableObject
         string description,
         string kind,
         bool isAccessory,
-        Func<Task<IReadOnlyList<VersionItemViewModel>>> loader)
+        Func<Task<IReadOnlyList<VersionItemViewModel>>> loader,
+        CancellationToken token = default)
     {
         Title = title;
         IconKey = iconKey;
@@ -96,8 +97,11 @@ public partial class LoaderCardViewModel : ObservableObject
         Kind = kind;
         IsAccessory = isAccessory;
         _loader = loader;
+        Token = token;
         Items = new ObservableCollection<VersionItemViewModel>();
     }
+
+    public CancellationToken Token { get; }
 
     public string Title { get; }
 
@@ -193,6 +197,10 @@ public partial class LoaderCardViewModel : ObservableObject
             {
                 MarkReady();
             }
+        }
+        catch (OperationCanceledException) when (Token.IsCancellationRequested)
+        {
+            // 页面离开/切换版本导致取消：不写错误，重新进入后可再次加载
         }
         catch (Exception ex)
         {
@@ -328,6 +336,14 @@ public partial class InstallWizardViewModel : ObservableObject
     /// <summary>向导代际：切换 MC 版本或返回时自增，使陈旧的加载器列表请求作废。</summary>
     private int _wizardGeneration;
 
+    /// <summary>在途的 MC 版本列表请求。</summary>
+    private CancellationTokenSource? _mcListCts;
+
+    /// <summary>本次向导会话（选中某个 MC 版本后）的加载器请求令牌。</summary>
+    private CancellationTokenSource? _loaderSessionCts;
+
+    private CancellationToken _loaderSessionToken;
+
     /// <summary>加载器版本列表缓存（按 MC 版本 + 加载器种类）：重进向导时直接复用，不再重复请求。</summary>
     private readonly Dictionary<(string McId, string Kind), IReadOnlyList<LoaderVersionEntry>> _loaderEntryCache = new();
 
@@ -346,13 +362,17 @@ public partial class InstallWizardViewModel : ObservableObject
             return;
         }
 
+        CancelMcList();
+        var cts = new CancellationTokenSource();
+        _mcListCts = cts;
         IsMcListLoading = true;
         McListError = "";
         try
         {
             var versions = await _services.Installer
-                .GetVersionListAsync(DownloadPolicy.FromConfig(config))
+                .GetVersionListAsync(DownloadPolicy.FromConfig(config), cts.Token)
                 .ConfigureAwait(true);
+            cts.Token.ThrowIfCancellationRequested();
             _cachedVersions = versions;
             _cachedSource = (config.VersionListSource, config.FileSource);
             McGroups.Clear();
@@ -361,6 +381,10 @@ public partial class InstallWizardViewModel : ObservableObject
                 McGroups.Add(group);
             }
         }
+        catch (OperationCanceledException) when (cts.Token.IsCancellationRequested)
+        {
+            // 切页/返回导致取消：保留已有列表，回到可再次发起的状态
+        }
         catch (Exception ex)
         {
             McListError = $"获取版本列表失败：{ex.Message}";
@@ -368,8 +392,69 @@ public partial class InstallWizardViewModel : ObservableObject
         }
         finally
         {
-            IsMcListLoading = false;
+            if (ReferenceEquals(_mcListCts, cts))
+            {
+                _mcListCts = null;
+                IsMcListLoading = false;
+            }
+
+            cts.Dispose();
         }
+    }
+
+    /// <summary>取消在途的 MC 版本列表请求。</summary>
+    private void CancelMcList()
+    {
+        var current = _mcListCts;
+        _mcListCts = null;
+        if (current is null)
+        {
+            return;
+        }
+
+        try
+        {
+            current.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // 已被其它路径释放
+        }
+
+        current.Dispose();
+        IsMcListLoading = false;
+    }
+
+    /// <summary>离开下载页：取消在途的版本列表与加载器列表请求，并作废旧会话。</summary>
+    public void CancelPending()
+    {
+        CancelMcList();
+        CancelLoaderSession();
+        _wizardGeneration++;
+        IsLoaderLoading = false;
+        ActiveLoaderCard = null;
+    }
+
+    private void CancelLoaderSession()
+    {
+        var current = _loaderSessionCts;
+        _loaderSessionCts = null;
+        _loaderSessionToken = default;
+        if (current is null)
+        {
+            return;
+        }
+
+        try
+        {
+            current.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // 已被其它路径释放
+        }
+
+        current.Dispose();
     }
 
     internal static IReadOnlyList<VersionGroupViewModel> BuildGroups(IReadOnlyList<VersionSummary> versions)
@@ -484,8 +569,17 @@ public partial class InstallWizardViewModel : ObservableObject
             return;
         }
 
-        // 新的向导会话：作废所有陈旧的加载器列表请求
+        // 新的向导会话：作废所有陈旧的加载器列表请求，并重建本次会话的取消令牌
         _wizardGeneration++;
+        CancelLoaderSession();
+        _loaderSessionCts = new CancellationTokenSource();
+        _loaderSessionToken = _loaderSessionCts.Token;
+        // 版本列表单选：只有被点中的条目保持选中，切换时清除上一条
+        foreach (var candidate in McGroups.SelectMany(group => group.Items))
+        {
+            candidate.IsSelected = ReferenceEquals(candidate, item);
+        }
+
         _selectedMc = summary;
         SelectedMcId = summary.Id;
         TargetName = summary.Id;
@@ -565,19 +659,21 @@ public partial class InstallWizardViewModel : ObservableObject
     private void WarmLoaderEntries()
     {
         var mcId = SelectedMcId;
-        _ = WarmOneLoaderAsync(mcId, "forge", policy => _services.LoaderProviders.Forge.GetVersionsForAsync(mcId, policy));
-        _ = WarmOneLoaderAsync(mcId, "neoforge", policy => _services.LoaderProviders.NeoForge.GetVersionsForAsync(mcId, policy));
-        _ = WarmOneLoaderAsync(mcId, "cleanroom", policy => _services.LoaderProviders.Cleanroom.GetVersionsForAsync(mcId, policy));
-        _ = WarmOneLoaderAsync(mcId, "fabric", policy => _services.LoaderProviders.Fabric.GetVersionsForAsync(mcId, policy));
-        _ = WarmOneLoaderAsync(mcId, "quilt", policy => _services.LoaderProviders.Quilt.GetVersionsForAsync(mcId, policy));
-        _ = WarmOneLoaderAsync(mcId, "legacyfabric", policy => _services.LoaderProviders.LegacyFabric.GetVersionsForAsync(mcId, policy));
-        _ = WarmOneLoaderAsync(mcId, "labymod", policy => _services.LoaderProviders.LabyMod.GetVersionsForAsync(mcId, policy));
-        _ = WarmOneLoaderAsync(mcId, "optifine", policy => _services.LoaderProviders.OptiFine.GetVersionsForAsync(mcId, policy));
-        _ = WarmOneLoaderAsync(mcId, "liteloader", policy => _services.LoaderProviders.LiteLoader.GetVersionsForAsync(mcId, policy));
+        var token = _loaderSessionToken;
+        _ = WarmOneLoaderAsync(mcId, token, "forge", policy => _services.LoaderProviders.Forge.GetVersionsForAsync(mcId, policy, token));
+        _ = WarmOneLoaderAsync(mcId, token, "neoforge", policy => _services.LoaderProviders.NeoForge.GetVersionsForAsync(mcId, policy, token));
+        _ = WarmOneLoaderAsync(mcId, token, "cleanroom", policy => _services.LoaderProviders.Cleanroom.GetVersionsForAsync(mcId, policy, token));
+        _ = WarmOneLoaderAsync(mcId, token, "fabric", policy => _services.LoaderProviders.Fabric.GetVersionsForAsync(mcId, policy, token));
+        _ = WarmOneLoaderAsync(mcId, token, "quilt", policy => _services.LoaderProviders.Quilt.GetVersionsForAsync(mcId, policy, token));
+        _ = WarmOneLoaderAsync(mcId, token, "legacyfabric", policy => _services.LoaderProviders.LegacyFabric.GetVersionsForAsync(mcId, policy, token));
+        _ = WarmOneLoaderAsync(mcId, token, "labymod", policy => _services.LoaderProviders.LabyMod.GetVersionsForAsync(mcId, policy, token));
+        _ = WarmOneLoaderAsync(mcId, token, "optifine", policy => _services.LoaderProviders.OptiFine.GetVersionsForAsync(mcId, policy, token));
+        _ = WarmOneLoaderAsync(mcId, token, "liteloader", policy => _services.LoaderProviders.LiteLoader.GetVersionsForAsync(mcId, policy, token));
     }
 
     private async Task WarmOneLoaderAsync(
         string mcId,
+        CancellationToken token,
         string kind,
         Func<DownloadPolicy, Task<IReadOnlyList<LoaderVersionEntry>>> loader)
     {
@@ -587,6 +683,11 @@ public partial class InstallWizardViewModel : ObservableObject
             await GetOrLoadLoaderEntriesAsync(mcId, kind, () => loader(DownloadPolicy.FromConfig(_services.Config)))
                 .ConfigureAwait(true);
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // 会话已取消：静默退出，不点亮失败状态
+            return;
+        }
         catch (Exception ex)
         {
             error = ex;
@@ -594,7 +695,7 @@ public partial class InstallWizardViewModel : ObservableObject
         }
 
         // 预热完成即点亮卡片右侧状态字（可下载/获取失败）；会话已切换则忽略本次结果
-        if (mcId != SelectedMcId)
+        if (token.IsCancellationRequested || mcId != SelectedMcId)
         {
             return;
         }
@@ -623,6 +724,7 @@ public partial class InstallWizardViewModel : ObservableObject
         _selectedLoaderItem = null;
         _selectedOptiFineItem = null;
         _selectedLiteLoaderItem = null;
+        var token = _loaderSessionToken;
 
         // 主加载器（对应 PCL-CE 下载页安装包分区）；卡片随版本重建，构建时固定 MC 版本
         void AddLoader(string kind, string title, string iconKey, string description, Func<DownloadPolicy, Task<IReadOnlyList<LoaderVersionEntry>>> loader)
@@ -643,38 +745,39 @@ public partial class InstallWizardViewModel : ObservableObject
                         iconKey,
                         entry.IsRecommended ? ["推荐"] : (entry.IsStable ? [] : ["测试版"]),
                         new LoaderChoice(kind, entry.VersionName, entry.Payload))
-                    ).ToList());
+                    ).ToList(),
+                token);
             LoaderCards.Add(card);
         }
 
         AddLoader(
             "forge", "Forge", "forge",
             "经典模组加载器",
-            policy => _services.LoaderProviders.Forge.GetVersionsForAsync(SelectedMcId, policy));
+            policy => _services.LoaderProviders.Forge.GetVersionsForAsync(SelectedMcId, policy, token));
         AddLoader(
             "neoforge", "NeoForge", "neoforge",
             "新一代 Forge 分支",
-            policy => _services.LoaderProviders.NeoForge.GetVersionsForAsync(SelectedMcId, policy));
+            policy => _services.LoaderProviders.NeoForge.GetVersionsForAsync(SelectedMcId, policy, token));
         AddLoader(
             "cleanroom", "Cleanroom", "cleanroom",
             "1.12.2 的现代 Forge 分支",
-            policy => _services.LoaderProviders.Cleanroom.GetVersionsForAsync(SelectedMcId, policy));
+            policy => _services.LoaderProviders.Cleanroom.GetVersionsForAsync(SelectedMcId, policy, token));
         AddLoader(
             "fabric", "Fabric", "fabric",
             "轻量模组加载器，可搭配 Fabric API",
-            policy => _services.LoaderProviders.Fabric.GetVersionsForAsync(SelectedMcId, policy));
+            policy => _services.LoaderProviders.Fabric.GetVersionsForAsync(SelectedMcId, policy, token));
         AddLoader(
             "quilt", "Quilt", "quilt",
             "Fabric 兼容的社区加载器",
-            policy => _services.LoaderProviders.Quilt.GetVersionsForAsync(SelectedMcId, policy));
+            policy => _services.LoaderProviders.Quilt.GetVersionsForAsync(SelectedMcId, policy, token));
         AddLoader(
             "legacyfabric", "Legacy Fabric", "fabric",
             "面向旧版本的 Fabric 分支",
-            policy => _services.LoaderProviders.LegacyFabric.GetVersionsForAsync(SelectedMcId, policy));
+            policy => _services.LoaderProviders.LegacyFabric.GetVersionsForAsync(SelectedMcId, policy, token));
         AddLoader(
             "labymod", "LabyMod", "labymod",
             "LabyMod 4 客户端",
-            policy => _services.LoaderProviders.LabyMod.GetVersionsForAsync(SelectedMcId, policy));
+            policy => _services.LoaderProviders.LabyMod.GetVersionsForAsync(SelectedMcId, policy, token));
 
         // 附属安装包（原始列表走缓存，OptiFine 的 Forge 适配过滤在取用时动态应用）
         var companionMcId = SelectedMcId;
@@ -686,7 +789,7 @@ public partial class InstallWizardViewModel : ObservableObject
             true,
             async () => (await GetOrLoadLoaderEntriesAsync(
                     companionMcId, "optifine", () => _services.LoaderProviders.OptiFine
-                        .GetVersionsForAsync(companionMcId, DownloadPolicy.FromConfig(_services.Config)))
+                        .GetVersionsForAsync(companionMcId, DownloadPolicy.FromConfig(_services.Config), token))
                 .ConfigureAwait(true))
                 .Where(entry => _selectedLoaderItem?.Payload is not LoaderChoice { Payload: ForgeEntry forge }
                                 || LoaderCompat.IsOptiFineSuitableForForge((OptiFineEntry)entry.Payload!, forge))
@@ -696,7 +799,8 @@ public partial class InstallWizardViewModel : ObservableObject
                     "optifine",
                     entry.IsStable ? [] : ["测试版"],
                     entry.Payload))
-                .ToList());
+                .ToList(),
+            token);
         _liteLoaderCard = new LoaderCardViewModel(
             "LiteLoader",
             "liteloader",
@@ -705,7 +809,7 @@ public partial class InstallWizardViewModel : ObservableObject
             true,
             async () => (await GetOrLoadLoaderEntriesAsync(
                     companionMcId, "liteloader", () => _services.LoaderProviders.LiteLoader
-                        .GetVersionsForAsync(companionMcId, DownloadPolicy.FromConfig(_services.Config)))
+                        .GetVersionsForAsync(companionMcId, DownloadPolicy.FromConfig(_services.Config), token))
                 .ConfigureAwait(true))
                 .Select(entry => new VersionItemViewModel(
                     entry.VersionName,
@@ -713,7 +817,8 @@ public partial class InstallWizardViewModel : ObservableObject
                     "liteloader",
                     entry.IsStable ? [] : ["测试版"],
                     entry.Payload))
-                .ToList());
+                .ToList(),
+            token);
         CompanionCards.Add(_optiFineCard);
         CompanionCards.Add(_liteLoaderCard);
 
@@ -1010,6 +1115,8 @@ public partial class InstallWizardViewModel : ObservableObject
     private void BackToMcList()
     {
         _wizardGeneration++;
+        // 返回版本列表：取消本次会话仍在进行的加载器列表请求
+        CancelLoaderSession();
         Step = 1;
         ActiveLoaderCard = null;
         // 陈旧的加载器请求收尾时会跳过重置（代际不符），这里显式清除，
