@@ -2,7 +2,9 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:c="clr-namespace:Hycl.Launcher.UI.Controls">
 
-    <!-- 对应网页版 .mc-combo：半透明白底触发器 + 白色下拉浮层 -->
+    <!-- 对应网页版 .mc-combo：半透明白底触发器 + 白色下拉浮层。
+         下拉浮层不再由模板里的 Popup 承载，而是由控件代码挂到窗口的 OverlayLayer 上，
+         避免 Avalonia 12 的 Popup 顶层宿主窗口在首帧布局时崩溃。 -->
     <ControlTheme x:Key="{x:Type c:McComboBox}" TargetType="c:McComboBox">
         <Setter Property="Template">
             <ControlTemplate>
@@ -30,12 +32,6 @@
                                   VerticalAlignment="Center" />
                         </Grid>
                     </Button>
-
-                    <Popup Name="PART_Popup" IsLightDismissEnabled="True">
-                        <Border Classes="combo-pop">
-                            <ListBox Name="PART_List" Classes="combo-list" />
-                        </Border>
-                    </Popup>
                 </Grid>
             </ControlTemplate>
         </Setter>
