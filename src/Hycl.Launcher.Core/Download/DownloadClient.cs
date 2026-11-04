@@ -71,6 +71,7 @@ public sealed class DownloadClient : IDisposable
         using var response = await _httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, linked.Token)
             .ConfigureAwait(false);
+        await ThrowIfForbiddenAsync(response, url, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -100,8 +101,37 @@ public sealed class DownloadClient : IDisposable
         using var response = await _httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, linked.Token)
             .ConfigureAwait(false);
+        await ThrowIfForbiddenAsync(response, url, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 403 分类：空响应体 = 密钥无效（不可重试），非空响应体 = 边缘节点临时拒绝（可退避重试）。
+    /// 必须在 EnsureSuccessStatusCode 之前调用，否则拿不到响应体长度。
+    /// </summary>
+    private static async Task ThrowIfForbiddenAsync(
+        HttpResponseMessage response,
+        string url,
+        CancellationToken cancellationToken)
+    {
+        if (response.StatusCode != HttpStatusCode.Forbidden)
+        {
+            return;
+        }
+
+        var bodyLength = 0;
+        try
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            bodyLength = body.Length;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException)
+        {
+            bodyLength = -1;
+        }
+
+        throw new ForbiddenResponseException(url, bodyLength);
     }
 
     /// <summary>按顺序尝试多个 URL 获取文本（整体超时 90 秒，防止响应体停摆挂起）。</summary>
@@ -517,4 +547,19 @@ public sealed class DownloadException : Exception
         : base(message, innerException)
     {
     }
+}
+
+/// <summary>
+/// HTTP 403 响应（保留响应体长度）：CurseForge 的“密钥无效”返回空体，
+/// 边缘节点临时拒绝返回非空体文本，调用方据此区分“直接回退镜像”与“退避重试”。
+/// </summary>
+public sealed class ForbiddenResponseException(string url, int bodyLength)
+    : HttpRequestException($"403（响应体 {bodyLength} 字符）：{url}")
+{
+    public string Url { get; } = url;
+
+    public int BodyLength { get; } = bodyLength;
+
+    /// <summary>空响应体（或读取失败）判定为密钥无效。</summary>
+    public bool IsEmptyBody => BodyLength <= 0;
 }

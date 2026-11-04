@@ -17,6 +17,12 @@ public sealed class LauncherConfig
     /// <summary>空字符串表示自动匹配 Java。</summary>
     public string JavaPath { get; set; } = "";
 
+    /// <summary>
+    /// 可选的 CurseForge API Key 覆盖值（默认空 = 使用内置密钥）；
+    /// 环境变量 <c>HYCL_CURSEFORGE_API_KEY</c> 优先级更高。仅保存在本机配置，不会提交到仓库。
+    /// </summary>
+    public string CurseForgeApiKey { get; set; } = "";
+
     /// <summary>0 表示自动（物理内存的一半，限制在 512–8192 MB）。</summary>
     public int MemoryMegabytes { get; set; } = 0;
 

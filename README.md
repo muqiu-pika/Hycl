@@ -17,6 +17,19 @@ dotnet run --project src/Hycl.Launcher.UI
 
 要求 .NET SDK 10 与 Avalonia 12.1.4；`Directory.Build.props` 已启用 `TreatWarningsAsErrors` 与 `Nullable=enable`，构建应为 0 警告 0 错误。
 
+## 配置
+
+配置文件位于 `%APPDATA%\HYCL\config.json`（macOS / Linux 使用对应平台的用户数据目录）。除界面可设置的项外，下面两个配置可直接编辑：
+
+| 键 | 说明 |
+| --- | --- |
+| `curseForgeApiKey` | 可选。覆盖内置的 CurseForge API Key；留空使用内置密钥。 |
+| `communitySourceSolution` | 社区资源源策略：`0` 镜像优先（默认）、`1` 官方优先、`2` 仅官方。 |
+
+**CurseForge 密钥覆盖**：内置密钥已加密存储（源码中只有 Base64 密文分片与分散的掩码材料，明文不入库），默认无需配置即可使用官方 API。若需更换密钥而不重新编译，可设置环境变量 `HYCL_CURSEFORGE_API_KEY`（优先级最高），或在配置文件中填写 `curseForgeApiKey`。日志中只会输出掩码（如 `$2a$10$***`），不会记录明文。
+
+官方 API 返回 403 时按响应体区分处理：**空响应体**判定为密钥无效，记录一条日志后直接回退镜像源；**非空响应体**（如边缘节点返回的 `Forbidden: API Key missing or invalid` 文本）判定为边缘节点临时拒绝，退避 400 ms 后重试一次，仍失败再回退镜像。
+
 ## 来源与许可
 
 - 业务行为（下载、版本安装、实例管理、账号、Java 探测、启动参数）参考 **PCL-CE-dev**，该项目使用 Apache License 2.0；本仓库的 [LICENSE](LICENSE) 保留同一许可文本。

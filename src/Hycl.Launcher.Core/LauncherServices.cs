@@ -93,6 +93,9 @@ public sealed class LauncherServices
         var configStore = new ConfigStore(paths.ConfigFile, logger);
         await configStore.LoadAsync(cancellationToken).ConfigureAwait(false);
 
+        // 内置 CurseForge 密钥解密自检（失败只降级镜像，不影响启动）
+        HyclSecrets.Initialize(configStore.Config, logger);
+
         var accounts = new AccountStore(paths.AccountFile, logger);
         await accounts.LoadAsync(cancellationToken).ConfigureAwait(false);
         if (!string.IsNullOrWhiteSpace(accounts.SelectedAccount.Name))
