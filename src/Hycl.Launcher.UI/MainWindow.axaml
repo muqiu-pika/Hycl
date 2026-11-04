@@ -18,16 +18,15 @@
         TransparencyLevelHint="Transparent">
 
     <!--
-        窗口外框：不再保留透明留白。阴影改在窗口内部绘制（RootFrame 铺满窗口并铺底色，
-        MainFrame 内缩 6px 后向外投影，阴影不撑大窗口矩形），最外缘和圆角外都不再是“点不着”的透明区。
+        窗口外框：视觉边界就是窗口矩形本身。整窗只铺一层底色（同一张渐变以整窗尺寸铺满），
+        不再内缩、不再画外投影，避免边缘出现一圈色带；圆角只靠 Win32 窗口区域裁切实现。
     -->
-    <Grid Name="RootFrame" Background="{DynamicResource AppBackdropBrush}">
+    <Grid Name="RootFrame" Background="Transparent">
         <Border Name="MainFrame"
-                Margin="6"
+                Margin="0"
                 CornerRadius="10"
                 ClipToBounds="True"
-                Background="{DynamicResource AppBackdropBrush}"
-                BoxShadow="0 4 14 0 #330B5BCB">
+                Background="{DynamicResource AppBackdropBrush}">
             <Grid RowDefinitions="48,*">
                 <!-- ===== 标题栏：品牌 + 居中胶囊标签 + 窗口控制 ===== -->
                 <Border Background="{DynamicResource TitleGradientBrush}"

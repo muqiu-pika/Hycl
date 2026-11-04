@@ -936,6 +936,7 @@
         <Setter Property="Height" Value="46" />
         <Setter Property="HorizontalAlignment" Value="Stretch" />
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="Padding" Value="10,6" />
         <Setter Property="Margin" Value="0,0,0,2" />
         <Setter Property="CornerRadius" Value="6" />
@@ -943,12 +944,34 @@
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="Cursor" Value="Hand" />
+        <!--
+            自绘模板：悬停底色画在铺满按钮矩形的 Border 上（含 Padding 区域），
+            不再依赖主题里的 ContentPresenter 尺寸，避免只覆盖文字/图标那一小块。
+        -->
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="rowbg"
+                        Background="{TemplateBinding Background}"
+                        CornerRadius="{TemplateBinding CornerRadius}"
+                        Padding="{TemplateBinding Padding}">
+                    <ContentPresenter Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                      VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+                </Border>
+            </ControlTemplate>
+        </Setter>
     </Style>
-    <Style Selector="Button.ver-row:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Style Selector="Button.ver-row:pointerover /template/ Border#rowbg">
         <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
     </Style>
-    <Style Selector="Button.ver-row.selected /template/ ContentPresenter#PART_ContentPresenter">
+    <!-- 选中态略深；与悬停叠加时保持选中色，避免选中行被悬停色盖浅 -->
+    <Style Selector="Button.ver-row.selected /template/ Border#rowbg">
         <Setter Property="Background" Value="{DynamicResource Primary6Brush}" />
+    </Style>
+    <!-- 悬停只换底色，文字与图标颜色保持不变 -->
+    <Style Selector="Button.ver-row:pointerover">
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
     </Style>
 
     <!-- 社区资源项目行：三行内容（标题/描述/标签），固定更高的统一行高 -->

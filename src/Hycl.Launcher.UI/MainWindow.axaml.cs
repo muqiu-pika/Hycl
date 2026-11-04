@@ -376,11 +376,11 @@ public partial class MainWindow : Window
         };
     }
 
-    /// <summary>最大化时去除外留白与圆角，并停用边缘缩放手柄（避免与系统最大化行为冲突）。</summary>
+    /// <summary>最大化时去除圆角，并停用边缘缩放手柄（避免与系统最大化行为冲突）。</summary>
     private void UpdateFrameForState()
     {
         var maximized = WindowState == WindowState.Maximized;
-        MainFrame.Margin = maximized ? new Thickness(0) : new Thickness(6);
+        MainFrame.Margin = new Thickness(0);
         MainFrame.CornerRadius = maximized ? new CornerRadius(0) : new CornerRadius(10);
         if (this.FindControl<Control>("ResizeLayer") is { } layer)
         {
@@ -446,7 +446,9 @@ public partial class MainWindow : Window
         }
 
         var radius = Math.Max(2, (int)Math.Round(10 * scale));
-        var region = CreateRoundRectRgn(0, 0, width + 1, height + 1, radius, radius);
+        // CreateRoundRectRgn 的 w/h 是圆角椭圆的直径，传 2r 才能得到半径 r；
+        // 必须与 MainFrame 的 CornerRadius（10 逻辑像素）一致，否则裁切形状会和视觉圆角错位。
+        var region = CreateRoundRectRgn(0, 0, width + 1, height + 1, radius * 2, radius * 2);
         if (region == IntPtr.Zero)
         {
             return;
