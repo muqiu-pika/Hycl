@@ -55,6 +55,16 @@ public sealed partial class InstancesViewModel : ObservableObject
 
     public string SelectedPath => SelectedInstance?.Directory ?? "";
 
+    public string SelectedGameVersion => SelectedInstance?.GameVersion ?? "";
+
+    public string SelectedLoaderLabel => SelectedInstance?.Loader ?? "";
+
+    public string SelectedIconKey => SelectedInstance?.IconKey ?? "generic";
+
+    public bool SelectedHasBitmapIcon => SelectedInstance?.HasBitmapIcon ?? false;
+
+    public bool SelectedUsesFallbackIcon => SelectedInstance?.UsesFallbackIcon ?? true;
+
     public string SelectedTypeLabel => SelectedInstance is null ? "" : InstanceDisplay.TypeLabel(SelectedInstance);
 
     public string SelectedLastWrite => SelectedInstance is null ? "" : InstanceDisplay.LastWriteText(SelectedInstance);
@@ -159,6 +169,7 @@ public sealed partial class InstancesViewModel : ObservableObject
 
             SelectedInstance = Instances.FirstOrDefault(x => x.Id.Equals(previousId, StringComparison.OrdinalIgnoreCase))
                                ?? Instances.FirstOrDefault();
+            UpdateCurrentMarkers();
             IsRefreshing = false;
             StatusMessage = HasInstances ? "" : "未找到已安装版本，请先在下载页安装。";
         }
@@ -180,6 +191,7 @@ public sealed partial class InstancesViewModel : ObservableObject
 
         _services.Config.SelectedVersion = SelectedInstance.Id;
         await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
+        UpdateCurrentMarkers();
         StatusMessage = $"已将 {SelectedInstance.Name} 设为当前版本";
         NotifySelection();
         SelectionChanged?.Invoke(this, SelectedInstance.Id);
@@ -580,11 +592,27 @@ public sealed partial class InstancesViewModel : ObservableObject
         OnPropertyChanged(nameof(SelectedName));
         OnPropertyChanged(nameof(SelectedDescription));
         OnPropertyChanged(nameof(SelectedPath));
+        OnPropertyChanged(nameof(SelectedGameVersion));
+        OnPropertyChanged(nameof(SelectedLoaderLabel));
+        OnPropertyChanged(nameof(SelectedIconKey));
+        OnPropertyChanged(nameof(SelectedHasBitmapIcon));
+        OnPropertyChanged(nameof(SelectedUsesFallbackIcon));
         OnPropertyChanged(nameof(SelectedTypeLabel));
         OnPropertyChanged(nameof(SelectedLastWrite));
         OnPropertyChanged(nameof(CanManage));
         OnPropertyChanged(nameof(IsSelectedCurrent));
         OnPropertyChanged(nameof(CanSetCurrent));
+    }
+
+    /// <summary>同步列表的「当前」角标（当前版本来自全局配置）。</summary>
+    private void UpdateCurrentMarkers()
+    {
+        var currentId = _services.Config.SelectedVersion;
+        foreach (var instance in Instances)
+        {
+            instance.IsCurrent = !string.IsNullOrEmpty(currentId) &&
+                                 instance.Id.Equals(currentId, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     private void NotifyDirectories()

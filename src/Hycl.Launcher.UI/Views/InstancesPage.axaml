@@ -30,8 +30,8 @@
         </Style>
     </UserControl.Styles>
 
-    <Grid ColumnDefinitions="196,*">
-        <!-- 左栏：实例列表 -->
+    <Grid ColumnDefinitions="220,*">
+        <!-- 左栏：版本列表（图标 + 名称/加载器，右侧「当前」角标） -->
         <Border Classes="page-divider">
             <Grid RowDefinitions="Auto,*">
                 <StackPanel Margin="14,16,12,8" Spacing="8">
@@ -59,27 +59,46 @@
                                  IsVisible="{Binding HasInstances}">
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="g:MinecraftInstance">
-                                    <Grid ColumnDefinitions="32,*" Margin="8,6">
-                                        <Border Width="26" Height="26"
-                                                CornerRadius="6"
-                                                Background="{DynamicResource Primary8Brush}"
-                                                VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding IconText}"
-                                                       FontSize="10.5"
-                                                       FontWeight="SemiBold"
-                                                       Foreground="{DynamicResource PrimaryDeepBrush}"
-                                                       HorizontalAlignment="Center"
-                                                       VerticalAlignment="Center" />
-                                        </Border>
-                                        <StackPanel Grid.Column="1" Margin="7,0,0,0" VerticalAlignment="Center">
+                                    <Grid ColumnDefinitions="Auto,*,Auto" Margin="8,6">
+                                        <!-- 图标位固定 28x28，不随文字挤压；无位图资源时用通用矢量图标兜底 -->
+                                        <Panel Width="28" Height="28" VerticalAlignment="Center">
+                                            <c:BlockIcon Kind="{Binding IconKey}"
+                                                         Width="26"
+                                                         Height="26"
+                                                         IsVisible="{Binding HasBitmapIcon}"
+                                                         HorizontalAlignment="Center"
+                                                         VerticalAlignment="Center" />
+                                            <c:HyclIcon Kind="package"
+                                                        Width="18"
+                                                        Height="18"
+                                                        IsVisible="{Binding UsesFallbackIcon}"
+                                                        Foreground="{DynamicResource Gray2Brush}"
+                                                        HorizontalAlignment="Center"
+                                                        VerticalAlignment="Center" />
+                                        </Panel>
+                                        <StackPanel Grid.Column="1"
+                                                    Margin="9,0,8,0"
+                                                    VerticalAlignment="Center"
+                                                    Spacing="1">
                                             <TextBlock Text="{Binding Name}"
                                                        FontSize="12.5"
+                                                       Foreground="{DynamicResource TextBrush}"
                                                        TextTrimming="CharacterEllipsis" />
                                             <TextBlock Text="{Binding Description}"
                                                        FontSize="10.5"
                                                        Foreground="{DynamicResource Gray2Brush}"
                                                        TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
+                                        <Border Grid.Column="2"
+                                                IsVisible="{Binding IsCurrent}"
+                                                VerticalAlignment="Center"
+                                                Padding="6,2"
+                                                CornerRadius="5"
+                                                Background="{DynamicResource Primary8Brush}">
+                                            <TextBlock Text="当前"
+                                                       FontSize="10"
+                                                       Foreground="{DynamicResource PrimaryDeepBrush}" />
+                                        </Border>
                                     </Grid>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
@@ -96,232 +115,300 @@
             </Grid>
         </Border>
 
-        <!-- 右栏：实例详情与设置 -->
-        <Panel Grid.Column="1" Margin="18,14,16,14">
+        <!-- 右栏：实例详情与设置（分组对齐 PCL-CE：基础信息 / 启动设置 / 目录与隔离 / 实例操作 / 危险操作） -->
+        <Panel Grid.Column="1" Margin="22,18,18,18">
             <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                 <Panel>
-                <StackPanel IsVisible="{Binding HasInstances}">
-                    <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,10">
-                        <StackPanel Spacing="2">
-                            <TextBlock Text="{Binding SelectedName}" FontSize="18" FontWeight="Bold" />
-                            <TextBlock Text="{Binding SelectedDescription}"
-                                       FontSize="11.5"
-                                       Foreground="{DynamicResource Gray2Brush}" />
-                        </StackPanel>
-                        <Border Grid.Column="1"
-                                Padding="9,4"
-                                CornerRadius="6"
-                                VerticalAlignment="Center"
-                                Background="{DynamicResource BlockButtonSelectedBrush}">
-                            <TextBlock Text="{Binding SelectedTypeLabel}"
-                                       FontSize="11"
-                                       Foreground="{DynamicResource PrimaryDeepBrush}" />
-                        </Border>
-                    </Grid>
+                    <StackPanel IsVisible="{Binding HasInstances}">
+                        <!-- 标题：大图标 + 名称/加载器 + 版本类型 -->
+                        <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,14">
+                            <Border Width="46" Height="46"
+                                    CornerRadius="10"
+                                    VerticalAlignment="Center"
+                                    Background="{DynamicResource GlassSurfaceBrush}"
+                                    BorderBrush="{DynamicResource CardBorderBrush}"
+                                    BorderThickness="1">
+                                <Panel>
+                                    <c:BlockIcon Kind="{Binding SelectedIconKey}"
+                                                 Width="32"
+                                                 Height="32"
+                                                 IsVisible="{Binding SelectedHasBitmapIcon}"
+                                                 HorizontalAlignment="Center"
+                                                 VerticalAlignment="Center" />
+                                    <c:HyclIcon Kind="package"
+                                                Width="20"
+                                                Height="20"
+                                                IsVisible="{Binding SelectedUsesFallbackIcon}"
+                                                Foreground="{DynamicResource Gray2Brush}"
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Center" />
+                                </Panel>
+                            </Border>
+                            <StackPanel Grid.Column="1"
+                                        Margin="12,0,10,0"
+                                        VerticalAlignment="Center"
+                                        Spacing="3">
+                                <TextBlock Text="{Binding SelectedName}"
+                                           FontSize="18"
+                                           FontWeight="Bold"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding SelectedDescription}"
+                                           FontSize="11.5"
+                                           Foreground="{DynamicResource Gray2Brush}"
+                                           TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                            <Border Grid.Column="2"
+                                    Padding="9,4"
+                                    CornerRadius="6"
+                                    VerticalAlignment="Center"
+                                    Background="{DynamicResource BlockButtonSelectedBrush}">
+                                <TextBlock Text="{Binding SelectedTypeLabel}"
+                                           FontSize="11"
+                                           Foreground="{DynamicResource PrimaryDeepBrush}" />
+                            </Border>
+                        </Grid>
 
-                    <!-- 基本信息 -->
-                    <Border Classes="setting-card" Margin="0,0,0,12">
-                        <StackPanel>
-                            <TextBlock Classes="setting-card-title" Text="基本信息" />
-                            <Border Classes="setting-card-rule" />
-                            <Grid Classes="setting-row" ColumnDefinitions="92,*">
-                                <TextBlock Classes="srow-label" Text="安装目录" />
-                                <TextBlock Grid.Column="1"
-                                           Classes="srow-value"
-                                           MaxWidth="470"
-                                           Text="{Binding SelectedPath}"
-                                           TextWrapping="Wrap"
-                                           TextAlignment="Right" />
-                            </Grid>
-                            <Grid Classes="setting-row" ColumnDefinitions="92,*">
-                                <TextBlock Classes="srow-label" Text="最后修改" />
-                                <TextBlock Grid.Column="1" Classes="srow-value" Text="{Binding SelectedLastWrite}" />
-                            </Grid>
-                            <Grid Classes="setting-row" ColumnDefinitions="92,*">
-                                <TextBlock Classes="srow-label" Text="备注" VerticalAlignment="Center" />
-                                <TextBox Grid.Column="1"
-                                         Classes="stext"
-                                         Text="{Binding EditorRemark, Mode=TwoWay}"
-                                         PlaceholderText="仅启动器内显示，例如：整合包测试" />
-                            </Grid>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- 运行设置 -->
-                    <Border Classes="setting-card" Margin="0,0,0,12">
-                        <StackPanel>
-                            <TextBlock Classes="setting-card-title" Text="运行设置（留空跟随全局）" />
-                            <Border Classes="setting-card-rule" />
-                            <Grid Classes="setting-row" ColumnDefinitions="92,*">
-                                <TextBlock Classes="srow-label" Text="最大内存" />
-                                <TextBox Grid.Column="1"
-                                         Classes="stext"
-                                         Text="{Binding EditorMemoryText, Mode=TwoWay}"
-                                         PlaceholderText="MB，例如 4096" />
-                            </Grid>
-                            <Grid Classes="setting-row" ColumnDefinitions="92,*">
-                                <TextBlock Classes="srow-label" Text="初始内存" />
-                                <TextBox Grid.Column="1"
-                                         Classes="stext"
-                                         Text="{Binding EditorInitialMemoryText, Mode=TwoWay}"
-                                         PlaceholderText="MB，留空由游戏自动选择" />
-                            </Grid>
-                            <Grid Classes="setting-row" ColumnDefinitions="92,*">
-                                <TextBlock Classes="srow-label" Text="JVM 参数" />
-                                <TextBox Grid.Column="1"
-                                         Classes="stext"
-                                         Text="{Binding EditorJvmArguments, Mode=TwoWay}"
-                                         PlaceholderText="留空使用全局参数" />
-                            </Grid>
-                            <Grid Classes="setting-row" ColumnDefinitions="92,*">
-                                <TextBlock Classes="srow-label" Text="窗口模式" />
-                                <c:McComboBox Grid.Column="1"
-                                              Width="210"
-                                              HorizontalAlignment="Right"
-                                              Items="{Binding WindowTypeOptions}"
-                                              SelectedItem="{Binding EditorWindowTypeOption, Mode=TwoWay}" />
-                            </Grid>
-                            <Grid Classes="setting-row" ColumnDefinitions="92,*">
-                                <TextBlock Classes="srow-label" Text="窗口尺寸" />
-                                <Grid Grid.Column="1" ColumnDefinitions="*,Auto,*" ColumnSpacing="6">
-                                    <TextBox Classes="stext"
-                                             Text="{Binding EditorWindowWidthText, Mode=TwoWay}"
-                                             PlaceholderText="宽" />
-                                    <TextBlock Grid.Column="1" Text="×" VerticalAlignment="Center" />
-                                    <TextBox Grid.Column="2"
+                        <!-- 1. 基础信息 -->
+                        <Border Classes="setting-card" Margin="0,0,0,14">
+                            <StackPanel>
+                                <TextBlock Classes="setting-card-title" Text="基础信息" />
+                                <Border Classes="setting-card-rule" />
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="游戏版本" />
+                                    <TextBlock Grid.Column="1" Classes="srow-value" Text="{Binding SelectedGameVersion}" />
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="加载器" />
+                                    <TextBlock Grid.Column="1" Classes="srow-value" Text="{Binding SelectedLoaderLabel}" />
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="安装目录" />
+                                    <TextBlock Grid.Column="1"
+                                               Classes="srow-value"
+                                               Text="{Binding SelectedPath}"
+                                               TextWrapping="Wrap" />
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="最后修改" />
+                                    <TextBlock Grid.Column="1" Classes="srow-value" Text="{Binding SelectedLastWrite}" />
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="备注" />
+                                    <TextBox Grid.Column="1"
                                              Classes="stext"
-                                             Text="{Binding EditorWindowHeightText, Mode=TwoWay}"
-                                             PlaceholderText="高" />
+                                             HorizontalAlignment="Stretch"
+                                             VerticalAlignment="Center"
+                                             Text="{Binding EditorRemark, Mode=TwoWay}"
+                                             PlaceholderText="仅启动器内显示，例如：整合包测试" />
                                 </Grid>
-                            </Grid>
-                            <Grid Classes="setting-row" ColumnDefinitions="92,*">
-                                <TextBlock Classes="srow-label" Text="Java 路径" />
-                                <Grid Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                    <TextBox Classes="stext"
-                                             Text="{Binding EditorJavaPath, Mode=TwoWay}"
-                                             PlaceholderText="留空使用全局 Java" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- 2. 启动设置：内存 / JVM / Java / 窗口（留空跟随全局） -->
+                        <Border Classes="setting-card" Margin="0,0,0,14">
+                            <StackPanel>
+                                <TextBlock Classes="setting-card-title" Text="启动设置" />
+                                <Border Classes="setting-card-rule" />
+                                <TextBlock Classes="sline"
+                                           Margin="0,0,0,10"
+                                           Text="留空的项目跟随全局启动设置。" />
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="最大内存" />
+                                    <TextBox Grid.Column="1"
+                                             Classes="stext"
+                                             HorizontalAlignment="Stretch"
+                                             VerticalAlignment="Center"
+                                             Text="{Binding EditorMemoryText, Mode=TwoWay}"
+                                             PlaceholderText="MB，例如 4096" />
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="初始内存" />
+                                    <TextBox Grid.Column="1"
+                                             Classes="stext"
+                                             HorizontalAlignment="Stretch"
+                                             VerticalAlignment="Center"
+                                             Text="{Binding EditorInitialMemoryText, Mode=TwoWay}"
+                                             PlaceholderText="MB，留空由游戏自动选择" />
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="JVM 参数" />
+                                    <TextBox Grid.Column="1"
+                                             Classes="stext"
+                                             HorizontalAlignment="Stretch"
+                                             VerticalAlignment="Center"
+                                             Text="{Binding EditorJvmArguments, Mode=TwoWay}"
+                                             PlaceholderText="留空使用全局参数" />
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="Java 路径" />
+                                    <Grid Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                        <TextBox Classes="stext"
+                                                 VerticalAlignment="Center"
+                                                 Text="{Binding EditorJavaPath, Mode=TwoWay}"
+                                                 PlaceholderText="留空使用全局 Java" />
+                                        <Button Grid.Column="1"
+                                                Classes="mc-btn"
+                                                Content="浏览…"
+                                                Command="{Binding BrowseJavaPathCommand}" />
+                                    </Grid>
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="窗口模式" />
+                                    <c:McComboBox Grid.Column="1"
+                                                  Width="210"
+                                                  HorizontalAlignment="Left"
+                                                  VerticalAlignment="Center"
+                                                  Items="{Binding WindowTypeOptions}"
+                                                  SelectedItem="{Binding EditorWindowTypeOption, Mode=TwoWay}" />
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="窗口尺寸" />
+                                    <Grid Grid.Column="1" ColumnDefinitions="96,18,96,*">
+                                        <TextBox Classes="stext"
+                                                 VerticalAlignment="Center"
+                                                 Text="{Binding EditorWindowWidthText, Mode=TwoWay}"
+                                                 PlaceholderText="宽" />
+                                        <TextBlock Grid.Column="1" Text="×" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                        <TextBox Grid.Column="2"
+                                                 Classes="stext"
+                                                 VerticalAlignment="Center"
+                                                 Text="{Binding EditorWindowHeightText, Mode=TwoWay}"
+                                                 PlaceholderText="高" />
+                                    </Grid>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- 3. 目录与隔离 -->
+                        <Border Classes="setting-card" Margin="0,0,0,14">
+                            <StackPanel>
+                                <TextBlock Classes="setting-card-title" Text="目录与隔离" />
+                                <Border Classes="setting-card-rule" />
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="版本隔离" />
+                                    <ToggleSwitch Grid.Column="1"
+                                                  HorizontalAlignment="Left"
+                                                  VerticalAlignment="Center"
+                                                  OnContent=""
+                                                  OffContent=""
+                                                  IsChecked="{Binding EditorVersionIsolation, Mode=TwoWay}" />
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="内容目录" />
+                                    <TextBlock Grid.Column="1"
+                                               Classes="srow-value"
+                                               Text="{Binding ContentRoot}"
+                                               TextWrapping="Wrap" />
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="独立存档目录" />
+                                    <Grid Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                        <TextBox Classes="stext"
+                                                 VerticalAlignment="Center"
+                                                 Text="{Binding EditorSavesDirectory, Mode=TwoWay}"
+                                                 PlaceholderText="留空使用隔离规则下的 saves" />
+                                        <Button Grid.Column="1"
+                                                Classes="mc-btn"
+                                                Content="浏览…"
+                                                Command="{Binding BrowseSavesDirectoryCommand}" />
+                                    </Grid>
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="目录入口" />
+                                    <WrapPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Button Classes="mc-btn" Margin="0,2,6,2" Content="模组" Command="{Binding OpenModsFolderCommand}" />
+                                        <Button Classes="mc-btn" Margin="0,2,6,2" Content="资源包" Command="{Binding OpenResourcePacksFolderCommand}" />
+                                        <Button Classes="mc-btn" Margin="0,2,6,2" Content="光影" Command="{Binding OpenShaderPacksFolderCommand}" />
+                                        <Button Classes="mc-btn" Margin="0,2,0,2" Content="存档" Command="{Binding OpenSavesFolderCommand}" />
+                                    </WrapPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- 4. 实例操作 -->
+                        <Border Classes="setting-card" Margin="0,0,0,14">
+                            <StackPanel>
+                                <TextBlock Classes="setting-card-title" Text="实例操作" />
+                                <Border Classes="setting-card-rule" />
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="当前使用" />
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                        <TextBlock VerticalAlignment="Center"
+                                                   FontSize="11.5"
+                                                   Foreground="{DynamicResource Gray2Brush}"
+                                                   IsVisible="{Binding IsSelectedCurrent}"
+                                                   Text="已是当前版本" />
+                                        <Button Classes="mc-btn primary"
+                                                Content="设为当前版本"
+                                                IsVisible="{Binding CanSetCurrent}"
+                                                Command="{Binding SetCurrentCommand}" />
+                                        <Button Classes="mc-btn"
+                                                Content="启动"
+                                                Command="{Binding LaunchSelectedCommand}" />
+                                    </StackPanel>
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="管理" />
+                                    <WrapPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Button Classes="mc-btn" Margin="0,2,6,2" Content="打开实例目录" Command="{Binding OpenInstanceFolderCommand}" />
+                                        <Button Classes="mc-btn" Margin="0,2,6,2" Content="复制" Command="{Binding StartCopyCommand}" />
+                                        <Button Classes="mc-btn" Margin="0,2,0,2" Content="重命名" Command="{Binding StartRenameCommand}" />
+                                    </WrapPanel>
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="保存" />
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                        <Button Classes="mc-btn" Content="恢复全局设置" Command="{Binding ResetSettingsCommand}" />
+                                        <Button Classes="mc-btn primary" Content="保存实例设置" Command="{Binding SaveSettingsCommand}" />
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- 5. 危险操作（与其它设置分离） -->
+                        <Border Classes="setting-card" Margin="0,0,0,14">
+                            <StackPanel>
+                                <TextBlock Classes="setting-card-title" Text="危险操作" />
+                                <Border Classes="setting-card-rule" />
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="删除实例" />
                                     <Button Grid.Column="1"
-                                            Classes="mc-btn"
-                                            Content="浏览…"
-                                            Command="{Binding BrowseJavaPathCommand}" />
+                                            Classes="mc-btn danger"
+                                            HorizontalAlignment="Left"
+                                            Content="删除实例"
+                                            Command="{Binding RequestDeleteCommand}" />
                                 </Grid>
-                            </Grid>
-                        </StackPanel>
-                    </Border>
+                                <TextBlock Classes="sline"
+                                           Margin="0,0,0,2"
+                                           Text="实例目录及其存档、模组会被一并删除，操作不可撤销。当前使用版本被删除后会清空选择。" />
+                            </StackPanel>
+                        </Border>
 
-                    <!-- 版本隔离与目录 -->
-                    <Border Classes="setting-card" Margin="0,0,0,12">
-                        <StackPanel>
-                            <TextBlock Classes="setting-card-title" Text="版本隔离与目录" />
-                            <Border Classes="setting-card-rule" />
-                            <Grid Classes="setting-row" ColumnDefinitions="92,*">
-                                <TextBlock Classes="srow-label" Text="版本隔离" />
-                                <ToggleSwitch Grid.Column="1"
-                                              HorizontalAlignment="Right"
-                                              VerticalAlignment="Center"
-                                              OnContent=""
-                                              OffContent=""
-                                              IsChecked="{Binding EditorVersionIsolation, Mode=TwoWay}" />
-                            </Grid>
-                            <Grid Classes="setting-row" ColumnDefinitions="92,*">
-                                <TextBlock Classes="srow-label" Text="独立存档目录" />
-                                <Grid Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                    <TextBox Classes="stext"
-                                             Text="{Binding EditorSavesDirectory, Mode=TwoWay}"
-                                             PlaceholderText="留空使用隔离规则下的 saves" />
-                                    <Button Grid.Column="1"
-                                            Classes="mc-btn"
-                                            Content="浏览…"
-                                            Command="{Binding BrowseSavesDirectoryCommand}" />
-                                </Grid>
-                            </Grid>
-                            <Grid Classes="setting-row" ColumnDefinitions="92,*">
-                                <TextBlock Classes="srow-label" Text="目录入口" />
-                                <WrapPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
-                                    <Button Classes="mc-btn" Margin="0,0,6,6" Content="模组" Command="{Binding OpenModsFolderCommand}" />
-                                    <Button Classes="mc-btn" Margin="0,0,6,6" Content="资源包" Command="{Binding OpenResourcePacksFolderCommand}" />
-                                    <Button Classes="mc-btn" Margin="0,0,6,6" Content="光影" Command="{Binding OpenShaderPacksFolderCommand}" />
-                                    <Button Classes="mc-btn" Margin="0,0,0,6" Content="存档" Command="{Binding OpenSavesFolderCommand}" />
-                                </WrapPanel>
-                            </Grid>
-                            <Grid Classes="setting-row" ColumnDefinitions="92,*">
-                                <TextBlock Classes="srow-label" Text="内容目录" />
-                                <TextBlock Grid.Column="1"
-                                           Classes="srow-value"
-                                           MaxWidth="470"
-                                           Text="{Binding ContentRoot}"
-                                           TextWrapping="Wrap"
-                                           TextAlignment="Right" />
-                            </Grid>
-                        </StackPanel>
-                    </Border>
+                        <TextBlock Margin="2,0,0,8"
+                                   FontSize="11.5"
+                                   TextWrapping="Wrap"
+                                   Foreground="{DynamicResource PrimaryDeepBrush}"
+                                   Text="{Binding StatusMessage}" />
+                    </StackPanel>
 
-                    <!-- 操作 -->
-                    <Border Classes="setting-card" Margin="0,0,0,12">
-                        <StackPanel>
-                            <TextBlock Classes="setting-card-title" Text="实例操作" />
-                            <Border Classes="setting-card-rule" />
-                            <Grid Classes="setting-row" ColumnDefinitions="92,*">
-                                <TextBlock Classes="srow-label" Text="当前使用" />
-                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-                                    <TextBlock VerticalAlignment="Center"
-                                               FontSize="11.5"
-                                               Foreground="{DynamicResource Gray2Brush}"
-                                               IsVisible="{Binding IsSelectedCurrent}"
-                                               Text="已是当前版本" />
-                                    <Button Classes="mc-btn primary"
-                                            Content="设为当前版本"
-                                            IsVisible="{Binding CanSetCurrent}"
-                                            Command="{Binding SetCurrentCommand}" />
-                                    <Button Classes="mc-btn"
-                                            Content="启动"
-                                            Command="{Binding LaunchSelectedCommand}" />
-                                </StackPanel>
-                            </Grid>
-                            <Grid Classes="setting-row" ColumnDefinitions="92,*">
-                                <TextBlock Classes="srow-label" Text="管理" />
-                                <WrapPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
-                                    <Button Classes="mc-btn" Margin="0,0,6,6" Content="打开实例目录" Command="{Binding OpenInstanceFolderCommand}" />
-                                    <Button Classes="mc-btn" Margin="0,0,6,6" Content="复制" Command="{Binding StartCopyCommand}" />
-                                    <Button Classes="mc-btn" Margin="0,0,6,6" Content="重命名" Command="{Binding StartRenameCommand}" />
-                                    <Button Classes="mc-btn danger" Margin="0,0,0,6" Content="删除实例" Command="{Binding RequestDeleteCommand}" />
-                                </WrapPanel>
-                            </Grid>
-                            <Grid Classes="setting-row" ColumnDefinitions="92,*">
-                                <TextBlock Classes="srow-label" Text="保存" />
-                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-                                    <Button Classes="mc-btn" Content="恢复全局设置" Command="{Binding ResetSettingsCommand}" />
-                                    <Button Classes="mc-btn primary" Content="保存实例设置" Command="{Binding SaveSettingsCommand}" />
-                                </StackPanel>
-                            </Grid>
-                        </StackPanel>
-                    </Border>
-
-                    <TextBlock Margin="2,0,0,8"
-                               FontSize="11.5"
-                               TextWrapping="Wrap"
-                               Foreground="{DynamicResource PrimaryDeepBrush}"
-                               Text="{Binding StatusMessage}" />
-                </StackPanel>
-
-                <StackPanel IsVisible="{Binding IsEmpty}"
-                            HorizontalAlignment="Center"
-                            VerticalAlignment="Center"
-                            MaxWidth="360"
-                            Spacing="8">
-                    <c:HyclIcon Kind="list" Width="34" Height="34"
-                                Foreground="{DynamicResource Gray3Brush}"
-                                HorizontalAlignment="Center" />
-                    <TextBlock Text="暂无已安装版本"
-                               FontSize="15"
-                               FontWeight="SemiBold"
-                               HorizontalAlignment="Center" />
-                    <TextBlock Text="请先在「下载」页安装游戏版本，安装完成后回到这里切换与配置。"
-                               FontSize="12"
-                               TextAlignment="Center"
-                               TextWrapping="Wrap"
-                               Foreground="{DynamicResource Gray2Brush}" />
-                </StackPanel>
+                    <StackPanel IsVisible="{Binding IsEmpty}"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                MaxWidth="360"
+                                Spacing="8">
+                        <c:HyclIcon Kind="list" Width="34" Height="34"
+                                    Foreground="{DynamicResource Gray3Brush}"
+                                    HorizontalAlignment="Center" />
+                        <TextBlock Text="暂无已安装版本"
+                                   FontSize="15"
+                                   FontWeight="SemiBold"
+                                   HorizontalAlignment="Center" />
+                        <TextBlock Text="请先在「下载」页安装游戏版本，安装完成后回到这里切换与配置。"
+                                   FontSize="12"
+                                   TextAlignment="Center"
+                                   TextWrapping="Wrap"
+                                   Foreground="{DynamicResource Gray2Brush}" />
+                    </StackPanel>
                 </Panel>
             </ScrollViewer>
         </Panel>

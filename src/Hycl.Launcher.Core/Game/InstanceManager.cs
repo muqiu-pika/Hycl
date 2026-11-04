@@ -1,3 +1,4 @@
+using CommunityToolkit.Mvvm.ComponentModel;
 using Hycl.Launcher.Core.Game.Models;
 using Hycl.Launcher.Core.Services;
 using System.Text.Json.Nodes;
@@ -5,7 +6,7 @@ using System.Text.Json.Nodes;
 namespace Hycl.Launcher.Core.Game;
 
 /// <summary>已安装的版本实例。</summary>
-public sealed class MinecraftInstance
+public sealed partial class MinecraftInstance : ObservableObject
 {
     public string Id { get; init; } = "";
 
@@ -20,6 +21,13 @@ public sealed class MinecraftInstance
     public string Directory { get; init; } = "";
 
     public DateTime LastWriteTime { get; init; }
+
+    /// <summary>是否为整合包（带 modpack 标记文件或 PCL\Logo.png）。</summary>
+    public bool IsModpack { get; init; }
+
+    /// <summary>当前选择的版本（由 InstancesViewModel 维护，用于列表角标）。</summary>
+    [ObservableProperty]
+    private bool _isCurrent;
 
     public bool IsModded => Loader != "原版" || !Id.Equals(GameVersion, StringComparison.OrdinalIgnoreCase);
 
@@ -36,16 +44,47 @@ public sealed class MinecraftInstance
         _ => Loader
     };
 
-    public string IconText => Loader switch
+    /// <summary>
+    /// 列表图标键名，映射与 PCL-CE 的 McInstance 图标规则一致：
+    /// 原版=草方块、快照=命令方块、旧版本=圆石、Forge=铁砧、NeoForge/Fabric/Quilt=各自 Logo、
+    /// OptiFine=草径、LiteLoader=蛋、Cleanroom=LabyMod 各自图标；整合包=金块。
+    /// 无法识别时返回 "generic"，由界面改用通用矢量兜底图标。
+    /// </summary>
+    public string IconKey
     {
-        "原版" => "M",
-        "Fabric" => "Fb",
-        "Forge" => "Fg",
-        "NeoForge" => "NF",
-        "Quilt" => "Q",
-        "OptiFine" => "OF",
-        _ => "M"
-    };
+        get
+        {
+            if (IsModpack)
+            {
+                return "modpack";
+            }
+
+            return Loader switch
+            {
+                "NeoForge" => "neoforge",
+                "Forge" => "forge",
+                "Fabric" => "fabric",
+                "Quilt" => "quilt",
+                "OptiFine" => "optifine",
+                "LiteLoader" => "liteloader",
+                "Cleanroom" => "cleanroom",
+                "LabyMod" => "labymod",
+                "原版" => Type switch
+                {
+                    "release" => "grass-block",
+                    "snapshot" => "command-block",
+                    "old_beta" or "old_alpha" => "cobblestone",
+                    _ => "generic"
+                },
+                _ => "generic"
+            };
+        }
+    }
+
+    /// <summary>有对应位图资源；false 时界面使用通用矢量兜底图标。</summary>
+    public bool HasBitmapIcon => !IconKey.Equals("generic", StringComparison.Ordinal);
+
+    public bool UsesFallbackIcon => !HasBitmapIcon;
 }
 
 /// <summary>实例复制/重命名结果。</summary>
@@ -105,7 +144,8 @@ public sealed class InstanceManager
                     Loader = loader,
                     Type = info.Type ?? "release",
                     Directory = directory,
-                    LastWriteTime = lastWrite
+                    LastWriteTime = lastWrite,
+                    IsModpack = DetectModpack(directory)
                 });
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -339,12 +379,43 @@ public sealed class InstanceManager
         return gameVersion;
     }
 
+    /// <summary>
+    /// 整合包判定：实例目录带整合包清单文件，或带 PCL 自定义图标（PCL\Logo.png）。
+    /// </summary>
+    private static bool DetectModpack(string instanceDirectory)
+    {
+        string[] markers =
+        [
+            Path.Combine(instanceDirectory, "PCL", "Logo.png"),
+            Path.Combine(instanceDirectory, "modpack.json"),
+            Path.Combine(instanceDirectory, "manifest.json"),
+            Path.Combine(instanceDirectory, "mcbbs.packmeta"),
+            Path.Combine(instanceDirectory, "mmc-pack.json"),
+            Path.Combine(instanceDirectory, "instance.cfg")
+        ];
+
+        return markers.Any(File.Exists);
+    }
+
     private static string DetectLoader(VersionInfo info, string instanceId)
     {
-        var text = $"{instanceId} {info.Id} {info.InheritsFrom} {info.MainClass}".ToLowerInvariant();
+        // 整合包（如 RLCraft）的版本 JSON 只在 libraries 里出现 net.minecraftforge，
+        // 因此加载器识别必须把依赖名一起纳入文本匹配。
+        var libraries = string.Join(' ', info.Libraries.Select(x => x.Name));
+        var text = $"{instanceId} {info.Id} {info.InheritsFrom} {info.MainClass} {libraries}".ToLowerInvariant();
         if (text.Contains("neoforge", StringComparison.Ordinal))
         {
             return "NeoForge";
+        }
+
+        if (text.Contains("cleanroom", StringComparison.Ordinal))
+        {
+            return "Cleanroom";
+        }
+
+        if (text.Contains("labymod", StringComparison.Ordinal))
+        {
+            return "LabyMod";
         }
 
         if (text.Contains("forge", StringComparison.Ordinal))
