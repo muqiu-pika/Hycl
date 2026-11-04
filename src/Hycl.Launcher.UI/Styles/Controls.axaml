@@ -796,7 +796,8 @@
          ============================================================ -->
 
     <Style Selector="Button.ver-row">
-        <Setter Property="MinHeight" Value="42" />
+        <!-- 固定行高：所有版本选项（含悬停变灰态）竖向尺寸一致 -->
+        <Setter Property="Height" Value="46" />
         <Setter Property="HorizontalAlignment" Value="Stretch" />
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
         <Setter Property="Padding" Value="10,6" />
@@ -812,6 +813,35 @@
     </Style>
     <Style Selector="Button.ver-row.selected /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource Primary7Brush}" />
+    </Style>
+
+    <!-- 社区资源项目行：三行内容（标题/描述/标签），固定更高的统一行高 -->
+    <Style Selector="Button.comp-row">
+        <Setter Property="Height" Value="62" />
+    </Style>
+
+    <!-- 加载器卡片右侧状态字：加载中灰字，就绪/冲突加 dark 类转黑字 -->
+    <Style Selector="TextBlock.card-status">
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="FontSize" Value="11.5" />
+        <Setter Property="Foreground" Value="{DynamicResource Gray3Brush}" />
+    </Style>
+    <Style Selector="TextBlock.card-status.dark">
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+    </Style>
+
+    <!-- 小号标签（测试版/推荐/来源等）：小框、文字在框内纵向居中 -->
+    <Style Selector="Border.tag">
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+        <Setter Property="CornerRadius" Value="4" />
+        <Setter Property="Height" Value="15" />
+        <Setter Property="Padding" Value="4,0" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.tag TextBlock">
+        <Setter Property="FontSize" Value="10" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
 
     <!-- ============================================================

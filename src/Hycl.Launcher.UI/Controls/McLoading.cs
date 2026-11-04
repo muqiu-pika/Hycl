@@ -1,44 +1,45 @@
-﻿using System.Threading;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Animation;
 using Avalonia.Animation.Easings;
 using Avalonia.Controls;
-using Avalonia.Controls.Shapes;
-using PathShape = Avalonia.Controls.Shapes.Path;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform;
 using Avalonia.Styling;
 
 namespace Hycl.Launcher.UI.Controls;
 
 /// <summary>
-/// PCL-CE 风格的加载动画：镐子挥下挖地、泥土粒子飞出，循环往复。
-/// 移植自 PCL-CE 的 MyLoading 控件，用于替换框架原始的加载条。
-/// 纯代码构建可视树，直接持有元素引用。
+/// 全局等待加载动画：软件图标（hycl.png）像球一样上下来回弹跳，可选底部提示文本。
+/// 全软件所有加载场景共用此控件（对应原 PCL-CE 镐子挖矿动画的替代设计）。
 /// </summary>
 public class McLoading : Control
 {
     public static readonly StyledProperty<string?> TextProperty =
         AvaloniaProperty.Register<McLoading, string?>(nameof(Text));
 
-    /// <summary>动画与描边颜色。</summary>
+    /// <summary>提示文本颜色。</summary>
     public static readonly StyledProperty<IBrush?> ForegroundProperty =
         AvaloniaProperty.Register<McLoading, IBrush?>(nameof(Foreground));
 
-    /// <summary>动画与描边颜色。</summary>
+    /// <summary>提示文本颜色。</summary>
     public IBrush? Foreground
     {
         get => GetValue(ForegroundProperty);
         set => SetValue(ForegroundProperty, value);
     }
 
-    private readonly PathShape _pickaxe;
-    private readonly PathShape _dirtLeft;
-    private readonly PathShape _dirtRight;
-    private readonly TranslateTransform _dirtLeftMove = new();
-    private readonly TranslateTransform _dirtRightMove = new();
-    private readonly RotateTransform _pickaxeRotate = new(55);
+    /// <summary>单次弹跳高度（像素）。</summary>
+    private const double BounceHeight = 12;
+
+    private readonly Image _icon;
+
+    private readonly TranslateTransform _bounce = new();
+
     private readonly TextBlock _textBlock;
+
     private CancellationTokenSource? _loopCts;
 
     /// <summary>加载提示文本（可为空）。</summary>
@@ -50,34 +51,20 @@ public class McLoading : Control
 
     public McLoading()
     {
-        const string pickaxeData =
-            "M 963.6 858.2 410.816 305.504 C 508.116 213.304 609.204 196.8 711.104 128.6 " +
-            "837.11367 49.573762 879.34045 50.334062 751.5 49.5 611.3 52 471.8 96.2 353.3 182.4 " +
-            "309.8 155.7 252.1 161.2 214.5 198.9 176.9 236.6 171.3 294.2 198 337.7 111.8 456.3 " +
-            "67.6 595.8 65.1 735.9 63.315254 883.82034 65.077966 837.29308 144.2 695.488 " +
-            "212.4 593.588 228.888 492.4 321.088 395.2 L 873.9 948 c 0.60001 0.59999 1.6 0.6 2.2 0 " +
-            "l 87.5 -87.5 c 0.6 -0.7 0.6 -1.6 0 -2.3 z";
-
-        _pickaxe = new PathShape
+        _icon = new Image
         {
-            Stretch = Stretch.Uniform,
-            Height = 35,
-            Margin = new Thickness(10, 6, 0, 0),
-            StrokeThickness = 2,
-            Data = StreamGeometry.Parse(pickaxeData),
-            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left,
-            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top,
-            RenderTransform = _pickaxeRotate,
+            Width = 32,
+            Height = 32,
+            Source = new Bitmap(AssetLoader.Open(new Uri("avares://Hycl.Launcher.UI/Assets/hycl.png"))),
+            RenderTransform = _bounce,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Bottom,
         };
-        _dirtLeft = CreateDirt(-45, new Thickness(7, 41, 0, 0), _dirtLeftMove);
-        _dirtRight = CreateDirt(45, new Thickness(14, 41, 0, 0), _dirtRightMove);
 
-        var inner = new Grid
+        // 上方留出弹跳空间，图标从底部弹起
+        var iconArea = new Grid
         {
-            Width = 60,
-            Height = 47,
-            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
-            Children = { _pickaxe, _dirtLeft, _dirtRight },
+            Height = 32 + BounceHeight,
+            Children = { _icon },
         };
         _textBlock = new TextBlock
         {
@@ -90,36 +77,17 @@ public class McLoading : Control
         {
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-            Children = { inner, _textBlock },
+            Children = { iconArea, _textBlock },
         };
         VisualChildren.Add(panel);
         LogicalChildren.Add(panel);
 
-        // 颜色跟随 Foreground。
-        _pickaxe.Bind(PathShape.StrokeProperty, this.GetObservable(ForegroundProperty));
-        _dirtLeft.Bind(PathShape.FillProperty, this.GetObservable(ForegroundProperty));
-        _dirtRight.Bind(PathShape.FillProperty, this.GetObservable(ForegroundProperty));
         _textBlock.Bind(TextBlock.TextProperty, this.GetObservable(TextProperty));
+        _textBlock.Bind(TextBlock.ForegroundProperty, this.GetObservable(ForegroundProperty));
 
         AttachedToVisualTree += (_, _) => StartLoop();
         DetachedFromVisualTree += (_, _) => StopLoop();
     }
-
-    private static PathShape CreateDirt(double rotate, Thickness margin, TranslateTransform move) => new()
-    {
-        Opacity = 0,
-        Stretch = Stretch.Uniform,
-        Width = 3,
-        Height = 5,
-        Data = StreamGeometry.Parse("M0,0L2,0L1,4"),
-        Margin = margin,
-        HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left,
-        VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top,
-        RenderTransform = new TransformGroup
-        {
-            Children = { new RotateTransform(rotate), move },
-        },
-    };
 
     private void StartLoop()
     {
@@ -134,28 +102,16 @@ public class McLoading : Control
         _loopCts = null;
     }
 
-    /// <summary>
-    /// 动画时序与 PCL-CE 相同：抬起 350ms（回缓入）→ 挥下 900ms（缓出）→ 回弹 900ms（弹性），
-    /// 挥下触地时左右两粒泥土飞出并淡去。
-    /// </summary>
+    /// <summary>球类弹跳：升起用缓出（减速到顶），落下用缓入（加速触底），触底稍作停顿。</summary>
     private async Task RunLoopAsync(CancellationToken token)
     {
         while (!token.IsCancellationRequested)
         {
             try
             {
-                await AnimateAngleAsync(_pickaxeRotate, -20, 350, new BackEaseIn(), token);
-                await AnimateAngleAsync(_pickaxeRotate, 30, 900, new CubicEaseOut(), token);
-
-                // 挖到地：粒子飞出。
-                _dirtLeft.Opacity = 1;
-                _dirtRight.Opacity = 1;
-                _dirtLeftMove.X = _dirtLeftMove.Y = 0;
-                _dirtRightMove.X = _dirtRightMove.Y = 0;
-                _ = FlyDirtAsync(_dirtLeft, _dirtLeftMove, -5, -6, token);
-                _ = FlyDirtAsync(_dirtRight, _dirtRightMove, 5, -6, token);
-
-                await AnimateAngleAsync(_pickaxeRotate, 55, 900, new ElasticEaseOut(), token);
+                await AnimateYAsync(_bounce, -BounceHeight, 260, new CubicEaseOut(), token);
+                await AnimateYAsync(_bounce, 0, 260, new CubicEaseIn(), token);
+                await Task.Delay(140, token);
             }
             catch (OperationCanceledException)
             {
@@ -164,8 +120,8 @@ public class McLoading : Control
         }
     }
 
-    private static async Task AnimateAngleAsync(
-        RotateTransform transform,
+    private static async Task AnimateYAsync(
+        TranslateTransform transform,
         double to,
         int durationMs,
         Easing easing,
@@ -180,66 +136,16 @@ public class McLoading : Control
                 new KeyFrame
                 {
                     Cue = new Cue(0d),
-                    Setters = { new Setter(RotateTransform.AngleProperty, transform.Angle) },
+                    Setters = { new Setter(TranslateTransform.YProperty, transform.Y) },
                 },
                 new KeyFrame
                 {
                     Cue = new Cue(1d),
-                    Setters = { new Setter(RotateTransform.AngleProperty, to) },
+                    Setters = { new Setter(TranslateTransform.YProperty, to) },
                 },
             },
         };
         await animation.RunAsync(transform, token);
-        transform.Angle = to;
-    }
-
-    private static async Task FlyDirtAsync(PathShape dirt, TranslateTransform move, double toX, double toY, CancellationToken token)
-    {
-        try
-        {
-            var moveAnimation = new Animation
-            {
-                Duration = TimeSpan.FromMilliseconds(180),
-                Easing = new CubicEaseOut(),
-                Children =
-                {
-                    new KeyFrame
-                    {
-                        Cue = new Cue(0d),
-                        Setters = { new Setter(TranslateTransform.XProperty, 0d), new Setter(TranslateTransform.YProperty, 0d) },
-                    },
-                    new KeyFrame
-                    {
-                        Cue = new Cue(1d),
-                        Setters = { new Setter(TranslateTransform.XProperty, toX), new Setter(TranslateTransform.YProperty, toY) },
-                    },
-                },
-            };
-            var fade = new Animation
-            {
-                Duration = TimeSpan.FromMilliseconds(100),
-                Delay = TimeSpan.FromMilliseconds(50),
-                Children =
-                {
-                    new KeyFrame
-                    {
-                        Cue = new Cue(0d),
-                        Setters = { new Setter(Visual.OpacityProperty, 1d) },
-                    },
-                    new KeyFrame
-                    {
-                        Cue = new Cue(1d),
-                        Setters = { new Setter(Visual.OpacityProperty, 0d) },
-                    },
-                },
-            };
-            await Task.WhenAll(
-                moveAnimation.RunAsync(move, token),
-                fade.RunAsync(dirt, token));
-            dirt.Opacity = 0;
-        }
-        catch (OperationCanceledException)
-        {
-        }
+        transform.Y = to;
     }
 }

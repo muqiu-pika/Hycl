@@ -130,6 +130,37 @@ public partial class LoaderCardViewModel : ObservableObject
     /// <summary>列表加载总超时：超时后给出错误提示，避免不支持的版本长时间转圈。</summary>
     private static readonly TimeSpan LoadTimeout = TimeSpan.FromSeconds(20);
 
+    /// <summary>卡片右侧状态字（对应 PCL-CE GetLoaderError 的展示位）：加载中灰字、就绪/冲突黑字。</summary>
+    [ObservableProperty]
+    private string _statusText = "正在下载配置中";
+
+    /// <summary>状态字是否使用深色（可下载/与 X 冲突为黑，正在下载配置中为灰）。</summary>
+    [ObservableProperty]
+    private bool _isStatusDark;
+
+    /// <summary>与其他已选主加载器冲突：状态字显示"与 X 冲突"并禁止进入版本选择。</summary>
+    [ObservableProperty]
+    private bool _isConflicted;
+
+    /// <summary>版本列表是否已成功加载过（用于区分"加载中"与"可下载"）。</summary>
+    public bool IsLoaded => _loaded;
+
+    /// <summary>直接设置状态字文本与颜色。</summary>
+    public void SetStatus(string text, bool dark)
+    {
+        StatusText = text;
+        IsStatusDark = dark;
+    }
+
+    /// <summary>标记为加载中（灰字）。</summary>
+    public void MarkLoading() => SetStatus("正在下载配置中", false);
+
+    /// <summary>标记为可下载（黑字）。</summary>
+    public void MarkReady() => SetStatus("可下载", true);
+
+    /// <summary>标记为获取失败（黑字，点开卡片可重试）。</summary>
+    public void MarkFailed() => SetStatus("获取失败", true);
+
     public async Task EnsureLoadedAsync()
     {
         if (_loaded)
@@ -139,6 +170,7 @@ public partial class LoaderCardViewModel : ObservableObject
 
         IsLoading = true;
         ErrorText = "";
+        MarkLoading();
         try
         {
             var loadTask = _loader();
@@ -157,10 +189,15 @@ public partial class LoaderCardViewModel : ObservableObject
             }
 
             _loaded = true;
+            if (!IsConflicted)
+            {
+                MarkReady();
+            }
         }
         catch (Exception ex)
         {
             ErrorText = ex.Message;
+            MarkFailed();
         }
         finally
         {
@@ -270,6 +307,9 @@ public partial class InstallWizardViewModel : ObservableObject
     private (int VersionList, int File) _cachedSource = (-1, -1);
 
     private VersionItemViewModel? _selectedLoaderItem;
+
+    /// <summary>已选主加载器的名称（如 Forge），供冲突状态字使用（SelectedLoaderName 是所选版本号）。</summary>
+    private string _selectedLoaderCardTitle = "";
 
     private VersionItemViewModel? _selectedOptiFineItem;
 
@@ -451,6 +491,7 @@ public partial class InstallWizardViewModel : ObservableObject
         TargetName = summary.Id;
         SelectedLoaderName = "原版";
         _selectedLoaderItem = null;
+        _selectedLoaderCardTitle = "";
         _selectedOptiFineItem = null;
         _selectedLiteLoaderItem = null;
         _companionModSlug = null;
@@ -540,6 +581,7 @@ public partial class InstallWizardViewModel : ObservableObject
         string kind,
         Func<DownloadPolicy, Task<IReadOnlyList<LoaderVersionEntry>>> loader)
     {
+        Exception? error = null;
         try
         {
             await GetOrLoadLoaderEntriesAsync(mcId, kind, () => loader(DownloadPolicy.FromConfig(_services.Config)))
@@ -547,7 +589,30 @@ public partial class InstallWizardViewModel : ObservableObject
         }
         catch (Exception ex)
         {
+            error = ex;
             _services.Logger.Error($"预热 {kind} 版本列表失败", ex);
+        }
+
+        // 预热完成即点亮卡片右侧状态字（可下载/获取失败）；会话已切换则忽略本次结果
+        if (mcId != SelectedMcId)
+        {
+            return;
+        }
+
+        var card = LoaderCards.FirstOrDefault(c => c.Kind == kind)
+                   ?? (kind == "optifine" ? _optiFineCard : kind == "liteloader" ? _liteLoaderCard : null);
+        if (card is null)
+        {
+            return;
+        }
+
+        if (error is not null)
+        {
+            card.MarkFailed();
+        }
+        else
+        {
+            RefreshCardStatus(card);
         }
     }
 
@@ -584,19 +649,19 @@ public partial class InstallWizardViewModel : ObservableObject
 
         AddLoader(
             "forge", "Forge", "forge",
-            "经典模组加载器；1.7–1.12 走旧版安装器，1.13+ 走 headless 引导器",
+            "经典模组加载器",
             policy => _services.LoaderProviders.Forge.GetVersionsForAsync(SelectedMcId, policy));
         AddLoader(
             "neoforge", "NeoForge", "neoforge",
-            "新一代 Forge 分支；1.20.1 走旧包名特判",
+            "新一代 Forge 分支",
             policy => _services.LoaderProviders.NeoForge.GetVersionsForAsync(SelectedMcId, policy));
         AddLoader(
             "cleanroom", "Cleanroom", "cleanroom",
-            "1.12.2 的现代 Forge 分支（低版本模组容器）",
+            "1.12.2 的现代 Forge 分支",
             policy => _services.LoaderProviders.Cleanroom.GetVersionsForAsync(SelectedMcId, policy));
         AddLoader(
             "fabric", "Fabric", "fabric",
-            "轻量模组加载器；可搭配 Fabric API 前置",
+            "轻量模组加载器，可搭配 Fabric API",
             policy => _services.LoaderProviders.Fabric.GetVersionsForAsync(SelectedMcId, policy));
         AddLoader(
             "quilt", "Quilt", "quilt",
@@ -608,7 +673,7 @@ public partial class InstallWizardViewModel : ObservableObject
             policy => _services.LoaderProviders.LegacyFabric.GetVersionsForAsync(SelectedMcId, policy));
         AddLoader(
             "labymod", "LabyMod", "labymod",
-            "LabyMod 4 客户端（production / snapshot）",
+            "LabyMod 4 客户端",
             policy => _services.LoaderProviders.LabyMod.GetVersionsForAsync(SelectedMcId, policy));
 
         // 附属安装包（原始列表走缓存，OptiFine 的 Forge 适配过滤在取用时动态应用）
@@ -616,7 +681,7 @@ public partial class InstallWizardViewModel : ObservableObject
         _optiFineCard = new LoaderCardViewModel(
             "OptiFine",
             "optifine",
-            "光影前置与性能优化；与 Forge 共存时以 Mod 形式装入 mods",
+            "光影前置与性能优化",
             "optifine",
             true,
             async () => (await GetOrLoadLoaderEntriesAsync(
@@ -635,7 +700,7 @@ public partial class InstallWizardViewModel : ObservableObject
         _liteLoaderCard = new LoaderCardViewModel(
             "LiteLoader",
             "liteloader",
-            "旧版轻量加载器（1.7–1.12）；可与原版、Forge 或 Fabric 搭配",
+            "旧版轻量加载器（1.7–1.12）",
             "liteloader",
             true,
             async () => (await GetOrLoadLoaderEntriesAsync(
@@ -656,7 +721,7 @@ public partial class InstallWizardViewModel : ObservableObject
         _fabricApiCard = new LoaderCardViewModel(
             "Fabric API",
             "fabric",
-            "绝大多数 Fabric 模组的前置库（Modrinth：fabric-api）",
+            "绝大多数 Fabric 模组的前置库",
             "fabric-api",
             true,
             () => Task.FromResult<IReadOnlyList<VersionItemViewModel>>(
@@ -671,7 +736,7 @@ public partial class InstallWizardViewModel : ObservableObject
         _legacyFabricApiCard = new LoaderCardViewModel(
             "Legacy Fabric API",
             "fabric",
-            "Legacy Fabric 模组的前置库（Modrinth：legacy-fabric-api）",
+            "Legacy Fabric 模组的前置库",
             "legacyfabric-api",
             true,
             () => Task.FromResult<IReadOnlyList<VersionItemViewModel>>(
@@ -712,6 +777,13 @@ public partial class InstallWizardViewModel : ObservableObject
     {
         if (card is null)
         {
+            return;
+        }
+
+        // 与已选主加载器冲突的卡片不可进入版本选择（对应 PCL-CE PreviewSwap 拦截）
+        if (card.IsConflicted)
+        {
+            _toast?.Invoke($"已选择 {SelectedLoaderName}，与 {card.Title} 冲突，无法同时安装");
             return;
         }
 
@@ -767,6 +839,7 @@ public partial class InstallWizardViewModel : ObservableObject
         ActiveLoaderCard.HasSelection = true;
         ActiveLoaderCard.SelectedTitle = item.Title;
         _selectedLoaderItem = item;
+        _selectedLoaderCardTitle = ActiveLoaderCard.Title;
         SelectedLoaderName = item.Title;
         var choice = item.Payload as LoaderChoice;
         var kind = choice?.Kind ?? "";
@@ -783,6 +856,7 @@ public partial class InstallWizardViewModel : ObservableObject
 
         ActiveLoaderCard = null;
         RefreshCompanionAvailability();
+        RefreshCardStatuses();
     }
 
     [RelayCommand]
@@ -797,11 +871,52 @@ public partial class InstallWizardViewModel : ObservableObject
         if (_selectedLoaderItem is not null && card.Items.Contains(_selectedLoaderItem))
         {
             _selectedLoaderItem = null;
+            _selectedLoaderCardTitle = "";
             SelectedLoaderName = "原版";
             TargetName = SelectedMcId;
         }
 
         RefreshCompanionAvailability();
+        RefreshCardStatuses();
+    }
+
+    /// <summary>
+    /// 按当前选择刷新主加载器卡片右侧状态字（对应 PCL-CE LoadXXGetError 的展示）：
+    /// 冲突 → "与 X 冲突"（黑），已选 → 空，已加载 → "可下载"（黑），失败保留"获取失败"，其余 → "正在下载配置中"（灰）。
+    /// </summary>
+    private void RefreshCardStatuses()
+    {
+        foreach (var card in LoaderCards)
+        {
+            RefreshCardStatus(card);
+        }
+    }
+
+    private void RefreshCardStatus(LoaderCardViewModel card)
+    {
+        var selectedKind = (_selectedLoaderItem?.Payload as LoaderChoice)?.Kind;
+        var isSelf = selectedKind is not null
+                     && string.Equals(card.Kind, selectedKind, StringComparison.OrdinalIgnoreCase);
+        card.IsConflicted = selectedKind is not null && !isSelf;
+
+        if (card.IsConflicted)
+        {
+            card.SetStatus($"与 {_selectedLoaderCardTitle} 冲突", true);
+        }
+        else if (card.HasSelection)
+        {
+            // 已选中的卡在中间列展示所选版本，右侧留空
+            card.SetStatus("", true);
+        }
+        else if (card.IsLoaded || _loaderEntryCache.ContainsKey((SelectedMcId, card.Kind)))
+        {
+            // 预热只填充数据缓存（卡片 Items 在点开时才构建），同样视为就绪
+            card.MarkReady();
+        }
+        else if (card.ErrorText.Length == 0)
+        {
+            card.MarkLoading();
+        }
     }
 
     /// <summary>附属安装包选择：OptiFine / LiteLoader / 前置 Mod。</summary>
