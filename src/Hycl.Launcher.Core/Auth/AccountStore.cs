@@ -24,13 +24,17 @@ public sealed class AccountStore
 
     public int SelectedIndex { get; private set; }
 
-    public PlayerAccount SelectedAccount
+    /// <summary>
+    /// 当前选中账号；没有账号（初始状态/全部删除）时返回 null，
+    /// 不再自动创建默认离线档案——是否登录由玩家自己决定。
+    /// </summary>
+    public PlayerAccount? SelectedAccount
     {
         get
         {
             if (Accounts.Count == 0)
             {
-                AddOffline("Player");
+                return null;
             }
 
             SelectedIndex = Math.Clamp(SelectedIndex, 0, Accounts.Count - 1);
@@ -43,8 +47,7 @@ public sealed class AccountStore
         if (!File.Exists(_filePath))
         {
             Accounts = new List<PlayerAccount>();
-            AddOffline("Player");
-            await SaveAsync(cancellationToken).ConfigureAwait(false);
+            SelectedIndex = 0;
             return;
         }
 
@@ -57,16 +60,11 @@ public sealed class AccountStore
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
-            _logger.Error("读取账号失败，已使用默认离线账号", ex);
+            _logger.Error("读取账号失败，已重置为空账号列表", ex);
             Accounts = new List<PlayerAccount>();
         }
 
-        if (Accounts.Count == 0)
-        {
-            AddOffline("Player");
-        }
-
-        SelectedIndex = Math.Clamp(SelectedIndex, 0, Accounts.Count - 1);
+        SelectedIndex = Math.Clamp(SelectedIndex, 0, Math.Max(0, Accounts.Count - 1));
         foreach (var account in Accounts)
         {
             if (string.IsNullOrWhiteSpace(account.Uuid) || account.Uuid == "0")
@@ -182,13 +180,26 @@ public sealed class AccountStore
 
     public void RemoveAt(int index)
     {
-        if (index < 0 || index >= Accounts.Count || Accounts.Count <= 1)
+        if (index < 0 || index >= Accounts.Count)
         {
             return;
         }
 
         Accounts.RemoveAt(index);
-        SelectedIndex = Math.Clamp(SelectedIndex, 0, Accounts.Count - 1);
+        SelectedIndex = Math.Clamp(SelectedIndex, 0, Math.Max(0, Accounts.Count - 1));
+    }
+
+    /// <summary>按账号 UUID 删除档案；返回是否删除成功。</summary>
+    public bool RemoveById(string uuid)
+    {
+        var index = Accounts.FindIndex(x => x.Uuid.Equals(uuid, StringComparison.OrdinalIgnoreCase));
+        if (index < 0)
+        {
+            return false;
+        }
+
+        RemoveAt(index);
+        return true;
     }
 
     public async Task SaveAsync(CancellationToken cancellationToken = default)

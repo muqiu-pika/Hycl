@@ -165,7 +165,7 @@ public sealed partial class InstancesViewModel : ObservableObject
             var instances = await _services.Instances.ScanAsync(_services.Config.EffectiveGameDirectory).ConfigureAwait(true);
             var previousId = SelectedInstance?.Id ?? _services.Config.SelectedVersion;
             Instances.Clear();
-            foreach (var instance in instances)
+            foreach (var instance in ApplyOrder(instances))
             {
                 Instances.Add(instance);
             }
@@ -182,6 +182,54 @@ public sealed partial class InstancesViewModel : ObservableObject
             StatusMessage = $"扫描失败：{ex.Message}";
             _services.Logger.Error("扫描实例失败", ex);
         }
+    }
+
+    /// <summary>按玩家手动排序（config.InstanceOrder）整理实例；未列入的保持默认顺序排在后面。</summary>
+    private IReadOnlyList<MinecraftInstance> ApplyOrder(IReadOnlyList<MinecraftInstance> instances)
+    {
+        var order = _services.Config.InstanceOrder;
+        if (order.Count == 0)
+        {
+            return instances;
+        }
+
+        var rank = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < order.Count; i++)
+        {
+            rank[order[i]] = i;
+        }
+
+        return instances
+            .OrderBy(x => rank.TryGetValue(x.Id, out var r) ? r : int.MaxValue)
+            .ToList();
+    }
+
+    /// <summary>把当前列表顺序写回 config 并持久化。</summary>
+    private async Task PersistOrderAsync()
+    {
+        _services.Config.InstanceOrder = Instances.Select(x => x.Id).ToList();
+        await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
+    }
+
+    /// <summary>右键菜单：上移/下移实例。</summary>
+    [RelayCommand]
+    public async Task MoveInstanceAsync(string direction)
+    {
+        if (SelectedInstance is null || Instances.Count < 2)
+        {
+            return;
+        }
+
+        var index = Instances.IndexOf(SelectedInstance);
+        var target = direction == "up" ? index - 1 : index + 1;
+        if (target < 0 || target >= Instances.Count)
+        {
+            return;
+        }
+
+        Instances.Move(index, target);
+        await PersistOrderAsync().ConfigureAwait(true);
+        UpdateCurrentMarkers();
     }
 
     [RelayCommand]
@@ -223,6 +271,19 @@ public sealed partial class InstancesViewModel : ObservableObject
         StatusMessage = $"确认删除 {SelectedInstance.Name}？该操作不可撤销。";
     }
 
+    /// <summary>右键菜单入口：先选中该实例再弹出删除确认。</summary>
+    [RelayCommand]
+    private void RequestDeleteFor(MinecraftInstance? instance)
+    {
+        if (instance is null)
+        {
+            return;
+        }
+
+        SelectedInstance = instance;
+        RequestDelete();
+    }
+
     [RelayCommand]
     private void CancelDelete()
     {
@@ -248,6 +309,7 @@ public sealed partial class InstancesViewModel : ObservableObject
         }
 
         _services.Config.RemoveInstanceSettings(target.Id);
+        _services.Config.InstanceOrder.Remove(target.Id);
         StatusMessage = $"已删除 {target.Name}";
         if (_services.Config.SelectedVersion.Equals(target.Id, StringComparison.OrdinalIgnoreCase))
         {

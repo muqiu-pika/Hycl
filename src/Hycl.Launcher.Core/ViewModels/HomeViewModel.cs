@@ -49,13 +49,15 @@ public sealed partial class HomeViewModel : ObservableObject
     [ObservableProperty]
     private string _accountNameInput = "";
 
-    public PlayerAccount CurrentAccount => _services.Accounts.SelectedAccount;
+    public PlayerAccount? CurrentAccount => _services.Accounts.SelectedAccount;
 
-    public string PlayerName => CurrentAccount.Name;
+    public string PlayerName => CurrentAccount?.Name ?? "未登录";
 
-    public string PlayerAvatar => CurrentAccount.AvatarText;
+    public string PlayerAvatar => CurrentAccount?.AvatarText ?? "?";
 
-    public string AccountSubtitle => "离线账户 · " + (CurrentAccount.Uuid.Length >= 8 ? CurrentAccount.Uuid[..8] : CurrentAccount.Uuid);
+    public string AccountSubtitle => CurrentAccount is null
+        ? "尚无账号，请在启动页添加"
+        : "离线账户 · " + (CurrentAccount.Uuid.Length >= 8 ? CurrentAccount.Uuid[..8] : CurrentAccount.Uuid);
 
     public bool HasInstances => Instances.Count > 0;
 
@@ -166,9 +168,16 @@ public sealed partial class HomeViewModel : ObservableObject
             return;
         }
 
-        var account = CurrentAccount;
-        account.Name = name;
-        account.Uuid = OfflineUuid.Create(name);
+        if (CurrentAccount is not { } account)
+        {
+            _services.Accounts.AddOffline(name);
+        }
+        else
+        {
+            account.Name = name;
+            account.Uuid = OfflineUuid.Create(name);
+        }
+
         await _services.Accounts.SaveAsync().ConfigureAwait(true);
         _services.Config.UserName = name;
         await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
@@ -194,13 +203,19 @@ public sealed partial class HomeViewModel : ObservableObject
             return;
         }
 
+        var account0 = _services.Accounts.SelectedAccount;
+        if (account0 is null)
+        {
+            LaunchStatus = "请先在启动页添加账号（正版 / 皮肤站 / 离线）";
+            return;
+        }
+
         IsLaunching = true;
         LaunchStatus = "正在启动…";
         AppendLog($"[HYCL] 正在启动 {instance.Name}…");
         try
         {
             var config = _services.Config;
-            var account = _services.Accounts.SelectedAccount;
             var options = new LaunchOptions
             {
                 InstanceId = instance.Id,
@@ -214,8 +229,8 @@ public sealed partial class HomeViewModel : ObservableObject
                 WindowHeight = config.WindowHeight,
                 ExtraJvmArguments = config.ExtraJvmArguments,
                 ExtraGameArguments = config.ExtraGameArguments,
-                PlayerName = account.Name,
-                PlayerUuid = account.Uuid,
+                PlayerName = account0.Name,
+                PlayerUuid = account0.Uuid,
                 WindowTitle = config.WindowTitle,
                 TypeInfo = config.TypeInfo,
                 LauncherVisibility = config.LauncherVisibility,

@@ -52,8 +52,8 @@
     <SolidColorBrush x:Key="TitleHoverBrush" Color="#26FFFFFF" />
 
     <LinearGradientBrush x:Key="TitleGradientBrush" StartPoint="0%,50%" EndPoint="100%,50%">
-        <GradientStop Color="#173A63" Offset="0" />
-        <GradientStop Color="#0F2A4C" Offset="1" />
+        <GradientStop Color="#1D4572" Offset="0" />
+        <GradientStop Color="#163257" Offset="1" />
     </LinearGradientBrush>
 
     <LinearGradientBrush x:Key="AppBackdropBrush" StartPoint="20%,0%" EndPoint="80%,100%">

@@ -36,6 +36,15 @@ public sealed class PlayerAccount
     /// <summary>正版 Xbox XUID（auth_xuid 占位符）。</summary>
     public string Xuid { get; set; } = "";
 
+    /// <summary>玩家皮肤贴图 URL（正版/皮肤站登录后由档案接口取得）。</summary>
+    public string SkinUrl { get; set; } = "";
+
+    /// <summary>皮肤贴图本地缓存路径（下载后填充，供首页纸娃娃渲染）。</summary>
+    public string SkinPath { get; set; } = "";
+
+    /// <summary>离线档案自选的内置皮肤键（steve / alex / zuri）；仅离线账号可更换。</summary>
+    public string SkinKey { get; set; } = "";
+
     /// <summary>访问令牌过期时间；null 表示无需续期（离线）。</summary>
     public DateTimeOffset? ExpiresAt { get; set; }
 

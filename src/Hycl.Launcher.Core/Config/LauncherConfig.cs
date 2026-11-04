@@ -67,6 +67,9 @@ public sealed class LauncherConfig
     /// <summary>安装新实例后自动选定该实例（对应 PCL-CE ToolDownloadAutoSelectVersion）。</summary>
     public bool AutoSelectInstance { get; set; } = true;
 
+    /// <summary>版本管理列表的手动排序（实例 ID 顺序；未列入的按默认规则排在后面）。</summary>
+    public List<string> InstanceOrder { get; set; } = new();
+
     /// <summary>社区资源列表忽略 Quilt（对应 PCL-CE ToolDownloadIgnoreQuilt）。</summary>
     public bool CompIgnoreQuilt { get; set; } = true;
 

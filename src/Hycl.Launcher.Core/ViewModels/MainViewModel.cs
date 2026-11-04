@@ -53,7 +53,7 @@ public partial class MainViewModel : ObservableObject
         Download = new DownloadPageViewModel(services, ShowToast);
         Instances = new InstancesViewModel(services);
         Settings = new SettingsPageViewModel(services, ShowToast);
-        Tools = new ToolsPageViewModel(ShowToast);
+        Tools = new ToolsPageViewModel(services, ShowToast);
         _currentPage = Launch;
 
         Download.Installed += (_, instanceId) => _ = Launch.RefreshInstancesAsync(instanceId);

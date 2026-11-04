@@ -53,10 +53,10 @@
     <SolidColorBrush x:Key="TitleSelectedPillBrush" Color="#FFFFFF" />
     <SolidColorBrush x:Key="TitleHoverBrush" Color="#33FFFFFF" />
 
-    <!-- 横向「左深右浅」：#0B5BCB → #2570E8，两端白字对比度 6.16:1 / 4.58:1 -->
+    <!-- 横向「左深右浅」：比上一版整体提亮一档，白字对比度仍达标 -->
     <LinearGradientBrush x:Key="TitleGradientBrush" StartPoint="0%,50%" EndPoint="100%,50%">
-        <GradientStop Color="#0B5BCB" Offset="0" />
-        <GradientStop Color="#2570E8" Offset="1" />
+        <GradientStop Color="#1B66D6" Offset="0" />
+        <GradientStop Color="#3E89EF" Offset="1" />
     </LinearGradientBrush>
 
     <LinearGradientBrush x:Key="AppBackdropBrush" StartPoint="20%,0%" EndPoint="80%,100%">

@@ -31,7 +31,8 @@ public sealed record MicrosoftAuthResult(
     string AccessToken,
     string RefreshToken,
     string Xuid,
-    DateTimeOffset ExpiresAt);
+    DateTimeOffset ExpiresAt,
+    string SkinUrl);
 
 /// <summary>正版登录失败（消息已按用户可读组织）。</summary>
 public sealed class MicrosoftAuthException : Exception
@@ -73,12 +74,18 @@ public sealed class MicrosoftAuthService
 
     private static HttpClient CreateClient()
     {
-        var client = new HttpClient
+        var client = new HttpClient(new SocketsHttpHandler
         {
-            Timeout = TimeSpan.FromSeconds(45)
+            // 统一 HTTP/1.1：排除部分微软端点在 HTTP/2 下的握手/风控异常（与 DownloadClient 同策略）
+            AutomaticDecompression = System.Net.DecompressionMethods.All
+        })
+        {
+            Timeout = TimeSpan.FromSeconds(45),
+            DefaultVersionPolicy = System.Net.Http.HttpVersionPolicy.RequestVersionExact,
+            DefaultRequestVersion = System.Net.HttpVersion.Version11
         };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) HYCL/1.0 (Hyplay Craft Launcher)");
+        // 注意：微软登录链路对浏览器型 UA 的容忍度未知，统一使用纯启动器标识
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("HYCL/1.0 (Hyplay Craft Launcher)");
         return client;
     }
 
@@ -249,15 +256,46 @@ public sealed class MicrosoftAuthService
             throw new MicrosoftAuthException("该微软账号还没有创建 Minecraft 档案，请先用该账号启动一次官方启动器");
         }
 
-        profileResponse.EnsureSuccessStatusCode();
+        if (!profileResponse.IsSuccessStatusCode)
+        {
+            var body = await profileResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            throw new MicrosoftAuthException($"请求 {(int)profileResponse.StatusCode}：minecraftservices.com（{body}）");
+        }
+
         var profileBody = await profileResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         var profile = Parse(profileBody, "档案响应");
         var userName = Required(profile, "name");
         var uuid = Required(profile, "id");
         var xuid = ExtractXuid(xstsBody);
+        var skinUrl = ExtractActiveSkinUrl(profile);
 
         _logger.Info($"正版登录成功：{userName}（{uuid}）");
-        return new MicrosoftAuthResult(userName, uuid, mcToken, refreshToken, xuid, expiresAt);
+        return new MicrosoftAuthResult(userName, uuid, mcToken, refreshToken, xuid, expiresAt, skinUrl);
+    }
+
+    /// <summary>从档案响应的 skins 数组中取当前激活皮肤的贴图 URL。</summary>
+    private static string ExtractActiveSkinUrl(JsonElement profile)
+    {
+        try
+        {
+            if (profile.TryGetProperty("skins", out var skins) && skins.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var skin in skins.EnumerateArray())
+                {
+                    var state = skin.TryGetProperty("state", out var s) ? s.GetString() : null;
+                    var url = skin.TryGetProperty("url", out var u) ? u.GetString() : null;
+                    if (state == "ACTIVE" && !string.IsNullOrWhiteSpace(url))
+                    {
+                        return url;
+                    }
+                }
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return "";
     }
 
     // ---------- HTTP 辅助 ----------
@@ -293,7 +331,13 @@ public sealed class MicrosoftAuthService
         using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            throw new MicrosoftAuthException(
+                $"请求 {(int)response.StatusCode}：{new Uri(url).Host}（{body}）");
+        }
+
         return Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false), url);
     }
 
@@ -317,7 +361,13 @@ public sealed class MicrosoftAuthService
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
         using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            throw new MicrosoftAuthException(
+                $"请求 {(int)response.StatusCode}：{new Uri(url).Host}（{body}）");
+        }
+
         return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
     }
 

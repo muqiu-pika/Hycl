@@ -1,0 +1,58 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Hycl.Launcher.UI.SplashWindow"
+        Title="Hyplay Craft Launcher"
+        Width="440"
+        Height="320"
+        WindowStartupLocation="CenterScreen"
+        WindowDecorations="None"
+        TransparencyLevelHint="Transparent"
+        Background="Transparent"
+        ShowInTaskbar="False"
+        Topmost="True"
+        CanResize="False">
+
+    <!-- 对应 PCL-CE 的启动加载页：图标上下弹跳 + 标题，主窗口出现后关闭。
+         弹跳由代码后置逐帧驱动（Avalonia 12 的 XAML Animation 不支持内联 RenderTransform 动画器）。 -->
+    <Panel HorizontalAlignment="Center" VerticalAlignment="Center">
+        <StackPanel Spacing="14" HorizontalAlignment="Center">
+            <Panel HorizontalAlignment="Center" Width="104" Height="112">
+                <!-- 地面阴影：随弹跳缩放 -->
+                <Ellipse Name="SplashShadow"
+                         Width="72"
+                         Height="12"
+                         VerticalAlignment="Bottom"
+                         HorizontalAlignment="Center"
+                         Margin="0,0,0,2"
+                         Opacity="0.35">
+                    <Ellipse.Fill>
+                        <RadialGradientBrush>
+                            <GradientStop Color="#FF343D4A" Offset="0" />
+                            <GradientStop Color="#00343D4A" Offset="1" />
+                        </RadialGradientBrush>
+                    </Ellipse.Fill>
+                </Ellipse>
+
+                <Image Name="SplashLogo"
+                       Source="avares://Hycl.Launcher.UI/Assets/hycl.png"
+                       Width="88"
+                       Height="88"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Bottom"
+                       RenderTransform="translateY(0px)" />
+            </Panel>
+
+            <StackPanel Spacing="4" HorizontalAlignment="Center">
+                <TextBlock Text="Hyplay Craft Launcher"
+                           FontSize="17"
+                           FontWeight="Bold"
+                           Foreground="{DynamicResource PrimaryDeepBrush}"
+                           HorizontalAlignment="Center" />
+                <TextBlock Text="正在启动…"
+                           FontSize="12"
+                           Foreground="{DynamicResource Gray3Brush}"
+                           HorizontalAlignment="Center" />
+            </StackPanel>
+        </StackPanel>
+    </Panel>
+</Window>

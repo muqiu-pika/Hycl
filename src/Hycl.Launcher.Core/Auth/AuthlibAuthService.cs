@@ -100,7 +100,8 @@ public sealed class AuthlibAuthService
         {
             try
             {
-                using var response = await _http.GetAsync(candidate, cancellationToken).ConfigureAwait(false);
+                using var request = new HttpRequestMessage(HttpMethod.Get, candidate);
+                using var response = await SendWithRedirectAsync(request, cancellationToken).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
                 var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
                 using var document = JsonDocument.Parse(body);
@@ -111,8 +112,10 @@ public sealed class AuthlibAuthService
                     serverName = name.GetString() ?? "";
                 }
 
-                _logger.Info($"皮肤站探测成功：{candidate}（{serverName}）");
-                return new AuthlibServerInfo(candidate, serverName);
+                // 记录跟随重定向后的最终地址：后续 POST 直接用它，避免每次都经历重定向
+                var finalRoot = request.RequestUri?.ToString().TrimEnd('/') ?? candidate;
+                _logger.Info($"皮肤站探测成功：{finalRoot}（{serverName}）");
+                return new AuthlibServerInfo(finalRoot, serverName);
             }
             catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException)
             {
@@ -229,13 +232,14 @@ public sealed class AuthlibAuthService
 
         try
         {
-            using var content = new StringContent(
-                JsonSerializer.Serialize(new AuthlibValidateBody(accessToken, clientToken)),
-                Encoding.UTF8,
-                "application/json");
-            using var response = await _http
-                .PostAsync(apiRoot.TrimEnd('/') + "/authserver/validate", content, cancellationToken)
-                .ConfigureAwait(false);
+            using var request = new HttpRequestMessage(HttpMethod.Post, apiRoot.TrimEnd('/') + "/authserver/validate")
+            {
+                Content = new StringContent(
+                    JsonSerializer.Serialize(new AuthlibValidateBody(accessToken, clientToken)),
+                    Encoding.UTF8,
+                    "application/json")
+            };
+            using var response = await SendWithRedirectAsync(request, cancellationToken).ConfigureAwait(false);
             return (int)response.StatusCode == 204;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
@@ -334,15 +338,85 @@ public sealed class AuthlibAuthService
     /// <summary>抓取皮肤站根响应并 Base64（-Dauthlibinjector.yggdrasil.prefetched）。</summary>
     public async Task<string> GetPrefetchedAsync(string apiRoot, CancellationToken cancellationToken = default)
     {
-        var body = await _http.GetStringAsync(apiRoot, cancellationToken).ConfigureAwait(false);
+        using var request = new HttpRequestMessage(HttpMethod.Get, apiRoot);
+        using var response = await SendWithRedirectAsync(request, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         return Convert.ToBase64String(Encoding.UTF8.GetBytes(body));
+    }
+
+    /// <summary>
+    /// 从皮肤站 sessionserver 取玩家当前皮肤 URL（失败静默返回 null，皮肤非关键数据）。
+    /// </summary>
+    public async Task<string?> TryGetSkinUrlAsync(
+        string apiRoot,
+        string uuid,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                apiRoot.TrimEnd('/') + "/sessionserver/session/minecraft/profile/" + uuid + "?unsigned=false");
+            using var response = await SendWithRedirectAsync(request, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            using var document = JsonDocument.Parse(body);
+            if (!document.RootElement.TryGetProperty("properties", out var properties)
+                || properties.ValueKind != JsonValueKind.Array)
+            {
+                return null;
+            }
+
+            foreach (var property in properties.EnumerateArray())
+            {
+                if ((property.TryGetProperty("name", out var n) ? n.GetString() : null) != "textures")
+                {
+                    continue;
+                }
+
+                var value = property.TryGetProperty("value", out var v) ? v.GetString() : null;
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    return null;
+                }
+
+                var decoded = JsonDocument.Parse(Encoding.UTF8.GetString(Convert.FromBase64String(value))).RootElement;
+                if (decoded.TryGetProperty("textures", out var textures)
+                    && textures.TryGetProperty("SKIN", out var skin)
+                    && skin.TryGetProperty("url", out var url))
+                {
+                    return url.GetString();
+                }
+
+                return null;
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or FormatException or TaskCanceledException)
+        {
+            _logger.Warn($"获取皮肤站皮肤失败（忽略）：{ex.Message}");
+        }
+
+        return null;
     }
 
     // ---------- 内部 ----------
 
     private static HttpClient CreateClient()
     {
-        var client = new HttpClient
+        // 关键：禁用自动重定向。.NET 对 301/302 的 POST 会改写成 GET 并丢弃请求体，
+        // 皮肤站（littleskin.cn 有重定向）会把无 body 的 GET 当空模型，
+        // 返回 "username should not be empty ... agent must be an object"。
+        // 改为手动跟随重定向并保留方法与请求体（与 DownloadClient.SendWithRedirectAsync 同方案）。
+        var client = new HttpClient(new SocketsHttpHandler
+        {
+            AllowAutoRedirect = false,
+            ConnectTimeout = TimeSpan.FromSeconds(20)
+        })
         {
             Timeout = TimeSpan.FromSeconds(30)
         };
@@ -351,16 +425,47 @@ public sealed class AuthlibAuthService
         return client;
     }
 
+    /// <summary>
+    /// 发送请求并手动跟随重定向（最多 5 跳，保留方法、请求体与 Content 头）。
+    /// </summary>
+    private static async Task<HttpResponseMessage> SendWithRedirectAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        for (var hops = 0;
+             (int)response.StatusCode is 301 or 302 or 307 or 308
+             && response.Headers.Location is { } location
+             && hops < 5;
+             hops++)
+        {
+            var currentUri = request.RequestUri
+                             ?? throw new AuthlibException("请求缺少地址");
+            var nextUri = location.IsAbsoluteUri ? location : new Uri(currentUri, location);
+            var method = request.Method;
+            var content = request.Content;
+            request.Dispose();
+            response.Dispose();
+            request = new HttpRequestMessage(method, nextUri) { Content = content };
+            response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+
+        return response;
+    }
+
     private static async Task<JsonElement> PostAsync(string url, object body, CancellationToken cancellationToken)
     {
         string text;
         try
         {
-            using var content = new StringContent(
-                JsonSerializer.Serialize(body),
-                Encoding.UTF8,
-                "application/json");
-            using var response = await _http.PostAsync(url, content, cancellationToken).ConfigureAwait(false);
+            using var request = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = new StringContent(
+                    JsonSerializer.Serialize(body),
+                    Encoding.UTF8,
+                    "application/json")
+            };
+            using var response = await SendWithRedirectAsync(request, cancellationToken).ConfigureAwait(false);
             text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)

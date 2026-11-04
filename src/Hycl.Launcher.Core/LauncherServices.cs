@@ -106,9 +106,10 @@ public sealed class LauncherServices
 
         var accounts = new AccountStore(paths.AccountFile, logger);
         await accounts.LoadAsync(cancellationToken).ConfigureAwait(false);
-        if (!string.IsNullOrWhiteSpace(accounts.SelectedAccount.Name))
+        if (accounts.SelectedAccount is { } currentAccount
+            && !string.IsNullOrWhiteSpace(currentAccount.Name))
         {
-            configStore.Config.UserName = accounts.SelectedAccount.Name;
+            configStore.Config.UserName = currentAccount.Name;
         }
 
         // 启动时一次性清理上次异常退出遗留的下载临时文件；在创建下载客户端与任何下载逻辑之前完成

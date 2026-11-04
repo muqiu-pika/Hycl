@@ -64,6 +64,20 @@
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="g:MinecraftInstance">
                                     <Grid ColumnDefinitions="Auto,*,Auto" Margin="8,6">
+                                        <Grid.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem Header="上移"
+                                                          Command="{Binding $parent[UserControl].((vm:InstancesViewModel)DataContext).MoveInstanceCommand}"
+                                                          CommandParameter="up" />
+                                                <MenuItem Header="下移"
+                                                          Command="{Binding $parent[UserControl].((vm:InstancesViewModel)DataContext).MoveInstanceCommand}"
+                                                          CommandParameter="down" />
+                                                <Separator />
+                                                <MenuItem Header="删除该实例…"
+                                                          Command="{Binding $parent[UserControl].((vm:InstancesViewModel)DataContext).RequestDeleteForCommand}"
+                                                          CommandParameter="{Binding}" />
+                                            </ContextMenu>
+                                        </Grid.ContextMenu>
                                         <!-- 图标位固定 28x28，不随文字挤压；无位图资源时用通用矢量图标兜底 -->
                                         <Panel Width="28" Height="28" VerticalAlignment="Center">
                                             <c:BlockIcon Kind="{Binding IconKey}"
@@ -363,7 +377,7 @@
                                     <TextBlock Classes="srow-label" Text="保存" />
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                         <Button Classes="mc-btn" Content="恢复全局设置" Command="{Binding ResetSettingsCommand}" />
-                                        <Button Classes="mc-btn primary" Content="保存实例设置" Command="{Binding SaveSettingsCommand}" />
+                                        <Button Classes="mc-btn primary-soft" Content="保存实例设置" Command="{Binding SaveSettingsCommand}" />
                                     </StackPanel>
                                 </Grid>
                             </StackPanel>

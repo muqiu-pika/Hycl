@@ -49,6 +49,40 @@ public partial class LaunchPage : UserControl
         {
             UpdateDialogState(_viewModel?.IsCloseGameConfirmVisible == true);
         }
+        else if (args.PropertyName == nameof(LaunchPageViewModel.MsUserCode)
+                 && !string.IsNullOrEmpty(_viewModel?.MsUserCode))
+        {
+            // 设备码一出现就自动复制，玩家只需去浏览器粘贴/输入
+            _ = CopyUserCodeAsync();
+        }
+    }
+
+    private void OnUserCodeTapped(object? sender, Avalonia.Input.PointerReleasedEventArgs e)
+    {
+        // PointerReleased 比 Tapped 对 Border+文本子树的命中更宽容
+        _ = CopyUserCodeAsync();
+    }
+
+    /// <summary>把设备码复制到剪贴板；成功/失败都给 toast。</summary>
+    private async Task CopyUserCodeAsync()
+    {
+        if (_viewModel is not { } viewModel || string.IsNullOrEmpty(viewModel.MsUserCode))
+        {
+            return;
+        }
+
+        try
+        {
+            var top = TopLevel.GetTopLevel(this) ?? throw new InvalidOperationException("窗口未就绪");
+            var data = new DataTransfer();
+            data.Add(DataTransferItem.CreateText(viewModel.MsUserCode));
+            await (top.Clipboard ?? throw new InvalidOperationException("剪贴板不可用")).SetDataAsync(data);
+            viewModel.ShowToast($"已复制设备代码 {viewModel.MsUserCode}，请在浏览器中粘贴");
+        }
+        catch (Exception ex)
+        {
+            viewModel.ShowToast($"复制失败，请手动输入代码 {viewModel.MsUserCode}（{ex.Message}）");
+        }
     }
 
     /// <summary>弹窗打开时把焦点移到确认按钮，并在 Tunnel 阶段拦截 Esc / Enter。</summary>

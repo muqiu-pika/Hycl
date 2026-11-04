@@ -22,6 +22,10 @@ public class McSkin : Control
     public static readonly StyledProperty<string?> SkinKeyProperty =
         AvaloniaProperty.Register<McSkin, string?>(nameof(SkinKey));
 
+    /// <summary>皮肤贴图本地文件路径；非空时优先于 SkinKey（正版/皮肤站下载的缓存贴图）。</summary>
+    public static readonly StyledProperty<string?> SkinPathProperty =
+        AvaloniaProperty.Register<McSkin, string?>(nameof(SkinPath));
+
     public static readonly StyledProperty<int> ScaleProperty =
         AvaloniaProperty.Register<McSkin, int>(nameof(Scale), 4);
 
@@ -78,6 +82,13 @@ public class McSkin : Control
         set => SetValue(SkinKeyProperty, value);
     }
 
+    /// <summary>皮肤贴图本地文件路径（非空时优先于 SkinKey）。</summary>
+    public string? SkinPath
+    {
+        get => GetValue(SkinPathProperty);
+        set => SetValue(SkinPathProperty, value);
+    }
+
     /// <summary>像素放大倍数。</summary>
     public int Scale
     {
@@ -103,9 +114,9 @@ public class McSkin : Control
     {
         base.OnPropertyChanged(change);
 
-        if (change.Property == SkinKeyProperty)
+        if (change.Property == SkinPathProperty || change.Property == SkinKeyProperty)
         {
-            _bitmap = LoadBitmap(SkinKey);
+            _bitmap = LoadBitmap();
             InvalidateVisual();
         }
         else if (change.Property == ScaleProperty || change.Property == ModeProperty)
@@ -164,8 +175,31 @@ public class McSkin : Control
         context.DrawImage(_bitmap, source, destination);
     }
 
-    private static Bitmap? LoadBitmap(string? skinKey)
+    private Bitmap? LoadBitmap()
     {
+        // 本地文件（登录后下载的正版/皮肤站皮肤）优先于内置逻辑名
+        if (!string.IsNullOrWhiteSpace(SkinPath))
+        {
+            var path = SkinPath;
+            if (BitmapCache.TryGetValue(path, out var cachedPath))
+            {
+                return cachedPath;
+            }
+
+            try
+            {
+                var bitmap = new Bitmap(path);
+                BitmapCache[path] = bitmap;
+                return bitmap;
+            }
+            catch (Exception)
+            {
+                BitmapCache[path] = null;
+                return null;
+            }
+        }
+
+        var skinKey = SkinKey;
         if (string.IsNullOrWhiteSpace(skinKey))
         {
             return null;
