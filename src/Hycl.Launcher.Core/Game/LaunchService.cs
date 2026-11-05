@@ -399,7 +399,8 @@ public sealed class LaunchService
             startInfo.ArgumentList.Add(argument);
         }
 
-        _logger.Info($"命令：{java.ExecutablePath} {string.Join(' ', jvmArguments)} {mainClass}");
+        // 命令行可能含 -Dauthlibinjector.yggdrasil.prefetched 等敏感材料，落日志前先脱敏
+        _logger.Info(LogSanitizer.Sanitize($"命令：{java.ExecutablePath} {string.Join(' ', jvmArguments)} {mainClass}"));
 
         onStage?.Invoke("正在启动游戏…");
         Process process;
@@ -417,16 +418,19 @@ public sealed class LaunchService
         {
             if (args.Data is not null)
             {
-                logSignal.Feed(args.Data);
-                onOutput?.Invoke(args.Data);
+                // 脱敏后再进入日志信号与回调：UI 日志、launcher.log、失败分析读到的都是打码后的内容
+                var line = LogSanitizer.Sanitize(args.Data);
+                logSignal.Feed(line);
+                onOutput?.Invoke(line);
             }
         };
         process.ErrorDataReceived += (_, args) =>
         {
             if (args.Data is not null)
             {
-                logSignal.Feed(args.Data);
-                onOutput?.Invoke(args.Data);
+                var line = LogSanitizer.Sanitize(args.Data);
+                logSignal.Feed(line);
+                onOutput?.Invoke(line);
             }
         };
         process.BeginOutputReadLine();
