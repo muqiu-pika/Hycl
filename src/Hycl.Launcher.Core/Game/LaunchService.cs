@@ -305,16 +305,35 @@ public sealed class LaunchService
 
     public async Task<IReadOnlyList<JavaInstallation>> GetJavaInstallationsAsync(
         bool refresh,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? gameDirectory = null)
     {
-        if (!refresh && _cachedJava is not null && DateTimeOffset.Now - _javaCacheTime < TimeSpan.FromMinutes(10))
+        var installations = _cachedJava;
+        if (refresh || installations is null || DateTimeOffset.Now - _javaCacheTime >= TimeSpan.FromMinutes(10))
         {
-            return _cachedJava;
+            installations = await _javaDetector.DetectAsync(null, cancellationToken).ConfigureAwait(false);
+            _cachedJava = installations;
+            _javaCacheTime = DateTimeOffset.Now;
         }
 
-        _cachedJava = await _javaDetector.DetectAsync(null, cancellationToken).ConfigureAwait(false);
-        _javaCacheTime = DateTimeOffset.Now;
-        return _cachedJava;
+        // 启动时补充扫描当前游戏目录的 runtime/（其他启动器或手动解压的 JDK 常放这里），合并去重
+        if (!string.IsNullOrWhiteSpace(gameDirectory))
+        {
+            var runtimeRoot = Path.Combine(gameDirectory, "runtime");
+            if (Directory.Exists(runtimeRoot))
+            {
+                var extras = await _javaDetector
+                    .DetectInRootsAsync([runtimeRoot], cancellationToken)
+                    .ConfigureAwait(false);
+                installations = installations
+                    .Concat(extras)
+                    .GroupBy(x => x.ExecutablePath, StringComparer.OrdinalIgnoreCase)
+                    .Select(group => group.First())
+                    .ToList();
+            }
+        }
+
+        return installations;
     }
 
     /// <summary>
@@ -479,7 +498,7 @@ public sealed class LaunchService
         }
 
         var required = resolved.Info.JavaVersion?.MajorVersion ?? JavaDetector.RequiredMajorVersion(resolved.RootId);
-        var installations = await GetJavaInstallationsAsync(false, cancellationToken).ConfigureAwait(false);
+        var installations = await GetJavaInstallationsAsync(false, cancellationToken, options.GameDirectory).ConfigureAwait(false);
         var best = JavaDetector.FindBest(installations, required);
         if (best is null)
         {

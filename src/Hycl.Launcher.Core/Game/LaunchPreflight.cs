@@ -192,7 +192,28 @@ public static class LaunchPreflight
         }
 
         var installations = await javaDetector.DetectAsync(null, cancellationToken).ConfigureAwait(false);
-        return JavaDetector.FindBest(installations, requiredMajor);
+        var best = JavaDetector.FindBest(installations, requiredMajor);
+        if (best is not null && best.MajorVersion >= requiredMajor)
+        {
+            return best;
+        }
+
+        // 全局扫描不达标时，补充扫描当前游戏目录的 runtime/（其他启动器托管的 JDK 常在这里）
+        var runtimeRoot = Path.Combine(options.GameDirectory, "runtime");
+        if (Directory.Exists(runtimeRoot))
+        {
+            var extras = await javaDetector
+                .DetectInRootsAsync([runtimeRoot], cancellationToken)
+                .ConfigureAwait(false);
+            var fromRuntime = JavaDetector.FindBest(extras, requiredMajor);
+            if (fromRuntime is not null
+                && (best is null || fromRuntime.MajorVersion >= requiredMajor))
+            {
+                return fromRuntime;
+            }
+        }
+
+        return best;
     }
 
     private static LaunchCheckItem CheckJava(string? configuredPath, JavaInstallation? java, int requiredMajor)

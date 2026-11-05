@@ -71,9 +71,36 @@ public sealed class JavaDetector
     }
 
     /// <summary>探测本机 Java；显式路径优先，去重后按主版本降序。</summary>
-    public async Task<IReadOnlyList<JavaInstallation>> DetectAsync(string? explicitPath = null, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<JavaInstallation>> DetectAsync(
+        string? explicitPath = null,
+        CancellationToken cancellationToken = default,
+        IEnumerable<string>? extraRoots = null)
     {
-        var candidates = CollectCandidates(explicitPath);
+        var candidates = CollectCandidates(explicitPath, extraRoots);
+        return await InspectCandidatesAsync(candidates, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>只扫描指定根目录（如当前游戏目录的 runtime/），供启动时增量补充。</summary>
+    public async Task<IReadOnlyList<JavaInstallation>> DetectInRootsAsync(
+        IEnumerable<string> roots,
+        CancellationToken cancellationToken = default)
+    {
+        var candidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var root in roots)
+        {
+            if (Directory.Exists(root))
+            {
+                ScanDirectory(root, 4, path => AddResolved(path, candidates));
+            }
+        }
+
+        return await InspectCandidatesAsync(candidates, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<IReadOnlyList<JavaInstallation>> InspectCandidatesAsync(
+        HashSet<string> candidates,
+        CancellationToken cancellationToken)
+    {
         var found = new ConcurrentBag<JavaInstallation>();
         using var gate = new SemaphoreSlim(4);
 
@@ -224,18 +251,11 @@ public sealed class JavaDetector
             : null;
     }
 
-    private HashSet<string> CollectCandidates(string? explicitPath)
+    private HashSet<string> CollectCandidates(string? explicitPath, IEnumerable<string>? extraRoots = null)
     {
         var candidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        void AddExecutable(string? path)
-        {
-            var resolved = ResolveExecutable(path ?? "");
-            if (resolved is not null)
-            {
-                candidates.Add(resolved);
-            }
-        }
+        void AddExecutable(string? path) => AddResolved(path, candidates);
 
         AddExecutable(explicitPath);
         AddExecutable(Environment.GetEnvironmentVariable("JAVA_HOME") is { Length: > 0 } javaHome
@@ -248,7 +268,7 @@ public sealed class JavaDetector
             AddExecutable(Path.Combine(directory.Trim('"'), PlatformInfo.JavaExecutableName));
         }
 
-        foreach (var root in GetSearchRoots())
+        foreach (var root in GetSearchRoots().Concat(extraRoots ?? Enumerable.Empty<string>()))
         {
             if (Directory.Exists(root))
             {
@@ -258,6 +278,15 @@ public sealed class JavaDetector
 
         _logger.Info($"Java 候选路径：{candidates.Count} 个");
         return candidates;
+    }
+
+    private static void AddResolved(string? path, HashSet<string> candidates)
+    {
+        var resolved = ResolveExecutable(path ?? "");
+        if (resolved is not null)
+        {
+            candidates.Add(resolved);
+        }
     }
 
     private static IEnumerable<string> GetSearchRoots()
@@ -292,6 +321,18 @@ public sealed class JavaDetector
             yield return Path.Combine(home, ".gradle", "jdks");
             yield return Path.Combine(home, "scoop", "apps");
             yield return Path.Combine(home, ".minecraft", "runtime");
+            yield return Path.Combine(home, ".lunarclient", "jre");
+
+            // 其他启动器托管的运行时（目录不存在时自动跳过）
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var roamingAppData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            // 微软商店版 Minecraft 的运行时
+            yield return Path.Combine(localAppData, "Packages", "Microsoft.4297127D64EC6_8wekyb3d8bbwe", "LocalCache", "Local", "runtime");
+            yield return Path.Combine(localAppData, "PrismLauncher", "java");
+            yield return Path.Combine(roamingAppData, "PrismLauncher", "java");
+            yield return Path.Combine(localAppData, "com.modrinth.theseus", "cache", "java");
+            yield return Path.Combine(roamingAppData, "com.modrinth.theseus", "cache", "java");
+            yield return Path.Combine(home, "curseforge", "minecraft", "Install", "runtime");
             yield break;
         }
 
@@ -305,6 +346,8 @@ public sealed class JavaDetector
             yield return Path.Combine(home, ".sdkman", "candidates", "java");
             yield return Path.Combine(home, ".jdks");
             yield return Path.Combine(home, ".minecraft", "runtime");
+            yield return Path.Combine(home, "Library", "Application Support", "minecraft", "runtime");
+            yield return Path.Combine(home, "Library", "Application Support", "PrismLauncher", "java");
             yield break;
         }
 
@@ -314,20 +357,23 @@ public sealed class JavaDetector
         yield return Path.Combine(home, ".sdkman", "candidates", "java");
         yield return Path.Combine(home, ".jdks");
         yield return Path.Combine(home, ".minecraft", "runtime");
+        yield return Path.Combine(home, ".lunarclient", "jre");
+        yield return Path.Combine(home, ".var", "app", "com.mojang.Minecraft", "data", "minecraft", "runtime");
         yield return "/opt";
     }
 
     private static void ScanDirectory(string root, int depth, Action<string> addExecutable)
     {
-        if (depth <= 0)
-        {
-            return;
-        }
-
         try
         {
+            // 先查当前层的 bin 再决定是否继续下钻：深度耗尽也不漏掉叶层的可执行文件
             addExecutable(Path.Combine(root, "bin", PlatformInfo.JavaExecutableName));
             addExecutable(Path.Combine(root, "Contents", "Home", "bin", PlatformInfo.JavaExecutableName));
+
+            if (depth <= 0)
+            {
+                return;
+            }
 
             foreach (var child in Directory.EnumerateDirectories(root))
             {
