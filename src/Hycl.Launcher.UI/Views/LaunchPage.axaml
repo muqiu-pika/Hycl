@@ -691,5 +691,20 @@
                 </StackPanel>
             </Border>
         </Panel>
+
+        <!-- 运行中：右下角固定悬浮的停止按钮（点击仍走既有的关闭游戏二次确认） -->
+        <Button Classes="stop-fab"
+                x:Name="StopGameButton"
+                IsVisible="{Binding IsGameRunning}"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Bottom"
+                Margin="0,0,22,22"
+                ToolTip.Tip="关闭游戏"
+                Command="{Binding RequestCloseGameCommand}">
+            <StackPanel Orientation="Horizontal" Spacing="7">
+                <c:HyclIcon Kind="power" Width="17" Height="17" VerticalAlignment="Center" />
+                <TextBlock Text="关闭游戏" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </StackPanel>
+        </Button>
     </Panel>
 </UserControl>

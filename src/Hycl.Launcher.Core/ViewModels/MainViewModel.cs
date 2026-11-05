@@ -23,6 +23,9 @@ public partial class MainViewModel : ObservableObject
 
     public LaunchPageViewModel Launch { get; }
 
+    /// <summary>独立「启动中」页面（与启动页共用同一个启动会话状态）。</summary>
+    public LaunchProgressViewModel LaunchProgress { get; }
+
     public DownloadPageViewModel Download { get; }
 
     public InstancesViewModel Instances { get; }
@@ -50,11 +53,22 @@ public partial class MainViewModel : ObservableObject
     public MainViewModel(LauncherServices services)
     {
         Launch = new LaunchPageViewModel(services, ShowToast);
+        LaunchProgress = new LaunchProgressViewModel(Launch);
         Download = new DownloadPageViewModel(services, ShowToast);
         Instances = new InstancesViewModel(services);
         Settings = new SettingsPageViewModel(services, ShowToast);
         Tools = new ToolsPageViewModel(services, ShowToast);
         _currentPage = Launch;
+
+        // 启动开始/成功返回时在启动页与独立启动中页面之间切换（仍走 PageHost 的串行淡入淡出）
+        Launch.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(LaunchPageViewModel.IsLaunchProgressVisible)
+                && SelectedTabIndex == 0)
+            {
+                CurrentPage = Launch.IsLaunchProgressVisible ? LaunchProgress : Launch;
+            }
+        };
 
         Download.Installed += (_, instanceId) => _ = Launch.RefreshInstancesAsync(instanceId);
         Instances.SelectionChanged += (_, instanceId) =>
@@ -157,7 +171,8 @@ public partial class MainViewModel : ObservableObject
             2 => Instances,
             3 => Settings,
             4 => Tools,
-            _ => Launch,
+            // 启动中页面是“启动”标签的一种状态，切回来时按当前会话状态决定显示哪一个
+            _ => Launch.IsLaunchProgressVisible ? LaunchProgress : Launch,
         };
 
         (CurrentPage as IPageLifecycle)?.Activate();

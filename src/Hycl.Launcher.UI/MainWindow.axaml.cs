@@ -268,7 +268,11 @@ public partial class MainWindow : Window
     /// </summary>
     private void PrewarmPages()
     {
-        var pages = new object[] { _viewModel.Launch, _viewModel.Download, _viewModel.Instances, _viewModel.Settings, _viewModel.Tools };
+        var pages = new object[]
+        {
+            _viewModel.Launch, _viewModel.LaunchProgress, _viewModel.Download,
+            _viewModel.Instances, _viewModel.Settings, _viewModel.Tools
+        };
         foreach (var page in pages)
         {
             var view = GetOrCreateView(page);
@@ -309,6 +313,7 @@ public partial class MainWindow : Window
         Control view = page switch
         {
             LaunchPageViewModel => new LaunchPage(),
+            LaunchProgressViewModel => new LaunchProgressPage(),
             DownloadPageViewModel => new DownloadPage(),
             InstancesViewModel => new InstancesPage(),
             SettingsPageViewModel => new SettingsPage(),

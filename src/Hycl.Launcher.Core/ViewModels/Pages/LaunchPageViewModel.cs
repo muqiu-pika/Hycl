@@ -22,6 +22,13 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     private bool _suppressInstanceSelection;
     private CancellationTokenSource? _refreshCts;
     private CancellationTokenSource? _progressCts;
+    private CancellationTokenSource? _launchTickerCts;
+    private Stopwatch? _launchWatch;
+    private readonly List<string> _launchLog = new();
+    private readonly object _launchLogGate = new();
+
+    /// <summary>启动页实时日志最多保留的行数（防止长时间加载把内存与界面拖慢）。</summary>
+    private const int MaxLaunchLogLines = 600;
 
     public LaunchPageViewModel(LauncherServices services, Action<string>? toast = null)
     {
@@ -80,6 +87,38 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     /// <summary>关闭游戏确认弹窗是否显示（键盘与焦点管理由 UI 层负责）。</summary>
     [ObservableProperty]
     private bool _isCloseGameConfirmVisible;
+
+    /// <summary>
+    /// 是否显示独立「启动中」页面：点击启动后切换过去，成功或返回后切回启动页；
+    /// 启动失败时保持显示（失败详情需要留在页面上）。
+    /// </summary>
+    [ObservableProperty]
+    private bool _isLaunchProgressVisible;
+
+    /// <summary>启动页实时日志是否展开（默认收起，失败页固定展示）。</summary>
+    [ObservableProperty]
+    private bool _isLaunchLogExpanded;
+
+    /// <summary>启动页日志文本（按固定节流刷新，避免每一行都触发界面重排）。</summary>
+    [ObservableProperty]
+    private string _launchLogText = "";
+
+    /// <summary>启动耗时文本（每 200ms 刷新一次）。</summary>
+    [ObservableProperty]
+    private string _launchElapsedText = "0.0 秒";
+
+    /// <summary>启动失败的结构化结论；为 null 表示当前没有失败。</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsLaunchFailed))]
+    [NotifyPropertyChangedFor(nameof(LaunchFailureExitText))]
+    private LaunchFailureInfo? _launchFailure;
+
+    public bool IsLaunchFailed => LaunchFailure is not null;
+
+    /// <summary>失败页展示的退出码文本（未创建进程时如实说明）。</summary>
+    public string LaunchFailureExitText => LaunchFailure?.ExitCode is { } code
+        ? $"进程退出码：{code}"
+        : "进程尚未启动，未返回退出码";
 
     public bool CanLaunch => !IsLaunching && !IsGameRunning && !IsClosing;
 
@@ -582,6 +621,9 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                 return;
             }
 
+            // 账号就绪后再切到独立启动页，避免账号缺失时把登录弹窗压在空白进度页上
+            StartLaunchSession();
+
             // 正版账号：令牌临近过期先静默续期（refresh_token），失败则中止本次启动
             if (account.Type == "msa" && account.IsTokenNearExpiry)
             {
@@ -600,6 +642,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                     _toast?.Invoke($"正版令牌刷新失败，请重新登录：{ex.Message}");
                     LaunchStageText = "启动已取消";
                     IsLaunching = false;
+                    AbortLaunchSession();
                     return;
                 }
             }
@@ -633,6 +676,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                     _toast?.Invoke($"皮肤站账号准备失败：{ex.Message}");
                     LaunchStageText = "启动已取消";
                     IsLaunching = false;
+                    AbortLaunchSession();
                     return;
                 }
             }
@@ -693,15 +737,23 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             var session = await _services.Launch
                 .LaunchAsync(
                     options,
-                    line => _services.Logger.Info(line),
-                    stage => _services.Dispatcher.Post(() =>
+                    line =>
                     {
-                        if (IsLaunching)
+                        AppendLaunchLog(line);
+                        _services.Logger.Info(line);
+                    },
+                    stage =>
+                    {
+                        AppendLaunchLog($"[阶段] {stage}");
+                        _services.Dispatcher.Post(() =>
                         {
-                            LaunchStageText = stage;
-                            SetLaunchProgress(ProgressForStage(stage));
-                        }
-                    }))
+                            if (IsLaunching)
+                            {
+                                LaunchStageText = stage;
+                                SetLaunchProgress(ProgressForStage(stage));
+                            }
+                        });
+                    })
                 .ConfigureAwait(true);
             _session = session;
 
@@ -713,14 +765,18 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
 
             var result = await LaunchService.WaitForGameWindowAsync(
                 session,
-                stage => _services.Dispatcher.Post(() =>
+                stage =>
                 {
-                    if (IsLaunching)
+                    AppendLaunchLog($"[阶段] {stage}");
+                    _services.Dispatcher.Post(() =>
                     {
-                        LaunchStageText = stage;
-                        SetLaunchProgress(ProgressForMonitorStage(stage));
-                    }
-                })).ConfigureAwait(true);
+                        if (IsLaunching)
+                        {
+                            LaunchStageText = stage;
+                            SetLaunchProgress(ProgressForMonitorStage(stage));
+                        }
+                    });
+                }).ConfigureAwait(true);
 
             if (!result.Success)
             {
@@ -735,7 +791,12 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                         _session = null;
                     }
 
-                    _toast?.Invoke(result.Message);
+                    // 进程在窗口出现前退出：按退出码 + 日志特征给出失败页，绝不显示空白页
+                    AppendLaunchLog($"[失败] {result.Message}");
+                    ShowLaunchFailure(LaunchFailureAnalyzer.Analyze(
+                        result.ExitCode,
+                        SnapshotLaunchLog(),
+                        result.Message));
                 }
                 else
                 {
@@ -743,6 +804,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                     // 退出看护此刻才启动（复位按钮状态），不再与窗口检测竞争
                     IsGameRunning = true;
                     LaunchStageText = "未检测到游戏窗口，游戏可能仍在加载";
+                    CompleteLaunchSession();
                     _ = WatchSessionAsync(session, config.EffectiveGameDirectory);
                     _toast?.Invoke($"{result.Message}；进程仍在运行，可点击「关闭游戏」");
                 }
@@ -757,6 +819,8 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             IsLaunching = false;
             LaunchStageText = "";
             IsGameRunning = true;
+            // 只有真正等到游戏窗口出现才离开启动页回到启动页（运行中状态由右下角停止按钮承载）
+            CompleteLaunchSession();
             // 窗口已确认出现后才启动退出看护
             _ = WatchSessionAsync(session, config.EffectiveGameDirectory);
             _services.Logger.Info($"启动完成：{result.Message}");
@@ -776,19 +840,175 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         {
             IsLaunching = false;
             IsGameRunning = false;
-            LaunchStageText = "";
             SetLaunchProgress(0d);
-            _toast?.Invoke(ex.Message);
             _services.Logger.Error("启动游戏失败", ex);
+            // 启动前就失败时进程没有输出，把异常原因写进日志，失败页不会只有空日志
+            AppendLaunchLog($"[失败] {ex.Message}");
+            ShowLaunchFailure(LaunchFailureAnalyzer.Analyze(null, SnapshotLaunchLog(), ex.Message));
         }
         catch (Exception ex)
         {
             IsLaunching = false;
             IsGameRunning = false;
-            LaunchStageText = "";
             SetLaunchProgress(0d);
-            _toast?.Invoke($"启动失败：{ex.Message}");
             _services.Logger.Error("启动游戏失败", ex);
+            AppendLaunchLog($"[失败] 启动失败：{ex.Message}");
+            ShowLaunchFailure(LaunchFailureAnalyzer.Analyze(
+                null,
+                SnapshotLaunchLog(),
+                $"启动失败：{ex.Message}"));
+        }
+    }
+
+    // ------------------------- 独立启动页：日志 / 计时 / 失败展示 -------------------------
+
+    /// <summary>进入一次新的启动会话：清空日志、重置失败状态并切到启动中页面。</summary>
+    private void StartLaunchSession()
+    {
+        lock (_launchLogGate)
+        {
+            _launchLog.Clear();
+        }
+
+        LaunchLogText = "";
+        LaunchFailure = null;
+        IsLaunchLogExpanded = false;
+        IsLaunchProgressVisible = true;
+        StopLaunchTicker();
+        _launchWatch = Stopwatch.StartNew();
+        LaunchElapsedText = "0.0 秒";
+        var cts = new CancellationTokenSource();
+        _launchTickerCts = cts;
+        _ = RunLaunchTickerAsync(cts.Token);
+    }
+
+    /// <summary>启动成功：停表并回到启动页（失败状态由 ShowLaunchFailure 单独保留）。</summary>
+    private void CompleteLaunchSession()
+    {
+        StopLaunchTicker();
+        IsLaunchProgressVisible = false;
+        IsLaunchLogExpanded = false;
+    }
+
+    /// <summary>启动被取消（令牌/账号准备失败）：停表并回到启动页，不生成失败页。</summary>
+    private void AbortLaunchSession()
+    {
+        StopLaunchTicker();
+        IsLaunchProgressVisible = false;
+        IsLaunchLogExpanded = false;
+    }
+
+    /// <summary>展示结构化的启动失败页，并把完整日志快照固定下来供复制。</summary>
+    private void ShowLaunchFailure(LaunchFailureInfo failure)
+    {
+        StopLaunchTicker();
+        LaunchFailure = failure;
+        LaunchLogText = string.Join(Environment.NewLine, SnapshotLaunchLog());
+        IsLaunchProgressVisible = true;
+    }
+
+    private void AppendLaunchLog(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            return;
+        }
+
+        lock (_launchLogGate)
+        {
+            _launchLog.Add(line);
+            if (_launchLog.Count > MaxLaunchLogLines)
+            {
+                _launchLog.RemoveRange(0, _launchLog.Count - MaxLaunchLogLines);
+            }
+        }
+    }
+
+    private string[] SnapshotLaunchLog()
+    {
+        lock (_launchLogGate)
+        {
+            return _launchLog.ToArray();
+        }
+    }
+
+    /// <summary>每 200ms 刷新计时；仅在日志展开或已失败时重建日志文本，避免无谓的界面重排。</summary>
+    private async Task RunLaunchTickerAsync(CancellationToken token)
+    {
+        try
+        {
+            while (!token.IsCancellationRequested)
+            {
+                await Task.Delay(200, token).ConfigureAwait(true);
+                if (_launchWatch is { } watch)
+                {
+                    LaunchElapsedText = $"{watch.Elapsed.TotalSeconds:0.0} 秒";
+                }
+
+                if (IsLaunchLogExpanded || IsLaunchFailed)
+                {
+                    LaunchLogText = string.Join(Environment.NewLine, SnapshotLaunchLog());
+                }
+            }
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
+        {
+            // 会话结束或被新的启动会话接管
+        }
+    }
+
+    private void StopLaunchTicker()
+    {
+        try
+        {
+            _launchTickerCts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // 已释放
+        }
+
+        _launchTickerCts?.Dispose();
+        _launchTickerCts = null;
+        if (_launchWatch is { } watch)
+        {
+            watch.Stop();
+            LaunchElapsedText = $"{watch.Elapsed.TotalSeconds:0.0} 秒";
+            _launchWatch = null;
+        }
+    }
+
+    [RelayCommand]
+    private void ToggleLaunchLog() => IsLaunchLogExpanded = !IsLaunchLogExpanded;
+
+    /// <summary>失败页 / 启动页的「返回启动页」：保留日志，只切回启动页。</summary>
+    [RelayCommand]
+    private void ReturnToLaunchPage()
+    {
+        IsLaunchProgressVisible = false;
+        IsLaunchLogExpanded = false;
+    }
+
+    /// <summary>失败页的「重新启动」：清掉失败状态后重新走完整启动流程。</summary>
+    [RelayCommand]
+    private void RetryLaunch()
+    {
+        if (IsLaunching)
+        {
+            return;
+        }
+
+        LaunchFailure = null;
+        LaunchCommand.Execute(null);
+    }
+
+    /// <summary>右下角停止按钮：打开既有的关闭游戏二次确认（存档 / MOD 风险提示）。</summary>
+    [RelayCommand]
+    private void RequestCloseGame()
+    {
+        if (IsGameRunning)
+        {
+            IsCloseGameConfirmVisible = true;
         }
     }
 
