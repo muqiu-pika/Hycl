@@ -92,10 +92,10 @@
                         </StackPanel>
                         </StackPanel>
 
-                        <!-- 启动按钮固定在玩家栏底部（蓝色线条框 + 主题色图标/文字） -->
+                        <!-- 启动按钮固定在玩家栏底部（主操作：实心主色渐变，双层文字） -->
                         <Button Grid.Row="1"
                                 x:Name="LaunchButton"
-                                Classes="line-btn launch-btn"
+                                Classes="accent-btn"
                                 Classes.launching="{Binding IsLaunching}"
                                 Classes.running="{Binding IsGameRunning}"
                                 Classes.closing="{Binding IsClosing}"
@@ -110,8 +110,8 @@
                                                 Spacing="8"
                                                 HorizontalAlignment="Center">
                                         <c:HyclIcon Kind="{Binding LaunchIconKey}"
-                                                    Width="17"
-                                                    Height="17"
+                                                    Width="18"
+                                                    Height="18"
                                                     VerticalAlignment="Center" />
                                         <TextBlock Text="{Binding LaunchText}"
                                                    Classes="launch-title"
@@ -283,17 +283,15 @@
                                       SelectedItem="{Binding SelectedInstanceName, Mode=TwoWay}" />
                     </Grid>
 
-                    <!-- 管理实例：蓝色线条框 + 主题色图标/文字 -->
-                    <Button Classes="line-btn"
-                            Height="38"
+                    <!-- 管理实例：次级操作（浅底 + 主色描边，规格与设置页按钮一致） -->
+                    <Button Classes="action-btn"
                             HorizontalAlignment="Stretch"
                             Margin="0,10,0,0"
                             Command="{Binding ManageInstanceCommand}">
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <c:HyclIcon Kind="settings"
-                                        Width="15"
-                                        Height="15"
-                                        Foreground="{DynamicResource BlockButtonTextBrush}"
+                                        Width="16"
+                                        Height="16"
                                         VerticalAlignment="Center" />
                             <TextBlock Text="管理实例" VerticalAlignment="Center" />
                         </StackPanel>

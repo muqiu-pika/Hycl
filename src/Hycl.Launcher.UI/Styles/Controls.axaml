@@ -89,7 +89,58 @@
         <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
 
-    <!-- 蓝色线条按钮：主题色细描边 + 主题色文字/图标（启动游戏、管理实例） -->
+    <!-- ============================================================
+         次级操作按钮（设置页 / 启动页的「管理实例」等统一规格）：
+         浅底 + 主色描边 + 主色文字；hover 只变底色，文字与图标不变色
+         规格：高 32 / 内边距 14,0 / 圆角 6 / 图标 16 / 图标与文字间距 6
+         ============================================================ -->
+    <Style Selector="Button.action-btn">
+        <Setter Property="Height" Value="32" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Padding" Value="14,0" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Background" Value="{DynamicResource GlassSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Primary5Brush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.action-btn /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Transitions">
+            <Transitions>
+                <BrushTransition Property="Background" Duration="0:0:0.12" />
+            </Transitions>
+        </Setter>
+    </Style>
+    <Style Selector="Button.action-btn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
+    </Style>
+    <Style Selector="Button.action-btn:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Primary7Brush}" />
+        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
+    </Style>
+    <!-- hover / pressed 只改底色：显式锁回文字色，避免被主题的按钮态覆盖 -->
+    <Style Selector="Button.action-btn:pointerover">
+        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
+    </Style>
+    <Style Selector="Button.action-btn:pressed">
+        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
+    </Style>
+    <Style Selector="Button.action-btn:disabled">
+        <Setter Property="Opacity" Value="0.45" />
+        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
+    </Style>
+
+    <Style Selector="Button.action-btn:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
+    </Style>
+
+    <!-- 蓝色线条按钮：主题色细描边 + 主题色文字/图标 -->
     <Style Selector="Button.line-btn">
         <Setter Property="MinHeight" Value="36" />
         <Setter Property="Padding" Value="14,6" />
@@ -114,64 +165,88 @@
         <Setter Property="Opacity" Value="0.5" />
     </Style>
 
-    <!-- 启动游戏按钮：沿用 PCL-CE 的 54 高、双层文字（标题 + 版本） -->
-    <Style Selector="Button.launch-btn">
+    <!-- ============================================================
+         主操作按钮：实心主色渐变 + 圆角 + 阴影，四态齐全
+         规格：高 54 / 内边距 20,0 / 圆角 8 / 图标 18
+         ============================================================ -->
+    <Style Selector="Button.accent-btn">
         <Setter Property="Height" Value="54" />
+        <Setter Property="MinHeight" Value="0" />
         <!-- 上下内边距保持对称，让标题 + 版本副标题整体垂直居中 -->
         <Setter Property="Padding" Value="20,0" />
-        <Setter Property="CornerRadius" Value="5" />
+        <Setter Property="CornerRadius" Value="8" />
         <Setter Property="FontSize" Value="17" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="Background" Value="{DynamicResource PrimaryGradientBrush}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Foreground" Value="#FFFFFFFF" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Cursor" Value="Hand" />
     </Style>
-    <!-- 启动中：底色与边框在 550ms 内平滑过渡到浅蓝强调色，阶段推进不跳变 -->
-    <Style Selector="Button.launch-btn /template/ ContentPresenter#PART_ContentPresenter">
+    <Style Selector="Button.accent-btn /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="BoxShadow" Value="0 8 20 0 #331370F3" />
         <Setter Property="Transitions">
             <Transitions>
                 <BrushTransition Property="Background" Duration="0:0:0.55" />
-                <BrushTransition Property="BorderBrush" Duration="0:0:0.55" />
             </Transitions>
         </Setter>
     </Style>
-    <Style Selector="Button.launch-btn.launching /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
+    <Style Selector="Button.accent-btn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource PrimaryLightBrush}" />
+        <Setter Property="Foreground" Value="#FFFFFFFF" />
     </Style>
-    <!-- 运行中：中性/警示浅红底，与启动态的蓝色区分 -->
-    <Style Selector="Button.launch-btn.running /template/ ContentPresenter#PART_ContentPresenter">
+    <Style Selector="Button.accent-btn:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="Foreground" Value="#FFFFFFFF" />
+    </Style>
+    <Style Selector="Button.accent-btn:pointerover">
+        <Setter Property="Foreground" Value="#FFFFFFFF" />
+    </Style>
+    <Style Selector="Button.accent-btn:pressed">
+        <Setter Property="Foreground" Value="#FFFFFFFF" />
+    </Style>
+    <Style Selector="Button.accent-btn:disabled">
+        <Setter Property="Opacity" Value="0.45" />
+        <Setter Property="Foreground" Value="#FFFFFFFF" />
+    </Style>
+    <!-- 启动中：保持不透明，转为更深的实心蓝，明确“正在进行”而不是失效 -->
+    <Style Selector="Button.accent-btn.launching /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource PrimaryDeepBrush}" />
+    </Style>
+    <Style Selector="Button.accent-btn.launching:disabled">
+        <Setter Property="Opacity" Value="1" />
+    </Style>
+    <!-- 运行中：浅红底 + 深红文字，与启动态的蓝色区分 -->
+    <Style Selector="Button.accent-btn.running /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource ErrorSoftBrush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource ErrorBrush}" />
     </Style>
-    <Style Selector="Button.launch-btn.running:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Style Selector="Button.accent-btn.running:pointerover /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource ErrorSoftBrush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource ErrorDarkBrush}" />
     </Style>
-    <Style Selector="Button.launch-btn.running:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Style Selector="Button.accent-btn.running:pressed /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource ErrorSoftBrush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource ErrorDarkBrush}" />
     </Style>
-    <Style Selector="Button.launch-btn.running TextBlock.launch-title">
+    <Style Selector="Button.accent-btn.running TextBlock.launch-title">
         <Setter Property="Foreground" Value="{DynamicResource ErrorDarkBrush}" />
     </Style>
-    <Style Selector="Button.launch-btn.running TextBlock.launch-sub">
+    <Style Selector="Button.accent-btn.running TextBlock.launch-sub">
         <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
         <Setter Property="Opacity" Value="1" />
     </Style>
-    <Style Selector="Button.launch-btn.running c|HyclIcon">
+    <Style Selector="Button.accent-btn.running c|HyclIcon">
         <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
     </Style>
 
-    <Style Selector="Button.launch-btn TextBlock.launch-title">
-        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
+    <Style Selector="Button.accent-btn TextBlock.launch-title">
+        <Setter Property="Foreground" Value="#FFFFFFFF" />
     </Style>
-    <Style Selector="Button.launch-btn TextBlock.launch-sub">
-        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
-        <Setter Property="Opacity" Value="1" />
+    <Style Selector="Button.accent-btn TextBlock.launch-sub">
+        <Setter Property="Foreground" Value="#FFFFFFFF" />
+        <Setter Property="Opacity" Value="0.82" />
     </Style>
-    <Style Selector="Button.launch-btn c|HyclIcon">
-        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
-    </Style>
-    <!-- 启动中/游戏运行中虽被禁用，但保持完整不透明度，避免看起来“变灰失效” -->
-    <Style Selector="Button.launch-btn:disabled">
-        <Setter Property="Opacity" Value="1" />
+    <Style Selector="Button.accent-btn c|HyclIcon">
+        <Setter Property="Foreground" Value="#FFFFFFFF" />
     </Style>
 
     <!-- 游戏运行中：右下角固定悬浮的胶囊停止按钮（警示色，仅悬停变底色） -->
