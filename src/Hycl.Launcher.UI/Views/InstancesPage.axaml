@@ -494,6 +494,15 @@
                                     </WrapPanel>
                                 </Grid>
                                 <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="游戏内设置" />
+                                    <c:McComboBox Grid.Column="1"
+                                                  Width="210"
+                                                  HorizontalAlignment="Left"
+                                                  VerticalAlignment="Center"
+                                                  Items="{Binding GameSettingsModeOptions}"
+                                                  SelectedItem="{Binding EditorGameSettingsMode, Mode=TwoWay}" />
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
                                     <TextBlock Classes="srow-label" Text="保存" />
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                         <Button Classes="mc-btn" Content="恢复全局设置" Command="{Binding ResetSettingsCommand}" />

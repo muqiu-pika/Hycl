@@ -3,9 +3,11 @@ using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Animation;
 using Avalonia.Controls;
+using Avalonia.Controls.Shapes;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Media.Transformation;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Hycl.Launcher.Core.ViewModels;
@@ -29,6 +31,35 @@ public partial class MainWindow : Window
 
     private int _pageSwitchGeneration;
 
+    /// <summary>启动动画逐帧计时器（主窗口内铺满播放）。</summary>
+    private DispatcherTimer? _startupTimer;
+
+    private Stopwatch? _startupClock;
+
+    private readonly RotateTransform _startupRingRotation = new();
+
+    private bool _startupDismissing;
+
+    private bool _startupFinished;
+
+    /// <summary>是否播放启动动画（设置-个性化「启动动画」，启动时读取一次）。</summary>
+    private readonly bool _startupAnimationEnabled;
+
+    private double _startupDismissAt;
+
+    /// <summary>启动层最短展示时长（秒），避免窗口构造太快时动画一闪而过。</summary>
+    private const double StartupMinShowSeconds = 1.6;
+
+    /// <summary>退场第一段：启动层自身图标与文字淡出时长。</summary>
+    private const double StartupContentFadeSeconds = 0.26;
+
+    /// <summary>退场第二段：启动层背景淡出、界面内容浮现时长。</summary>
+    private const double StartupBackdropFadeSeconds = 0.42;
+
+    private bool _startupBackdropFading;
+
+    private double _startupBackdropAt;
+
     // 与 PCL-CE 页面切换一致的节奏：内容进入 100~350ms 缓出，旧页退场 120ms 缓入
     private static readonly KeySpline EnterEaseOut = new(0.16, 1, 0.3, 1);
 
@@ -42,6 +73,17 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        // 启动层需要铺满整窗（含标题栏），而标题栏与内容分属 Grid 的不同行；
+        // 挂到最外层 RootFrame 才能覆盖全部，圆角仍由 Win32 窗口区域裁切。
+        var rootFrame = this.FindControl<Grid>("RootFrame");
+        var startupOverlay = this.FindControl<Panel>("StartupOverlay");
+        if (rootFrame is not null && startupOverlay?.Parent is Panel host)
+        {
+            host.Children.Remove(startupOverlay);
+            rootFrame.Children.Add(startupOverlay);
+        }
+
         // UI 层只负责把视图绑定到 Core 层的 ViewModel，不写业务逻辑
         var services = Core.LauncherServices
             .CreateAsync(new AvaloniaDispatcher())
@@ -49,6 +91,7 @@ public partial class MainWindow : Window
             .GetResult();
         _viewModel = new MainViewModel(services);
         DataContext = _viewModel;
+        _startupAnimationEnabled = services.Config.EnableAnimations;
         _pageHost = this.FindControl<Panel>("PageHost")
             ?? throw new InvalidOperationException("缺少 PageHost 容器");
 
@@ -69,12 +112,16 @@ public partial class MainWindow : Window
             _pageSwitchCts?.Cancel();
             _pageSwitchCts?.Dispose();
             _pageSwitchCts = null;
+            _startupTimer?.Stop();
+            _startupTimer = null;
             _viewModel.Shutdown();
         };
 
         // 窗口显示后在后台预热其余页面，避免首次切换标签页时再实例化大页面造成卡顿。
         Opened += (_, _) => Dispatcher.UIThread.Post(PrewarmPages, DispatcherPriority.Background);
         Opened += (_, _) => ScheduleWindowRegionUpdate();
+        // 启动动画在主窗口内铺满播放，结束后柔和淡出露出界面
+        Opened += (_, _) => StartStartupAnimation();
         SizeChanged += (_, _) => ScheduleWindowRegionUpdate();
 
         SetupResizeHandles();
@@ -657,4 +704,173 @@ public partial class MainWindow : Window
 
     [DllImport("gdi32.dll")]
     private static extern bool DeleteObject(IntPtr hObject);
+
+    /// <summary>
+    /// 启动动画：主窗口首帧即在窗口内铺满播放，至少展示 1.6 秒后分两段退场——
+    /// 先淡出启动层自身的图标与文字，再淡出背景并让标题栏与页面内容浮现，
+    /// 避免两套文字在淡出过程中叠在一起。动画由 UI 线程逐帧驱动。
+    /// </summary>
+    private void StartStartupAnimation()
+    {
+        var overlay = this.FindControl<Panel>("StartupOverlay");
+        if (!_startupAnimationEnabled)
+        {
+            // 设置-个性化关闭「启动动画」：直接收起启动层，界面立即完整显示
+            if (overlay is not null)
+            {
+                overlay.IsVisible = false;
+            }
+
+            return;
+        }
+
+        var content = this.FindControl<Panel>("StartupOverlayContent");
+        var logo = this.FindControl<Panel>("StartupLogo");
+        var glow = this.FindControl<Ellipse>("StartupGlow");
+        var ring = this.FindControl<Ellipse>("StartupRing");
+        var ambient = this.FindControl<Ellipse>("StartupAmbient");
+        var progress = this.FindControl<Border>("StartupProgress");
+        var titleBar = this.FindControl<Border>("TitleBar");
+        var contentArea = this.FindControl<Grid>("ContentArea");
+        if (overlay is null || content is null || logo is null || glow is null
+            || ring is null || ambient is null || progress is null)
+        {
+            return;
+        }
+
+        // 启动层完全遮住界面期间先隐藏下层文字，退场时再单独淡入
+        if (titleBar is not null)
+        {
+            titleBar.Opacity = 0;
+        }
+
+        if (contentArea is not null)
+        {
+            contentArea.Opacity = 0;
+        }
+
+        ring.RenderTransform = _startupRingRotation;
+        _startupClock = Stopwatch.StartNew();
+        _startupTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+        _startupTimer.Tick += (_, _) => UpdateStartupAnimation(
+            overlay, content, logo, glow, ring, ambient, progress, titleBar, contentArea);
+        _startupTimer.Start();
+    }
+
+    private void UpdateStartupAnimation(
+        Panel overlay,
+        Panel content,
+        Panel logo,
+        Ellipse glow,
+        Ellipse ring,
+        Ellipse ambient,
+        Border progress,
+        Border? titleBar,
+        Grid? contentArea)
+    {
+        if (_startupFinished || _startupClock is null)
+        {
+            return;
+        }
+
+        var t = _startupClock.Elapsed.TotalSeconds;
+
+        if (!_startupDismissing)
+        {
+            // 入场：10px 上浮 + 轻微提亮，500ms 缓出
+            var intro = EaseOutCubic(Math.Min(1, t / 0.5));
+            content.Opacity = 0.9 + intro * 0.1;
+            content.RenderTransform = TransformOperations.Parse(
+                $"translateY({(1 - intro) * 10:0.##}px)");
+
+            // 图标悬浮、双层辉光呼吸、光环匀速旋转（约 10.6 秒一圈）
+            logo.RenderTransform = TransformOperations.Parse(
+                $"translateY({Math.Sin(t * 2 * Math.PI / 3.6) * 4:0.##}px)");
+            glow.Opacity = 0.3 + 0.16 * (0.5 + 0.5 * Math.Sin(t * 2 * Math.PI / 2.8));
+            ambient.Opacity = 0.42 + 0.1 * (0.5 + 0.5 * Math.Sin(t * 2 * Math.PI / 6.5));
+            _startupRingRotation.Angle = t * 34;
+
+            // 进度光带正弦往复，1.9 秒一轮，两端自然减速
+            var phase = t % 1.9 / 1.9;
+            var travel = 0.5 - 0.5 * Math.Cos(phase * 2 * Math.PI);
+            progress.RenderTransform = TransformOperations.Parse(
+                $"translateX({travel * 184:0.##}px)");
+            progress.Opacity = 0.6 + 0.4 * (0.5 + 0.5 * Math.Sin(phase * 2 * Math.PI));
+
+            if (t >= StartupMinShowSeconds)
+            {
+                _startupDismissing = true;
+                _startupDismissAt = t;
+                // 退场期间不再拦截鼠标
+                overlay.IsHitTestVisible = false;
+            }
+
+            return;
+        }
+
+        // 第一段：启动层自己的图标与文字先淡出，避免与下方界面文字叠在一起
+        var contentFade = EaseInOutCubic(Math.Min(1,
+            (t - _startupDismissAt) / StartupContentFadeSeconds));
+        content.Opacity = 1 - contentFade;
+        if (contentFade < 1)
+        {
+            return;
+        }
+
+        if (!_startupBackdropFading)
+        {
+            _startupBackdropFading = true;
+            _startupBackdropAt = t;
+        }
+
+        // 第二段：背景淡出，同时标题栏与页面内容柔和浮现（全程只有一套文字可见）
+        var backdropFade = EaseInOutCubic(Math.Min(1,
+            (t - _startupBackdropAt) / StartupBackdropFadeSeconds));
+        overlay.Opacity = 1 - backdropFade;
+        overlay.RenderTransform = TransformOperations.Parse(
+            $"scale({1 + backdropFade * 0.012:0.####})");
+
+        var reveal = EaseOutCubic(backdropFade);
+        if (titleBar is not null)
+        {
+            titleBar.Opacity = reveal;
+        }
+
+        if (contentArea is not null)
+        {
+            contentArea.Opacity = reveal;
+        }
+
+        if (backdropFade >= 1)
+        {
+            _startupFinished = true;
+            overlay.IsVisible = false;
+            if (titleBar is not null)
+            {
+                titleBar.Opacity = 1;
+            }
+
+            if (contentArea is not null)
+            {
+                contentArea.Opacity = 1;
+            }
+
+            _startupTimer?.Stop();
+            _startupTimer = null;
+            _startupClock = null;
+        }
+    }
+
+    private static double EaseOutCubic(double value)
+    {
+        var inverse = 1 - value;
+        return 1 - inverse * inverse * inverse;
+    }
+
+    private static double EaseInOutCubic(double value)
+    {
+        return value < 0.5
+            ? 4 * value * value * value
+            : 1 - Math.Pow(-2 * value + 2, 3) / 2;
+    }
 }

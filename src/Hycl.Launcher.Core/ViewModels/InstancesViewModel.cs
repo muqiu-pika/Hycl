@@ -162,6 +162,12 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
     [ObservableProperty]
     private string _editorWindowTypeOption = "跟随全局";
 
+    /// <summary>游戏内设置来源：跟随全局（首次启动写入）/ 跟随实例（不修改游戏内设置）。</summary>
+    [ObservableProperty]
+    private string _editorGameSettingsMode = "跟随全局";
+
+    public IReadOnlyList<string> GameSettingsModeOptions { get; } = ["跟随全局", "跟随实例"];
+
     [ObservableProperty]
     private string _editorWindowWidthText = "";
 
@@ -434,6 +440,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         settings.WindowType = windowTypeIndex == 0 ? -1 : windowTypeIndex - 1;
         settings.WindowWidth = width;
         settings.WindowHeight = height;
+        settings.GameSettingsMode = EditorGameSettingsMode == "跟随实例" ? "instance" : "global";
 
         await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
         StatusMessage = $"已保存 {SelectedInstance.Name} 的实例设置";
@@ -806,6 +813,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
             : WindowTypeOptions[Math.Min(settings.WindowType + 1, WindowTypeOptions.Count - 1)];
         EditorWindowWidthText = settings is null || settings.WindowWidth == 0 ? "" : settings.WindowWidth.ToString();
         EditorWindowHeightText = settings is null || settings.WindowHeight == 0 ? "" : settings.WindowHeight.ToString();
+        EditorGameSettingsMode = settings?.GameSettingsMode == "instance" ? "跟随实例" : "跟随全局";
         _suppressEditorReload = false;
         NotifyDirectories();
     }
@@ -826,6 +834,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         EditorWindowTypeOption = "跟随全局";
         EditorWindowWidthText = "";
         EditorWindowHeightText = "";
+        EditorGameSettingsMode = "跟随全局";
         NotifyDirectories();
     }
 

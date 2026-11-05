@@ -35,6 +35,78 @@ public partial class SettingsPageViewModel : ObservableObject
 
     private static readonly string[] RetryOptions = ["0", "1", "2", "3", "5"];
 
+    /// <summary>游戏内设置（options.txt）的取值档位。</summary>
+    private static readonly string[] GuiScaleOptions = ["自动", "1 小", "2 标准", "3 大", "4 最大"];
+
+    private static readonly string[] MaxFpsOptions = ["60", "90", "120", "144", "165", "240", "不限"];
+
+    private static readonly string[] GraphicsOptions = ["流畅", "精致", "绚丽"];
+
+    private static readonly string[] ParticleOptions = ["全部", "减少", "最少"];
+
+    private static readonly string[] MainHandOptions = ["右手", "左手"];
+
+    private static readonly string[] NarratorOptions = ["关闭", "全部", "仅聊天", "仅系统"];
+
+    private static readonly string[] ChatVisibilityOptions = ["完整显示", "仅命令", "隐藏"];
+
+    /// <summary>游戏语言：显示名与 options.txt 中的语言代码。</summary>
+    private static readonly (string Label, string Code)[] GameLanguageOptions =
+    [
+        ("简体中文", "zh_cn"),
+        ("繁體中文", "zh_tw"),
+        ("English (US)", "en_us"),
+        ("日本語", "ja_jp"),
+        ("한국어", "ko_kr"),
+        ("Русский", "ru_ru"),
+        ("Deutsch", "de_de"),
+        ("Français", "fr_fr"),
+        ("Español", "es_es"),
+    ];
+
+    private static readonly string[] GameLanguageLabels =
+        GameLanguageOptions.Select(pair => pair.Label).ToArray();
+
+    private static string ParticleLabel(string value) => value switch
+    {
+        "decreased" => "减少",
+        "minimal" => "最少",
+        _ => "全部"
+    };
+
+    private static string GraphicsLabel(string value) => value switch
+    {
+        "fast" => "流畅",
+        "fabulous" => "绚丽",
+        _ => "精致"
+    };
+
+    private static string LanguageLabel(string code)
+    {
+        foreach (var pair in GameLanguageOptions)
+        {
+            if (pair.Code.Equals(code, StringComparison.OrdinalIgnoreCase))
+            {
+                return pair.Label;
+            }
+        }
+
+        return "简体中文";
+    }
+
+    private static string LanguageCode(string label)
+    {
+        foreach (var pair in GameLanguageOptions)
+        {
+            if (pair.Label == label)
+            {
+                return pair.Code;
+            }
+        }
+
+        return "zh_cn";
+    }
+
     /// <summary>下载源三档（对应 PCL-CE 的下载源设置文案）。</summary>
     public static readonly string[] DownloadSourceOptions =
     [
@@ -115,6 +187,49 @@ public partial class SettingsPageViewModel : ObservableObject
     private ComboRowViewModel? _threadsRow;
     private ComboRowViewModel? _retryRow;
     private ComboRowViewModel? _themeRow;
+
+    private ToggleRowViewModel? _gameSettingsEnabledRow;
+    private SliderRowViewModel? _renderDistanceRow;
+    private SliderRowViewModel? _simulationDistanceRow;
+    private SliderRowViewModel? _fovRow;
+    private ComboRowViewModel? _guiScaleRow;
+    private ComboRowViewModel? _maxFpsRow;
+    private ToggleRowViewModel? _vsyncRow;
+    private ComboRowViewModel? _graphicsRow;
+    private ComboRowViewModel? _particlesRow;
+    private ToggleRowViewModel? _cloudsRow;
+    private ToggleRowViewModel? _smoothLightingRow;
+    private ToggleRowViewModel? _entityShadowsRow;
+    private SliderRowViewModel? _gammaRow;
+    private SliderRowViewModel? _fovEffectRow;
+    private SliderRowViewModel? _screenEffectRow;
+    private SliderRowViewModel? _mouseSensitivityRow;
+    private ToggleRowViewModel? _invertMouseRow;
+    private ToggleRowViewModel? _autoJumpRow;
+    private ComboRowViewModel? _mainHandRow;
+    private SliderRowViewModel? _masterVolumeRow;
+    private SliderRowViewModel? _musicVolumeRow;
+    private SliderRowViewModel? _recordVolumeRow;
+    private SliderRowViewModel? _weatherVolumeRow;
+    private SliderRowViewModel? _blockVolumeRow;
+    private SliderRowViewModel? _hostileVolumeRow;
+    private SliderRowViewModel? _neutralVolumeRow;
+    private SliderRowViewModel? _playerVolumeRow;
+    private SliderRowViewModel? _ambientVolumeRow;
+    private SliderRowViewModel? _voiceVolumeRow;
+    private SliderRowViewModel? _chatOpacityRow;
+    private SliderRowViewModel? _chatScaleRow;
+    private SliderRowViewModel? _chatWidthRow;
+    private SliderRowViewModel? _chatHeightFocusedRow;
+    private SliderRowViewModel? _chatHeightUnfocusedRow;
+    private ComboRowViewModel? _chatVisibilityRow;
+    private ToggleRowViewModel? _chatColorsRow;
+    private ToggleRowViewModel? _chatLinksRow;
+    private ComboRowViewModel? _narratorRow;
+    private ToggleRowViewModel? _reducedMotionRow;
+    private ToggleRowViewModel? _forceUnicodeFontRow;
+    private ToggleRowViewModel? _hideSplashTextsRow;
+    private ComboRowViewModel? _languageRow;
     private ToggleRowViewModel? _closeAfterLaunchRow;
     private ToggleRowViewModel? _showOutputRow;
     private ToggleRowViewModel? _animationsRow;
@@ -130,6 +245,7 @@ public partial class SettingsPageViewModel : ObservableObject
                 new NavItemViewModel("启动设置", "rocket"),
                 new NavItemViewModel("Java 设置", "coffee"),
                 new NavItemViewModel("游戏管理", "bookmark"),
+                new NavItemViewModel("游戏内设置", "gamepad"),
             ]),
             new("工具",
             [
@@ -361,6 +477,95 @@ public partial class SettingsPageViewModel : ObservableObject
                     config.AutoSelectInstance),
                 new TextLineRowViewModel("镜像源（BMCLAPI / mcimirror）适合国内网络；社区资源在 CurseForge API Key 未配置时依赖镜像源兜底。")
             ]),
+        ]);
+
+        var game = config.GameSettings;
+        _sections["游戏内设置"] = new SettingsSectionViewModel("游戏内设置",
+        [
+            new SettingCardViewModel("总开关",
+            [
+                _gameSettingsEnabledRow = new ToggleRowViewModel("启用游戏内设置", game.Enabled),
+                new TextLineRowViewModel("启用后只在实例首次启动且选择「跟随全局」时写入一次 options.txt；禁用则完全使用游戏默认设置。")
+            ]),
+            new SettingCardViewModel("视频设置",
+            [
+                _renderDistanceRow = new SliderRowViewModel("视距", 2, 32, 1, game.RenderDistance, " 区块"),
+                _simulationDistanceRow = new SliderRowViewModel("模拟距离", 5, 32, 1, game.SimulationDistance, " 区块"),
+                _fovRow = new SliderRowViewModel("视角（FOV）", 30, 110, 1, game.Fov, "°"),
+                _maxFpsRow = new ComboRowViewModel(
+                    "最大帧率", MaxFpsOptions,
+                    game.MaxFps >= 260 ? "不限" : Math.Clamp(game.MaxFps, 30, 260).ToString()),
+                _vsyncRow = new ToggleRowViewModel("垂直同步", game.VSync),
+                _graphicsRow = new ComboRowViewModel("图形质量", GraphicsOptions, GraphicsLabel(game.Graphics)),
+                _particlesRow = new ComboRowViewModel("粒子效果", ParticleOptions, ParticleLabel(game.Particles)),
+                _cloudsRow = new ToggleRowViewModel("云", game.Clouds),
+                _smoothLightingRow = new ToggleRowViewModel("平滑光照", game.SmoothLighting),
+                _entityShadowsRow = new ToggleRowViewModel("实体阴影", game.EntityShadows),
+                _guiScaleRow = new ComboRowViewModel(
+                    "界面尺寸", GuiScaleOptions, GuiScaleOptions[Math.Clamp(game.GuiScale, 0, 4)]),
+                _gammaRow = new SliderRowViewModel("亮度", 0, 1, 0.01, game.Gamma, asPercent: true),
+                _fovEffectRow = new SliderRowViewModel("视角摇晃", 0, 1, 0.01, game.FovEffectScale, asPercent: true),
+                _screenEffectRow = new SliderRowViewModel("屏幕扭曲", 0, 1, 0.01, game.ScreenEffectScale, asPercent: true),
+                new TextLineRowViewModel("模拟距离需要 1.18 及以上版本；旧版本会自动忽略该项。")
+            ],
+            collapsible: true,
+            expanded: false),
+            new SettingCardViewModel("控制设置",
+            [
+                _mouseSensitivityRow = new SliderRowViewModel("鼠标灵敏度", 0, 1, 0.01, game.MouseSensitivity, asPercent: true),
+                _invertMouseRow = new ToggleRowViewModel("反转鼠标", game.InvertMouse),
+                _autoJumpRow = new ToggleRowViewModel("自动跳跃", game.AutoJump),
+                _mainHandRow = new ComboRowViewModel("主手", MainHandOptions, game.MainHand == "left" ? "左手" : "右手"),
+                new TextLineRowViewModel("这些值只在首次启动写入一次，之后以你在游戏内修改的设置为准。")
+            ],
+            collapsible: true,
+            expanded: false),
+            new SettingCardViewModel("音乐和声音",
+            [
+                _masterVolumeRow = new SliderRowViewModel("主音量", 0, 1, 0.01, game.MasterVolume, asPercent: true),
+                _musicVolumeRow = new SliderRowViewModel("音乐", 0, 1, 0.01, game.MusicVolume, asPercent: true),
+                _recordVolumeRow = new SliderRowViewModel("音符盒 / 唱片机", 0, 1, 0.01, game.RecordVolume, asPercent: true),
+                _weatherVolumeRow = new SliderRowViewModel("天气", 0, 1, 0.01, game.WeatherVolume, asPercent: true),
+                _blockVolumeRow = new SliderRowViewModel("方块", 0, 1, 0.01, game.BlockVolume, asPercent: true),
+                _hostileVolumeRow = new SliderRowViewModel("敌对生物", 0, 1, 0.01, game.HostileVolume, asPercent: true),
+                _neutralVolumeRow = new SliderRowViewModel("中立生物", 0, 1, 0.01, game.NeutralVolume, asPercent: true),
+                _playerVolumeRow = new SliderRowViewModel("玩家", 0, 1, 0.01, game.PlayerVolume, asPercent: true),
+                _ambientVolumeRow = new SliderRowViewModel("环境", 0, 1, 0.01, game.AmbientVolume, asPercent: true),
+                _voiceVolumeRow = new SliderRowViewModel("语音", 0, 1, 0.01, game.VoiceVolume, asPercent: true),
+            ],
+            collapsible: true,
+            expanded: false),
+            new SettingCardViewModel("聊天设置",
+            [
+                _chatOpacityRow = new SliderRowViewModel("聊天不透明度", 0, 1, 0.01, game.ChatOpacity, asPercent: true),
+                _chatScaleRow = new SliderRowViewModel("聊天缩放", 0.5, 1, 0.01, game.ChatScale, asPercent: true),
+                _chatWidthRow = new SliderRowViewModel("聊天宽度", 0.5, 1, 0.01, game.ChatWidth, asPercent: true),
+                _chatHeightFocusedRow = new SliderRowViewModel("聊天高度（展开）", 0, 1, 0.01, game.ChatHeightFocused, asPercent: true),
+                _chatHeightUnfocusedRow = new SliderRowViewModel("聊天高度（收起）", 0, 1, 0.01, game.ChatHeightUnfocused, asPercent: true),
+                _chatVisibilityRow = new ComboRowViewModel(
+                    "聊天显示", ChatVisibilityOptions, ChatVisibilityOptions[Math.Clamp(game.ChatVisibility, 0, 2)]),
+                _chatColorsRow = new ToggleRowViewModel("聊天颜色", game.ChatColors),
+                _chatLinksRow = new ToggleRowViewModel("聊天链接", game.ChatLinks),
+            ],
+            collapsible: true,
+            expanded: false),
+            new SettingCardViewModel("辅助功能",
+            [
+                _narratorRow = new ComboRowViewModel(
+                    "字幕", NarratorOptions, NarratorOptions[Math.Clamp(game.Narrator, 0, 3)]),
+                _reducedMotionRow = new ToggleRowViewModel("减少动态效果", game.ReducedMotion),
+                _forceUnicodeFontRow = new ToggleRowViewModel("强制使用 Unicode 字体", game.ForceUnicodeFont),
+                _hideSplashTextsRow = new ToggleRowViewModel("隐藏闪烁标语", game.HideSplashTexts),
+            ],
+            collapsible: true,
+            expanded: false),
+            new SettingCardViewModel("语言",
+            [
+                _languageRow = new ComboRowViewModel("游戏语言", GameLanguageLabels, LanguageLabel(game.Language)),
+                new TextLineRowViewModel("世界难度、皮肤、资源包与按键绑定保存在世界或游戏内，不属于 options.txt，因此这里不提供修改。")
+            ],
+            collapsible: true,
+            expanded: false),
         ]);
 
         _sections["联机与局域网"] = new SettingsSectionViewModel("联机与局域网",
@@ -907,6 +1112,236 @@ public partial class SettingsPageViewModel : ObservableObject
         {
             config.EnableAnimations = _animationsRow.IsOn;
         }
+
+        // 游戏内设置：首启动写入 options.txt 的取值
+        var gameSettings = config.GameSettings;
+        if (_gameSettingsEnabledRow is not null)
+        {
+            gameSettings.Enabled = _gameSettingsEnabledRow.IsOn;
+        }
+
+        if (_renderDistanceRow is not null)
+        {
+            gameSettings.RenderDistance = (int)Math.Round(_renderDistanceRow.Value);
+        }
+
+        if (_simulationDistanceRow is not null)
+        {
+            gameSettings.SimulationDistance = (int)Math.Round(_simulationDistanceRow.Value);
+        }
+
+        if (_fovRow is not null)
+        {
+            gameSettings.Fov = (int)Math.Round(_fovRow.Value);
+        }
+
+        if (_guiScaleRow?.SelectedOption is { } guiScale)
+        {
+            gameSettings.GuiScale = ParseNumber(guiScale);
+        }
+
+        if (_maxFpsRow?.SelectedOption is { } maxFps)
+        {
+            gameSettings.MaxFps = maxFps == "不限" ? 260 : ParseNumber(maxFps);
+        }
+
+        if (_vsyncRow is not null)
+        {
+            gameSettings.VSync = _vsyncRow.IsOn;
+        }
+
+        if (_graphicsRow?.SelectedOption is { } graphics)
+        {
+            gameSettings.Graphics = graphics switch
+            {
+                "流畅" => "fast",
+                "绚丽" => "fabulous",
+                _ => "fancy"
+            };
+        }
+
+        if (_particlesRow?.SelectedOption is { } particles)
+        {
+            gameSettings.Particles = particles == "全部" ? "all" : particles == "减少" ? "decreased" : "minimal";
+        }
+
+        if (_cloudsRow is not null)
+        {
+            gameSettings.Clouds = _cloudsRow.IsOn;
+        }
+
+        if (_smoothLightingRow is not null)
+        {
+            gameSettings.SmoothLighting = _smoothLightingRow.IsOn;
+        }
+
+        if (_entityShadowsRow is not null)
+        {
+            gameSettings.EntityShadows = _entityShadowsRow.IsOn;
+        }
+
+        if (_gammaRow is not null)
+        {
+            gameSettings.Gamma = _gammaRow.Value;
+        }
+
+        if (_fovEffectRow is not null)
+        {
+            gameSettings.FovEffectScale = _fovEffectRow.Value;
+        }
+
+        if (_screenEffectRow is not null)
+        {
+            gameSettings.ScreenEffectScale = _screenEffectRow.Value;
+        }
+
+        if (_mouseSensitivityRow is not null)
+        {
+            gameSettings.MouseSensitivity = _mouseSensitivityRow.Value;
+        }
+
+        if (_invertMouseRow is not null)
+        {
+            gameSettings.InvertMouse = _invertMouseRow.IsOn;
+        }
+
+        if (_autoJumpRow is not null)
+        {
+            gameSettings.AutoJump = _autoJumpRow.IsOn;
+        }
+
+        if (_mainHandRow?.SelectedOption is { } mainHand)
+        {
+            gameSettings.MainHand = mainHand == "左手" ? "left" : "right";
+        }
+
+        if (_masterVolumeRow is not null)
+        {
+            gameSettings.MasterVolume = _masterVolumeRow.Value;
+        }
+
+        if (_musicVolumeRow is not null)
+        {
+            gameSettings.MusicVolume = _musicVolumeRow.Value;
+        }
+
+        if (_recordVolumeRow is not null)
+        {
+            gameSettings.RecordVolume = _recordVolumeRow.Value;
+        }
+
+        if (_weatherVolumeRow is not null)
+        {
+            gameSettings.WeatherVolume = _weatherVolumeRow.Value;
+        }
+
+        if (_blockVolumeRow is not null)
+        {
+            gameSettings.BlockVolume = _blockVolumeRow.Value;
+        }
+
+        if (_hostileVolumeRow is not null)
+        {
+            gameSettings.HostileVolume = _hostileVolumeRow.Value;
+        }
+
+        if (_neutralVolumeRow is not null)
+        {
+            gameSettings.NeutralVolume = _neutralVolumeRow.Value;
+        }
+
+        if (_playerVolumeRow is not null)
+        {
+            gameSettings.PlayerVolume = _playerVolumeRow.Value;
+        }
+
+        if (_ambientVolumeRow is not null)
+        {
+            gameSettings.AmbientVolume = _ambientVolumeRow.Value;
+        }
+
+        if (_voiceVolumeRow is not null)
+        {
+            gameSettings.VoiceVolume = _voiceVolumeRow.Value;
+        }
+
+        if (_chatOpacityRow is not null)
+        {
+            gameSettings.ChatOpacity = _chatOpacityRow.Value;
+        }
+
+        if (_chatScaleRow is not null)
+        {
+            gameSettings.ChatScale = _chatScaleRow.Value;
+        }
+
+        if (_chatWidthRow is not null)
+        {
+            gameSettings.ChatWidth = _chatWidthRow.Value;
+        }
+
+        if (_chatHeightFocusedRow is not null)
+        {
+            gameSettings.ChatHeightFocused = _chatHeightFocusedRow.Value;
+        }
+
+        if (_chatHeightUnfocusedRow is not null)
+        {
+            gameSettings.ChatHeightUnfocused = _chatHeightUnfocusedRow.Value;
+        }
+
+        if (_chatVisibilityRow?.SelectedOption is { } chatVisibility)
+        {
+            gameSettings.ChatVisibility = chatVisibility switch
+            {
+                "仅命令" => 1,
+                "隐藏" => 2,
+                _ => 0
+            };
+        }
+
+        if (_chatColorsRow is not null)
+        {
+            gameSettings.ChatColors = _chatColorsRow.IsOn;
+        }
+
+        if (_chatLinksRow is not null)
+        {
+            gameSettings.ChatLinks = _chatLinksRow.IsOn;
+        }
+
+        if (_narratorRow?.SelectedOption is { } narrator)
+        {
+            gameSettings.Narrator = narrator switch
+            {
+                "全部" => 1,
+                "仅聊天" => 2,
+                "仅系统" => 3,
+                _ => 0
+            };
+        }
+
+        if (_reducedMotionRow is not null)
+        {
+            gameSettings.ReducedMotion = _reducedMotionRow.IsOn;
+        }
+
+        if (_forceUnicodeFontRow is not null)
+        {
+            gameSettings.ForceUnicodeFont = _forceUnicodeFontRow.IsOn;
+        }
+
+        if (_hideSplashTextsRow is not null)
+        {
+            gameSettings.HideSplashTexts = _hideSplashTextsRow.IsOn;
+        }
+
+        if (_languageRow?.SelectedOption is { } language)
+        {
+            gameSettings.Language = LanguageCode(language);
+        }
+
+        gameSettings.Normalize();
 
         await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
     }
