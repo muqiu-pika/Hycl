@@ -61,4 +61,32 @@
         <GradientStop Color="#171E2A" Offset="0.38" />
         <GradientStop Color="#12161E" Offset="1" />
     </LinearGradientBrush>
+
+    <!-- ===== 启动动画层（铺满主窗口，加载完成后淡出） ===== -->
+    <LinearGradientBrush x:Key="SplashBackdropBrush" StartPoint="0%,0%" EndPoint="100%,100%">
+        <GradientStop Color="#FF161C27" Offset="0" />
+        <GradientStop Color="#FF1E2634" Offset="0.5" />
+        <GradientStop Color="#FF141922" Offset="1" />
+    </LinearGradientBrush>
+    <SolidColorBrush x:Key="SplashTitleBrush" Color="#E8EEFA" />
+    <SolidColorBrush x:Key="SplashSubtitleBrush" Color="#8B99AF" />
+    <SolidColorBrush x:Key="SplashTrackBrush" Color="#1AFFFFFF" />
+    <SolidColorBrush x:Key="SplashLogoShellBrush" Color="#FF1A2231" />
+    <SolidColorBrush x:Key="SplashLogoBorderBrush" Color="#33FFFFFF" />
+    <RadialGradientBrush x:Key="SplashGlowBrush">
+        <GradientStop Color="#665E9BF0" Offset="0" />
+        <GradientStop Color="#005E9BF0" Offset="1" />
+    </RadialGradientBrush>
+    <ConicGradientBrush x:Key="SplashRingBrush" Angle="0">
+        <GradientStop Color="#005E9BF0" Offset="0" />
+        <GradientStop Color="#FF5E9BF0" Offset="0.34" />
+        <GradientStop Color="#FFA8C8FF" Offset="0.5" />
+        <GradientStop Color="#005E9BF0" Offset="0.68" />
+        <GradientStop Color="#005E9BF0" Offset="1" />
+    </ConicGradientBrush>
+    <LinearGradientBrush x:Key="SplashProgressBrush" StartPoint="0%,0%" EndPoint="100%,0%">
+        <GradientStop Color="#003F87F5" Offset="0" />
+        <GradientStop Color="#FF8FB8FF" Offset="0.5" />
+        <GradientStop Color="#003F87F5" Offset="1" />
+    </LinearGradientBrush>
 </ResourceDictionary>

@@ -114,6 +114,9 @@ public sealed class LauncherConfig
 
     public bool EnableAnimations { get; set; } = true;
 
+    /// <summary>全局游戏内设置：实例首次启动且选择「跟随全局」时写入 options.txt。</summary>
+    public GameSettingsConfig GameSettings { get; set; } = new();
+
     /// <summary>light / dark。</summary>
     public string Theme { get; set; } = "light";
 
@@ -286,6 +289,187 @@ public sealed class LauncherConfig
 }
 
 /// <summary>
+/// 全局游戏内设置（对应 Minecraft「选项」里的视频 / 控制 / 音乐和声音 / 聊天 / 辅助功能 / 语言）。
+/// 仅在实例首次启动且为「跟随全局」时写入一次，之后不再覆盖游戏内修改。
+/// </summary>
+public sealed class GameSettingsConfig
+{
+    /// <summary>启用：首次启动写入 options.txt；禁用：完全使用游戏默认，不写任何值。</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>视距（2-32 区块）。</summary>
+    public int RenderDistance { get; set; } = 8;
+
+    /// <summary>模拟距离（5-32 区块；1.18 之前的版本会忽略该键）。</summary>
+    public int SimulationDistance { get; set; } = 12;
+
+    /// <summary>视野 FOV（30-110）。</summary>
+    public int Fov { get; set; } = 70;
+
+    /// <summary>界面尺寸（0 自动 / 1-4）。</summary>
+    public int GuiScale { get; set; }
+
+    /// <summary>最大帧率（30-260，260 表示不限）。</summary>
+    public int MaxFps { get; set; } = 120;
+
+    /// <summary>垂直同步。</summary>
+    public bool VSync { get; set; } = true;
+
+    /// <summary>亮度（0-1）。</summary>
+    public double Gamma { get; set; } = 0.5;
+
+    /// <summary>图形质量：fast / fancy / fabulous。</summary>
+    public string Graphics { get; set; } = "fancy";
+
+    /// <summary>粒子效果：all / decreased / minimal。</summary>
+    public string Particles { get; set; } = "all";
+
+    /// <summary>云。</summary>
+    public bool Clouds { get; set; } = true;
+
+    /// <summary>平滑光照。</summary>
+    public bool SmoothLighting { get; set; } = true;
+
+    /// <summary>实体阴影。</summary>
+    public bool EntityShadows { get; set; } = true;
+
+    /// <summary>视角摇晃幅度（0-1）。</summary>
+    public double FovEffectScale { get; set; } = 1.0;
+
+    /// <summary>屏幕扭曲幅度（0-1）。</summary>
+    public double ScreenEffectScale { get; set; } = 1.0;
+
+    // ------------------------- 控制设置 -------------------------
+
+    /// <summary>鼠标灵敏度（0-1）。</summary>
+    public double MouseSensitivity { get; set; } = 0.5;
+
+    /// <summary>反转鼠标。</summary>
+    public bool InvertMouse { get; set; }
+
+    /// <summary>自动跳跃。</summary>
+    public bool AutoJump { get; set; }
+
+    /// <summary>主手：right / left。</summary>
+    public string MainHand { get; set; } = "right";
+
+    // ------------------------- 音乐和声音 -------------------------
+
+    /// <summary>主音量（0-1）。</summary>
+    public double MasterVolume { get; set; } = 1.0;
+
+    /// <summary>音乐（0-1）。</summary>
+    public double MusicVolume { get; set; } = 1.0;
+
+    /// <summary>音符盒 / 唱片机（0-1）。</summary>
+    public double RecordVolume { get; set; } = 1.0;
+
+    /// <summary>天气（0-1）。</summary>
+    public double WeatherVolume { get; set; } = 1.0;
+
+    /// <summary>方块（0-1）。</summary>
+    public double BlockVolume { get; set; } = 1.0;
+
+    /// <summary>敌对生物（0-1）。</summary>
+    public double HostileVolume { get; set; } = 1.0;
+
+    /// <summary>中立生物（0-1）。</summary>
+    public double NeutralVolume { get; set; } = 1.0;
+
+    /// <summary>玩家（0-1）。</summary>
+    public double PlayerVolume { get; set; } = 1.0;
+
+    /// <summary>环境（0-1）。</summary>
+    public double AmbientVolume { get; set; } = 1.0;
+
+    /// <summary>语音（0-1）。</summary>
+    public double VoiceVolume { get; set; } = 1.0;
+
+    // ------------------------- 聊天设置 -------------------------
+
+    /// <summary>聊天不透明度（0-1）。</summary>
+    public double ChatOpacity { get; set; } = 1.0;
+
+    /// <summary>聊天缩放（0.5-1）。</summary>
+    public double ChatScale { get; set; } = 1.0;
+
+    /// <summary>聊天宽度（0.5-1）。</summary>
+    public double ChatWidth { get; set; } = 1.0;
+
+    /// <summary>聊天高度（展开时，0-1）。</summary>
+    public double ChatHeightFocused { get; set; } = 1.0;
+
+    /// <summary>聊天高度（收起时，0-1）。</summary>
+    public double ChatHeightUnfocused { get; set; } = 0.44366196;
+
+    /// <summary>聊天显示：0 完整 / 1 仅命令 / 2 隐藏。</summary>
+    public int ChatVisibility { get; set; }
+
+    /// <summary>聊天颜色。</summary>
+    public bool ChatColors { get; set; } = true;
+
+    /// <summary>聊天链接。</summary>
+    public bool ChatLinks { get; set; } = true;
+
+    // ------------------------- 辅助功能 -------------------------
+
+    /// <summary>字幕：0 关闭 / 1 全部 / 2 仅聊天 / 3 仅系统。</summary>
+    public int Narrator { get; set; }
+
+    /// <summary>减少动态效果。</summary>
+    public bool ReducedMotion { get; set; }
+
+    /// <summary>强制使用 Unicode 字体。</summary>
+    public bool ForceUnicodeFont { get; set; }
+
+    /// <summary>隐藏闪烁标语。</summary>
+    public bool HideSplashTexts { get; set; }
+
+    // ------------------------- 语言 -------------------------
+
+    /// <summary>游戏语言代码（如 zh_cn / en_us）。</summary>
+    public string Language { get; set; } = "zh_cn";
+
+    /// <summary>把配置值收敛到游戏可接受范围。</summary>
+    public void Normalize()
+    {
+        RenderDistance = Math.Clamp(RenderDistance, 2, 32);
+        SimulationDistance = Math.Clamp(SimulationDistance, 5, 32);
+        Fov = Math.Clamp(Fov, 30, 110);
+        GuiScale = Math.Clamp(GuiScale, 0, 4);
+        MaxFps = Math.Clamp(MaxFps, 30, 260);
+        Gamma = Math.Clamp(Gamma, 0, 1);
+        FovEffectScale = Math.Clamp(FovEffectScale, 0, 1);
+        ScreenEffectScale = Math.Clamp(ScreenEffectScale, 0, 1);
+        MouseSensitivity = Math.Clamp(MouseSensitivity, 0, 1);
+        MasterVolume = Math.Clamp(MasterVolume, 0, 1);
+        MusicVolume = Math.Clamp(MusicVolume, 0, 1);
+        RecordVolume = Math.Clamp(RecordVolume, 0, 1);
+        WeatherVolume = Math.Clamp(WeatherVolume, 0, 1);
+        BlockVolume = Math.Clamp(BlockVolume, 0, 1);
+        HostileVolume = Math.Clamp(HostileVolume, 0, 1);
+        NeutralVolume = Math.Clamp(NeutralVolume, 0, 1);
+        PlayerVolume = Math.Clamp(PlayerVolume, 0, 1);
+        AmbientVolume = Math.Clamp(AmbientVolume, 0, 1);
+        VoiceVolume = Math.Clamp(VoiceVolume, 0, 1);
+        ChatOpacity = Math.Clamp(ChatOpacity, 0, 1);
+        ChatScale = Math.Clamp(ChatScale, 0.5, 1);
+        ChatWidth = Math.Clamp(ChatWidth, 0.5, 1);
+        ChatHeightFocused = Math.Clamp(ChatHeightFocused, 0, 1);
+        ChatHeightUnfocused = Math.Clamp(ChatHeightUnfocused, 0, 1);
+        ChatVisibility = Math.Clamp(ChatVisibility, 0, 2);
+        Narrator = Math.Clamp(Narrator, 0, 3);
+        Graphics = Graphics is "fast" or "fancy" or "fabulous" ? Graphics : "fancy";
+        Particles = Particles is "all" or "decreased" or "minimal" ? Particles : "all";
+        MainHand = MainHand is "left" ? "left" : "right";
+        if (string.IsNullOrWhiteSpace(Language))
+        {
+            Language = "zh_cn";
+        }
+    }
+}
+
+/// <summary>
 /// 单个实例的覆盖设置。数值为哨兵值时回退到全局配置：
 /// 内存 0、初始内存 -1、窗口模式 -1、窗口宽高 0、JVM/Java/存档目录为空字符串。
 /// </summary>
@@ -296,6 +480,11 @@ public sealed class InstanceSettings
 
     /// <summary>版本隔离：开启时 saves/mods/resourcepacks/shaderpacks 位于实例目录下。</summary>
     public bool VersionIsolation { get; set; } = true;
+
+    /// <summary>
+    /// 游戏内设置来源：global 跟随全局（首次启动写入 options.txt）/ instance 不做任何修改。
+    /// </summary>
+    public string GameSettingsMode { get; set; } = "global";
 
     /// <summary>独立存档目录；空字符串表示使用版本隔离规则下的 saves。</summary>
     public string SavesDirectory { get; set; } = "";

@@ -59,10 +59,36 @@
                                 <DataTemplate x:DataType="m:SettingCardViewModel">
                                     <Border Classes="setting-card" Margin="0,0,0,14">
                                         <StackPanel>
-                                            <!-- 卡片标题层级（对应 PCL-CE MyCard 标题） -->
-                                            <TextBlock Classes="setting-card-title" Text="{Binding Title}" />
-                                            <Border Classes="setting-card-rule" />
-                                            <ItemsControl ItemsSource="{Binding Rows}">
+                                            <!-- 卡片标题层级（对应 PCL-CE MyCard 标题）；可折叠时点击标题展开/收起 -->
+                                            <Button IsVisible="{Binding IsCollapsible}"
+                                                    Command="{Binding ToggleExpandedCommand}"
+                                                    HorizontalAlignment="Stretch"
+                                                    HorizontalContentAlignment="Stretch"
+                                                    Background="Transparent"
+                                                    BorderThickness="0"
+                                                    Padding="0"
+                                                    Cursor="Hand">
+                                                <Grid ColumnDefinitions="*,Auto">
+                                                    <TextBlock Classes="setting-card-title" Text="{Binding Title}" />
+                                                    <c:HyclIcon Grid.Column="1"
+                                                                Kind="chevron-down"
+                                                                Width="14"
+                                                                Height="14"
+                                                                IsVisible="{Binding IsExpanded}"
+                                                                Foreground="{DynamicResource Gray2Brush}" />
+                                                    <c:HyclIcon Grid.Column="1"
+                                                                Kind="chevron-right"
+                                                                Width="14"
+                                                                Height="14"
+                                                                IsVisible="{Binding !IsExpanded}"
+                                                                Foreground="{DynamicResource Gray2Brush}" />
+                                                </Grid>
+                                            </Button>
+                                            <TextBlock Classes="setting-card-title"
+                                                       Text="{Binding Title}"
+                                                       IsVisible="{Binding !IsCollapsible}" />
+                                            <Border Classes="setting-card-rule" IsVisible="{Binding IsExpanded}" />
+                                            <ItemsControl ItemsSource="{Binding Rows}" IsVisible="{Binding IsExpanded}">
                                                 <ItemsControl.DataTemplates>
                                                     <DataTemplate x:DataType="m:ComboRowViewModel">
                                                         <Grid Classes="setting-row" ColumnDefinitions="170,*">
@@ -84,6 +110,24 @@
                                                                           OnContent=""
                                                                           OffContent=""
                                                                           IsChecked="{Binding IsOn, Mode=TwoWay}" />
+                                                        </Grid>
+                                                    </DataTemplate>
+                                                    <DataTemplate x:DataType="m:SliderRowViewModel">
+                                                        <Grid Classes="setting-row" ColumnDefinitions="170,*,70">
+                                                            <TextBlock Classes="srow-label" Text="{Binding Label}" />
+                                                            <Slider Grid.Column="1"
+                                                                    Margin="0,0,14,0"
+                                                                    VerticalAlignment="Center"
+                                                                    Minimum="{Binding Minimum}"
+                                                                    Maximum="{Binding Maximum}"
+                                                                    TickFrequency="{Binding Step}"
+                                                                    IsSnapToTickEnabled="True"
+                                                                    Value="{Binding Value, Mode=TwoWay}" />
+                                                            <TextBlock Grid.Column="2"
+                                                                       Classes="srow-value"
+                                                                       VerticalAlignment="Center"
+                                                                       HorizontalAlignment="Right"
+                                                                       Text="{Binding ValueText}" />
                                                         </Grid>
                                                     </DataTemplate>
                                                     <DataTemplate x:DataType="m:TextRowViewModel">

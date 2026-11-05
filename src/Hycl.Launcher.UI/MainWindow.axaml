@@ -29,7 +29,8 @@
                 Background="{DynamicResource AppBackdropBrush}">
             <Grid RowDefinitions="48,*">
                 <!-- ===== 标题栏：品牌 + 居中胶囊标签 + 窗口控制 ===== -->
-                <Border Background="{DynamicResource TitleGradientBrush}"
+                <Border Name="TitleBar"
+                        Background="{DynamicResource TitleGradientBrush}"
                         PointerPressed="OnTitleBarPointerPressed"
                         PointerMoved="OnTitleBarPointerMoved"
                         PointerReleased="OnTitleBarPointerReleased"
@@ -87,7 +88,7 @@
                 </Border>
 
                 <!-- ===== 页面内容 + 轻提示 ===== -->
-                <Grid Grid.Row="1">
+                <Grid Name="ContentArea" Grid.Row="1">
                     <!--
                         四个页面一次性挂到这里，之后只切换 IsVisible：
                         与“每次替换 Content”相比，避免了重新挂载导致的样式重算与模板重建。
@@ -149,6 +150,96 @@
                     <Border Name="rzBottom" Grid.Row="2" Grid.Column="1" Background="Transparent" />
                     <Border Name="rzBottomRight" Grid.Row="2" Grid.Column="2" Background="Transparent" />
                 </Grid>
+
+                <!--
+                    启动动画层：与窗口同尺寸铺满（含标题栏），主窗口首帧即呈现，
+                    加载完成后柔和淡出，下方界面随之浮现；底色与前景全部跟随浅色/深色主题。
+                -->
+                <Panel Name="StartupOverlay"
+                       RenderTransformOrigin="50%,50%"
+                       Background="{DynamicResource SplashBackdropBrush}">
+                    <Panel Name="StartupOverlayContent" RenderTransformOrigin="50%,50%">
+                        <!-- 顶部品牌辉光 -->
+                        <Ellipse Name="StartupAmbient"
+                                 Width="720"
+                                 Height="420"
+                                 HorizontalAlignment="Center"
+                                 VerticalAlignment="Top"
+                                 Margin="0,-250,0,0"
+                                 Opacity="0.5"
+                                 Fill="{DynamicResource SplashGlowBrush}" />
+
+                        <StackPanel HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Spacing="30">
+                            <!-- 图标：外发光 + 旋转光环 + 圆形底托 -->
+                            <Panel Name="StartupLogo"
+                                   Width="132"
+                                   Height="132"
+                                   HorizontalAlignment="Center">
+                                <Ellipse Name="StartupGlow"
+                                         Width="132"
+                                         Height="132"
+                                         HorizontalAlignment="Center"
+                                         VerticalAlignment="Center"
+                                         Opacity="0.34"
+                                         Fill="{DynamicResource SplashGlowBrush}" />
+                                <Ellipse Name="StartupRing"
+                                         Width="110"
+                                         Height="110"
+                                         HorizontalAlignment="Center"
+                                         VerticalAlignment="Center"
+                                         StrokeThickness="1.8"
+                                         Stroke="{DynamicResource SplashRingBrush}"
+                                         RenderTransformOrigin="50%,50%" />
+                                <Border Width="88"
+                                        Height="88"
+                                        CornerRadius="44"
+                                        Background="{DynamicResource SplashLogoShellBrush}"
+                                        BorderBrush="{DynamicResource SplashLogoBorderBrush}"
+                                        BorderThickness="1"
+                                        ClipToBounds="True"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center">
+                                    <Image Source="avares://Hycl.Launcher.UI/Assets/hycl.png"
+                                           Width="60"
+                                           Height="60"
+                                           Stretch="Uniform"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" />
+                                </Border>
+                            </Panel>
+
+                            <StackPanel HorizontalAlignment="Center" Spacing="9">
+                                <TextBlock Text="HYPLAY CRAFT LAUNCHER"
+                                           FontSize="15"
+                                           FontWeight="Bold"
+                                           LetterSpacing="2.6"
+                                           Foreground="{DynamicResource SplashTitleBrush}"
+                                           HorizontalAlignment="Center" />
+                                <TextBlock Text="正在准备你的世界…"
+                                           FontSize="12.5"
+                                           LetterSpacing="0.6"
+                                           Foreground="{DynamicResource SplashSubtitleBrush}"
+                                           HorizontalAlignment="Center" />
+                            </StackPanel>
+
+                            <!-- 细进度光带：轨道 + 往复滑动的渐变高光 -->
+                            <Grid Width="260"
+                                  Height="3"
+                                  HorizontalAlignment="Center"
+                                  Margin="0,6,0,0">
+                                <Border Background="{DynamicResource SplashTrackBrush}" CornerRadius="1.5" />
+                                <Border Name="StartupProgress"
+                                        Width="76"
+                                        HorizontalAlignment="Left"
+                                        CornerRadius="1.5"
+                                        Background="{DynamicResource SplashProgressBrush}"
+                                        BoxShadow="0 0 10 0 #664C97F8" />
+                            </Grid>
+                        </StackPanel>
+                    </Panel>
+                </Panel>
             </Grid>
         </Border>
     </Grid>

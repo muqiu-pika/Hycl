@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO.Compression;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Hycl.Launcher.Core.Auth;
 using Hycl.Launcher.Core.Config;
@@ -22,6 +23,9 @@ public sealed class LaunchOptions
 
     /// <summary>版本隔离时的实例目录；空字符串表示使用 GameDirectory。</summary>
     public string InstanceDirectory { get; init; } = "";
+
+    /// <summary>实例对应的原版版本号；用于选择 options.txt 的旧版/新版格式。</summary>
+    public string GameVersion { get; init; } = "";
 
     public string JavaPath { get; init; } = "";
 
@@ -96,6 +100,9 @@ public sealed class LaunchOptions
 
     /// <summary>自动进入的服务器；空 = 不自动进服。对应 PCL-CE VersionServerEnter。</summary>
     public string ServerToEnter { get; init; } = "";
+
+    /// <summary>首次启动要写入 options.txt 的全局游戏内设置；null 表示不修改游戏内设置。</summary>
+    public GameSettingsConfig? GameSettings { get; init; }
 }
 
 public sealed class GameSession : IDisposable
@@ -328,6 +335,7 @@ public sealed class LaunchService
         CancellationToken cancellationToken = default)
     {
         var gameDirectory = Path.GetFullPath(options.GameDirectory);
+
         onStage?.Invoke("正在检查版本文件…");
         var resolved = await _resolver.ResolveAsync(gameDirectory, options.InstanceId, cancellationToken).ConfigureAwait(false)
                        ?? throw new LaunchException($"版本不完整或不存在：{options.InstanceId}");
@@ -335,6 +343,12 @@ public sealed class LaunchService
         if (!File.Exists(resolved.ClientJarPath))
         {
             throw new LaunchException($"缺少客户端核心文件：{resolved.ClientJarPath}{Environment.NewLine}请在版本管理中重新安装该版本。");
+        }
+
+        // 首次启动写入 options.txt（需要客户端 jar 里的 data version，放在解析之后）
+        if (options.GameSettings is { } gameSettings)
+        {
+            ApplyGameSettingsOnce(options, gameDirectory, gameSettings, resolved.ClientJarPath);
         }
 
         var environment = RuleEnvironment.Current(options.WindowType == 3);
@@ -744,7 +758,58 @@ public sealed class LaunchService
         });
     }
 
-    /// <summary>启动前执行命令（对应 PCL-CE LaunchAdvanceRun；占位符与游戏参数一致）。</summary>
+    /// <summary>首次启动写入 options.txt；失败只记日志，不阻断启动。</summary>
+    private void ApplyGameSettingsOnce(
+        LaunchOptions options,
+        string gameDirectory,
+        GameSettingsConfig settings,
+        string clientJarPath)
+    {
+        var targetDirectory = string.IsNullOrWhiteSpace(options.InstanceDirectory)
+            ? gameDirectory
+            : Path.GetFullPath(options.InstanceDirectory);
+        try
+        {
+            if (GameOptionsService.ApplyOnce(
+                    targetDirectory, settings, options.GameVersion, ReadWorldVersion(clientJarPath), out var reason))
+            {
+                _logger.Info($"已写入全局游戏内设置：{Path.Combine(targetDirectory, "options.txt")}");
+            }
+            else
+            {
+                _logger.Info($"未写入全局游戏内设置：{reason}");
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.Warn($"写入全局游戏内设置失败：{ex.Message}");
+        }
+    }
+
+    /// <summary>读取客户端 jar 中 version.json 的 world_version；旧版本没有该文件时返回 0。</summary>
+    private static int ReadWorldVersion(string clientJarPath)
+    {
+        try
+        {
+            using var archive = ZipFile.OpenRead(clientJarPath);
+            var entry = archive.GetEntry("version.json");
+            if (entry is null)
+            {
+                return 0;
+            }
+
+            using var stream = entry.Open();
+            using var document = JsonDocument.Parse(stream);
+            return document.RootElement.TryGetProperty("world_version", out var value) && value.TryGetInt32(out var version)
+                ? version
+                : 0;
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException)
+        {
+            return 0;
+        }
+    }
+
     private async Task RunPreLaunchCommandAsync(
         LaunchOptions options,
         IReadOnlyDictionary<string, string> placeholders,

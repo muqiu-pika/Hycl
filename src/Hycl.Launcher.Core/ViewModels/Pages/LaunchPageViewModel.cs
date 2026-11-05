@@ -1188,8 +1188,12 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         return new LaunchOptions
         {
             InstanceId = instance.Id,
+            GameVersion = instance.GameVersion,
             GameDirectory = config.EffectiveGameDirectory,
             InstanceDirectory = isolated ? instance.Directory : "",
+            GameSettings = instanceSettings?.GameSettingsMode == "instance"
+                ? null
+                : config.GameSettings,
             JavaPath = string.IsNullOrWhiteSpace(instanceSettings?.JavaPath)
                 ? config.JavaPath
                 : instanceSettings.JavaPath,

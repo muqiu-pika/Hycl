@@ -54,6 +54,55 @@ public partial class ToggleRowViewModel : SettingRowViewModel
     public override void Reset() => IsOn = _defaultValue;
 }
 
+public partial class SliderRowViewModel : SettingRowViewModel
+{
+    private readonly double _defaultValue;
+
+    public SliderRowViewModel(
+        string label,
+        double minimum,
+        double maximum,
+        double step,
+        double defaultValue,
+        string unit = "",
+        bool asPercent = false) : base(label)
+    {
+        Minimum = minimum;
+        Maximum = maximum;
+        Step = step;
+        Unit = unit;
+        IsPercent = asPercent;
+        _defaultValue = defaultValue;
+        _value = defaultValue;
+        _valueText = Format(defaultValue);
+    }
+
+    public double Minimum { get; }
+
+    public double Maximum { get; }
+
+    public double Step { get; }
+
+    /// <summary>非百分比显示的数值单位（如 °）。</summary>
+    public string Unit { get; }
+
+    /// <summary>按百分比显示：值为 0-1 时显示 0%-100%。</summary>
+    public bool IsPercent { get; }
+
+    [ObservableProperty]
+    private double _value;
+
+    [ObservableProperty]
+    private string _valueText;
+
+    partial void OnValueChanged(double value) => ValueText = Format(value);
+
+    private string Format(double value) =>
+        IsPercent ? $"{Math.Round(value * 100)}%" : $"{Math.Round(value)}{Unit}";
+
+    public override void Reset() => Value = _defaultValue;
+}
+
 public partial class TextRowViewModel : SettingRowViewModel
 {
     private readonly string _defaultText;
@@ -193,17 +242,32 @@ public sealed class ButtonsRowViewModel : SettingRowViewModel
     public IReadOnlyList<SettingButtonViewModel> Buttons { get; }
 }
 
-public sealed class SettingCardViewModel
+public partial class SettingCardViewModel : ObservableObject
 {
-    public SettingCardViewModel(string title, IReadOnlyList<SettingRowViewModel> rows)
+    public SettingCardViewModel(
+        string title,
+        IReadOnlyList<SettingRowViewModel> rows,
+        bool collapsible = false,
+        bool expanded = true)
     {
         Title = title;
         Rows = rows;
+        IsCollapsible = collapsible;
+        _isExpanded = expanded;
     }
 
     public string Title { get; }
 
     public IReadOnlyList<SettingRowViewModel> Rows { get; }
+
+    /// <summary>是否显示折叠箭头（游戏内设置分类默认折叠）。</summary>
+    public bool IsCollapsible { get; }
+
+    [ObservableProperty]
+    private bool _isExpanded;
+
+    [RelayCommand]
+    private void ToggleExpanded() => IsExpanded = !IsExpanded;
 
     public void Reset()
     {
