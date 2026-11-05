@@ -32,7 +32,9 @@ public class McSkin : Control
     public static readonly StyledProperty<McSkinMode> ModeProperty =
         AvaloniaProperty.Register<McSkin, McSkinMode>(nameof(Mode), McSkinMode.Body);
 
-    private static readonly Dictionary<string, Bitmap?> BitmapCache = new();
+    // 键为「路径 + 修改时间 + 大小」/「内置皮肤名」；文件被重新下载（换皮肤）后键会变化，
+    // 避免继续命中旧的位图。加载失败不写缓存，下次属性变化时可以重试。
+    private static readonly Dictionary<string, Bitmap> BitmapCache = new();
 
     // 贴图正面区域：[texX, texY, w, h]（标准 64x64 皮肤布局）
     private static readonly Dictionary<string, (int X, int Y, int W, int H)> Texture = new()
@@ -195,20 +197,27 @@ public class McSkin : Control
         if (!string.IsNullOrWhiteSpace(SkinPath))
         {
             var path = SkinPath;
-            if (BitmapCache.TryGetValue(path, out var cachedPath))
-            {
-                return cachedPath;
-            }
-
             try
             {
+                var info = new FileInfo(path);
+                if (!info.Exists)
+                {
+                    return null;
+                }
+
+                var cacheKey = $"{path}|{info.LastWriteTimeUtc.Ticks}|{info.Length}";
+                if (BitmapCache.TryGetValue(cacheKey, out var cachedPath))
+                {
+                    return cachedPath;
+                }
+
                 var bitmap = new Bitmap(path);
-                BitmapCache[path] = bitmap;
+                BitmapCache[cacheKey] = bitmap;
                 return bitmap;
             }
             catch (Exception)
             {
-                BitmapCache[path] = null;
+                // 文件可能刚被替换/尚未写好：不缓存失败结果，属性再次变化时可以重试
                 return null;
             }
         }
@@ -233,7 +242,6 @@ public class McSkin : Control
         }
         catch (Exception)
         {
-            BitmapCache[skinKey] = null;
             return null;
         }
     }

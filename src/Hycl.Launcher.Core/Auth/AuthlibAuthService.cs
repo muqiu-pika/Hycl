@@ -357,12 +357,14 @@ public sealed class AuthlibAuthService
     {
         try
         {
-            using var request = new HttpRequestMessage(
-                HttpMethod.Get,
-                apiRoot.TrimEnd('/') + "/sessionserver/session/minecraft/profile/" + uuid + "?unsigned=false");
+            var url = apiRoot.TrimEnd('/') + "/sessionserver/session/minecraft/profile/" + uuid + "?unsigned=false";
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            // 皮肤站纹理地址在 LittleSkin 等站点可直接匿名访问；带上 API 地址头便于其他站点识别来源
+            request.Headers.TryAddWithoutValidation("x-authlib-injector-api-location", apiRoot.TrimEnd('/'));
             using var response = await SendWithRedirectAsync(request, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
+                _logger.Warn($"皮肤档案接口返回 HTTP {(int)response.StatusCode}：{url}");
                 return null;
             }
 
@@ -390,11 +392,12 @@ public sealed class AuthlibAuthService
                 var decoded = JsonDocument.Parse(Encoding.UTF8.GetString(Convert.FromBase64String(value))).RootElement;
                 if (decoded.TryGetProperty("textures", out var textures)
                     && textures.TryGetProperty("SKIN", out var skin)
-                    && skin.TryGetProperty("url", out var url))
+                    && skin.TryGetProperty("url", out var skinUrlNode))
                 {
-                    return url.GetString();
+                    return skinUrlNode.GetString();
                 }
 
+                _logger.Warn("皮肤档案的 textures 中缺少 SKIN.url（账号可能未设置自定义皮肤）");
                 return null;
             }
         }

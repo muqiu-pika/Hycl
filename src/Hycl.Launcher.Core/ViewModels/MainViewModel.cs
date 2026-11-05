@@ -127,6 +127,8 @@ public partial class MainViewModel : ObservableObject
         };
 
         _ = Launch.RefreshInstancesAsync();
+        // 启动时补全账号皮肤缓存：SkinPath 已持久化则直接用缓存，缺失才重新拉取
+        _ = Launch.RefreshSkinsAsync();
     }
 
     /// <summary>是否显示右下角悬浮下载按钮：有任务在进行且当前不在下载页。</summary>

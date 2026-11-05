@@ -328,9 +328,10 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         CancelAndDisposeRefresh();
     }
 
-    /// <summary>进入启动页：实例刷新由 MainViewModel 触发，这里无需额外动作。</summary>
+    /// <summary>进入启动页：实例刷新由 MainViewModel 触发；这里补全已登录账号的皮肤缓存。</summary>
     public void Activate()
     {
+        _ = RefreshSkinsAsync();
     }
 
     /// <summary>离开启动页：取消在途的实例扫描/配置保存。</summary>
@@ -619,7 +620,10 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         _toast?.Invoke($"档案已重命名为：{name}");
     }
 
-    /// <summary>皮肤下载到缓存并回填 SkinPath；失败静默（皮肤非关键数据）。返回是否成功。</summary>
+    /// <summary>
+    /// 皮肤下载到缓存并回填 SkinUrl/SkinPath（两者都写回 accounts.json）；
+    /// 失败静默（皮肤非关键数据）。返回是否成功。
+    /// </summary>
     private async Task<bool> DownloadSkinAsync(PlayerAccount account, string skinUrl)
     {
         try
@@ -630,13 +634,79 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             await _services.DownloadClient
                 .DownloadFileAsync([skinUrl], skinPath, null, null, null, CancellationToken.None)
                 .ConfigureAwait(false);
+            account.SkinUrl = skinUrl;
             account.SkinPath = skinPath;
+            // 持久化：SkinPath 不落盘时，重启后头像会回退到内置皮肤，表现为「皮肤没有导入」
+            await _services.Accounts.SaveAsync().ConfigureAwait(false);
+            _services.Logger.Info($"皮肤已缓存：{account.Name} → {skinPath}");
             return true;
         }
         catch (Exception ex)
         {
             _services.Logger.Warn($"下载皮肤失败（忽略）：{ex.Message}");
             return false;
+        }
+    }
+
+    /// <summary>本次启动已查过皮肤站档案的账号（切换标签页时不重复请求）。</summary>
+    private readonly HashSet<string> _skinChecked = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 补全已登录账号的皮肤：皮肤站账号查一次当前纹理（服务端换皮肤后可更新），
+    /// 正版账号沿用登录时记录的地址；本地缓存缺失或地址变化时重新下载。
+    /// 离线账号使用内置皮肤，不在此处理。
+    /// </summary>
+    public async Task RefreshSkinsAsync(bool force = false)
+    {
+        var changed = false;
+        foreach (var account in _services.Accounts.Accounts.ToList())
+        {
+            if (account.Type == "offline")
+            {
+                continue;
+            }
+
+            var cachedExists = !string.IsNullOrWhiteSpace(account.SkinPath)
+                               && File.Exists(account.SkinPath);
+            string? latestUrl = null;
+            if (account.IsAuthlib && !string.IsNullOrWhiteSpace(account.Server))
+            {
+                var key = account.Server + "|" + account.Uuid;
+                // force：刚登录时重新查一次（玩家可能已在皮肤站换过皮肤），不能复用启动时缓存的查询结果
+                if (force || _skinChecked.Add(key))
+                {
+                    _skinChecked.Add(key);
+                    latestUrl = await _services.AuthlibAuth
+                        .TryGetSkinUrlAsync(account.Server, account.Uuid)
+                        .ConfigureAwait(false);
+                    if (string.IsNullOrWhiteSpace(latestUrl))
+                    {
+                        _services.Logger.Warn($"皮肤站未返回皮肤（{account.Name}），继续使用本地缓存");
+                    }
+                }
+            }
+
+            var targetUrl = string.IsNullOrWhiteSpace(latestUrl) ? account.SkinUrl : latestUrl;
+            if (string.IsNullOrWhiteSpace(targetUrl))
+            {
+                continue;
+            }
+
+            var urlChanged = !targetUrl.Equals(account.SkinUrl, StringComparison.OrdinalIgnoreCase);
+            if (cachedExists && !urlChanged)
+            {
+                continue;
+            }
+
+            if (await DownloadSkinAsync(account, targetUrl).ConfigureAwait(false))
+            {
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            _services.Dispatcher.Post(BuildProfiles);
         }
     }
 
@@ -2090,23 +2160,9 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         IsLoginDialogVisible = false;
         _toast?.Invoke($"皮肤站登录成功：{result.UserName}（{result.ServerName}）");
 
-        // 登录后自动拉取皮肤站皮肤并刷新首页纸娃娃
-        var account = _services.Accounts.Accounts.FirstOrDefault(x =>
-            x.Type == "authlib" && x.Uuid.Equals(result.Uuid, StringComparison.OrdinalIgnoreCase));
-        if (account is not null)
-        {
-            _ = Task.Run(async () =>
-            {
-                var skinUrl = await _services.AuthlibAuth
-                    .TryGetSkinUrlAsync(result.ApiRoot, result.Uuid)
-                    .ConfigureAwait(false);
-                if (!string.IsNullOrWhiteSpace(skinUrl))
-                {
-                    await DownloadSkinAsync(account, skinUrl).ConfigureAwait(false);
-                    _services.Dispatcher.Post(BuildProfiles);
-                }
-            });
-        }
+        // 登录后强制重查皮肤并刷新首页纸娃娃：不能沿用启动时缓存的旧值，
+        // 否则头像会停在旧的/内置的皮肤上，直到重启才更新
+        _ = RefreshSkinsAsync(force: true);
     }
 
     /// <summary>
