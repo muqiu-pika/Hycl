@@ -373,7 +373,7 @@ public sealed class LaunchService
             await RunPreLaunchCommandAsync(options, placeholders, gameDirectory, cancellationToken).ConfigureAwait(false);
         }
 
-        var jvmArguments = BuildJvmArguments(options, resolved.Info, environment, placeholders, resolved.NativesDirectory, classPath);
+        var jvmArguments = BuildJvmArguments(options, resolved.Info, java.MajorVersion, environment, placeholders, resolved.NativesDirectory, classPath);
         var gameArguments = BuildGameArguments(options, resolved.Info, environment, placeholders);
 
         var mainClass = resolved.Info.MainClass ?? "net.minecraft.client.main.Main";
@@ -593,6 +593,7 @@ public sealed class LaunchService
     private static List<string> BuildJvmArguments(
         LaunchOptions options,
         VersionInfo info,
+        int javaMajorVersion,
         RuleEnvironment environment,
         IReadOnlyDictionary<string, string> placeholders,
         string nativesDirectory,
@@ -619,13 +620,18 @@ public sealed class LaunchService
             {
                 arguments.Insert(2, $"-Dauthlibinjector.yggdrasil.prefetched={options.AuthlibPrefetched}");
             }
-
-            // 兼容自签名证书的皮肤站（对齐 PCL-CE 的 WINDOWS-ROOT 处理）
-            if (OperatingSystem.IsWindows())
-            {
-                arguments.Insert(3, "-Djavax.net.ssl.trustStoreType=WINDOWS-ROOT");
-            }
         }
+
+        // 兼容自签名证书 / 企业代理的 Windows 信任库（Java 8+；对应 PCL-CE WINDOWS-ROOT 注入）
+        if (OperatingSystem.IsWindows() && javaMajorVersion >= 8
+            && !arguments.Contains("-Djavax.net.ssl.trustStoreType=WINDOWS-ROOT", StringComparer.Ordinal))
+        {
+            arguments.Add("-Djavax.net.ssl.trustStoreType=WINDOWS-ROOT");
+        }
+
+        // 按 Java 大版本自动调优（对应 PCL-CE LaunchArgumentsJvm 的版本注入表，OpenPCL 同思路）；
+        // 位于版本 JSON 参数之前、用户额外参数之后，用户可用 ExtraJvmArguments 覆盖
+        arguments.AddRange(BuildJavaVersionTuning(javaMajorVersion));
 
         // 初始内存（-Xms）：锁定内存 > 手动初始内存 > 自动（对应 PCL-CE 内存策略）
         if (options.LockMemory)
@@ -766,6 +772,45 @@ public sealed class LaunchService
         }
 
         return arguments;
+    }
+
+    /// <summary>
+    /// 按实际使用的 Java 大版本注入调优参数（对应 PCL-CE 按版本注入 JVM 参数 / OpenPCL 调优表）：
+    /// 8 用 G1 推荐组；17+ 统一 G1 调优；24+ 启用紧凑对象头；7 及以下补 MaxPermSize。
+    /// 全部为通用安全项；用户 ExtraJvmArguments 在其之后追加，可覆盖同名开关。
+    /// </summary>
+    private static IEnumerable<string> BuildJavaVersionTuning(int javaMajorVersion)
+    {
+        if (javaMajorVersion <= 0)
+        {
+            yield break;
+        }
+
+        if (javaMajorVersion <= 7)
+        {
+            // 永久代上限：Java 7 及以下没有 Metaspace
+            yield return "-XX:MaxPermSize=256m";
+            yield break;
+        }
+
+        // Java 8 上 G1 细分项仍是实验参数，需要解锁开关；17+ 已是正式参数
+        if (javaMajorVersion < 17)
+        {
+            yield return "-XX:+UnlockExperimentalVMOptions";
+        }
+
+        // G1 推荐组（OptiFine 官方建议集合，对 MC 帧率稳定性收益明确）
+        yield return "-XX:+UseG1GC";
+        yield return "-XX:G1NewSizePercent=20";
+        yield return "-XX:G1ReservePercent=20";
+        yield return "-XX:MaxGCPauseMillis=50";
+        yield return "-XX:G1HeapRegionSize=32M";
+
+        // JDK 24 起紧凑对象头转正，默认关闭，显式开启可降内存开销
+        if (javaMajorVersion >= 24)
+        {
+            yield return "-XX:+UseCompactObjectHeaders";
+        }
     }
 
     private static string Substitute(string value, IReadOnlyDictionary<string, string> placeholders)
