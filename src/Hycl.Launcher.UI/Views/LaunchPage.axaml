@@ -15,10 +15,10 @@
     <Grid ColumnDefinitions="300,*" MinHeight="{Binding $parent[ScrollViewer].Bounds.Height}">
             <!-- ================= 左栏（唯一弹性项） ================= -->
             <!-- MinHeight 为按内容量测的极小高度下限：
-                 头像 178 + 名称（4+24）28 + 账号行（5+15）20 + 操作按钮（14+32）46 + 启动按钮（16+54）70 = 342
-                 卡片内边距 14/16 + 标题 16 + 正文间距 10 = 56 → 内容下限 398，取 400 留 2px 余量
+                 头像 178 + 名称（12+24）36 + 账号行（4+15）19 + 操作按钮（12+32）44 + 启动按钮（16+54）70 = 347
+                 卡片内边距 14/16 + 标题 16 + 正文间距 10 = 56 → 内容下限 403，取 404 留 1px 余量
                  低于该高度时由外层 ScrollViewer 纵向滚动，卡片不再压缩内容 -->
-            <Grid Margin="18,18,15,18" MinHeight="400">
+            <Grid Margin="18,18,15,18" MinHeight="404">
                 <!-- 玩家卡 -->
                 <c:McCard Title="玩家" IsVisible="{Binding IsPlayerPanel}">
                     <Grid RowDefinitions="*,Auto">
@@ -59,12 +59,12 @@
                                    FontWeight="ExtraBold"
                                    Foreground="{DynamicResource TextBrush}"
                                    HorizontalAlignment="Center"
-                                   Margin="0,4,0,0" />
+                                   Margin="0,12,0,0" />
 
                         <StackPanel Orientation="Horizontal"
                                     Spacing="5"
                                     HorizontalAlignment="Center"
-                                    Margin="0,5,0,0">
+                                    Margin="0,4,0,0">
                             <Ellipse Classes="type-dot"
                                      Classes.ms="{Binding ActiveProfile.IsMicrosoft}"
                                      VerticalAlignment="Center" />
@@ -76,7 +76,7 @@
                         <StackPanel Orientation="Horizontal"
                                     Spacing="8"
                                     HorizontalAlignment="Center"
-                                    Margin="0,14,0,0">
+                                    Margin="0,12,0,0">
                             <Button Classes="pa-btn" ToolTip.Tip="更换皮肤" Command="{Binding ChangeSkinCommand}">
                                 <c:HyclIcon Kind="shirt" Width="16" Height="16" />
                             </Button>
@@ -149,60 +149,70 @@
                             </StackPanel>
                         </Button>
 
-                        <ItemsControl ItemsSource="{Binding Profiles}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="m:PlayerProfileViewModel">
-                                    <Button Classes="profile-row"
-                                            Classes.active="{Binding IsActive}"
-                                            Command="{Binding $parent[UserControl].((vm:LaunchPageViewModel)DataContext).SelectProfileCommand}"
-                                            CommandParameter="{Binding}">
-                                        <Grid ColumnDefinitions="Auto,*,Auto">
-                                            <Border Classes="pr-avatar">
-                                                <c:McSkin SkinKey="{Binding SkinKey}"
-                                                          SkinPath="{Binding SkinPath}"
-                                                          Mode="Head"
-                                                          Scale="4"
-                                                          HorizontalAlignment="Center"
-                                                          VerticalAlignment="Center" />
-                                            </Border>
-                                            <StackPanel Grid.Column="1" Margin="10,0" VerticalAlignment="Center">
-                                                <TextBlock Text="{Binding Name}"
-                                                           FontSize="13"
-                                                           FontWeight="SemiBold"
-                                                           Foreground="{DynamicResource TextBrush}"
-                                                           TextTrimming="CharacterEllipsis" />
-                                                <TextBlock Text="{Binding AccountType}"
-                                                           FontSize="11"
-                                                           Foreground="{DynamicResource Gray3Brush}"
-                                                           Margin="0,1,0,0" />
-                                            </StackPanel>
-                                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                                                <c:HyclIcon Kind="check"
-                                                            Width="16"
-                                                            Height="16"
-                                                            Foreground="{DynamicResource PrimaryBrush}"
-                                                            IsVisible="{Binding IsActive}"
-                                                            VerticalAlignment="Center" />
-                                                <Button Classes="pa-btn"
-                                                        ToolTip.Tip="重命名该档案"
-                                                        IsVisible="{Binding IsOffline}"
-                                                        Command="{Binding $parent[UserControl].((vm:LaunchPageViewModel)DataContext).StartRenameProfileCommand}"
-                                                        CommandParameter="{Binding}">
-                                                    <c:HyclIcon Kind="pencil" Width="13" Height="13" />
-                                                </Button>
-                                                <Button Classes="pa-btn"
-                                                        ToolTip.Tip="删除该档案"
-                                                        IsVisible="{Binding !IsActive}"
-                                                        Command="{Binding $parent[UserControl].((vm:LaunchPageViewModel)DataContext).DeleteProfileCommand}"
-                                                        CommandParameter="{Binding}">
-                                                    <c:HyclIcon Kind="close" Width="13" Height="13" />
-                                                </Button>
-                                            </StackPanel>
-                                        </Grid>
-                                    </Button>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                        <!-- 档案列表独立滚动：档案较多时只滚列表，返回与创建入口始终可见 -->
+                        <ScrollViewer MaxHeight="264"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled">
+                            <ItemsControl ItemsSource="{Binding Profiles}" Margin="0,0,6,0">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Spacing="8" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="m:PlayerProfileViewModel">
+                                        <Button Classes="profile-row"
+                                                Classes.active="{Binding IsActive}"
+                                                Command="{Binding $parent[UserControl].((vm:LaunchPageViewModel)DataContext).SelectProfileCommand}"
+                                                CommandParameter="{Binding}">
+                                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                                <Border Classes="pr-avatar">
+                                                    <c:McSkin SkinKey="{Binding SkinKey}"
+                                                              SkinPath="{Binding SkinPath}"
+                                                              Mode="Head"
+                                                              Scale="4"
+                                                              HorizontalAlignment="Center"
+                                                              VerticalAlignment="Center" />
+                                                </Border>
+                                                <StackPanel Grid.Column="1" Margin="10,0" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding Name}"
+                                                               FontSize="13"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="{DynamicResource TextBrush}"
+                                                               TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Text="{Binding AccountType}"
+                                                               FontSize="11"
+                                                               Foreground="{DynamicResource Gray3Brush}"
+                                                               Margin="0,1,0,0" />
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                                    <c:HyclIcon Kind="check"
+                                                                Width="16"
+                                                                Height="16"
+                                                                Foreground="{DynamicResource PrimaryBrush}"
+                                                                IsVisible="{Binding IsActive}"
+                                                                VerticalAlignment="Center" />
+                                                    <Button Classes="pa-btn"
+                                                            ToolTip.Tip="重命名该档案"
+                                                            IsVisible="{Binding IsOffline}"
+                                                            Command="{Binding $parent[UserControl].((vm:LaunchPageViewModel)DataContext).StartRenameProfileCommand}"
+                                                            CommandParameter="{Binding}">
+                                                        <c:HyclIcon Kind="pencil" Width="13" Height="13" />
+                                                    </Button>
+                                                    <Button Classes="pa-btn"
+                                                            ToolTip.Tip="删除该档案"
+                                                            IsVisible="{Binding !IsActive}"
+                                                            Command="{Binding $parent[UserControl].((vm:LaunchPageViewModel)DataContext).DeleteProfileCommand}"
+                                                            CommandParameter="{Binding}">
+                                                        <c:HyclIcon Kind="close" Width="13" Height="13" />
+                                                    </Button>
+                                                </StackPanel>
+                                            </Grid>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
 
                         <Button Classes="new-profile" Command="{Binding NewProfileCommand}">
                             <StackPanel Orientation="Horizontal" Spacing="6">
@@ -503,14 +513,14 @@
                                     Height="19"
                                     Foreground="{DynamicResource PrimaryBrush}"
                                     VerticalAlignment="Center" />
-                        <TextBlock Text="重命名档案"
+                        <TextBlock Text="编辑档案"
                                    Classes="dialog-title"
                                    VerticalAlignment="Center" />
                     </StackPanel>
 
                     <TextBlock Classes="dialog-body"
                                Margin="0,12,0,0"
-                               Text="仅支持离线档案。名称不能与已有离线档案重名（不区分大小写），改名不会影响实例或其他数据。"
+                               Text="离线档案只能修改玩家名。名称不能与已有离线档案重名（不区分大小写），改名不会影响实例或其他数据。"
                                TextWrapping="Wrap" />
 
                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10" Margin="0,14,0,0">

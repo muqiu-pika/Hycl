@@ -2109,8 +2109,28 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         }
     }
 
+    /// <summary>
+    /// 编辑当前档案：离线档案等价于修改玩家名，复用重命名弹窗（只有玩家名一个输入项）。
+    /// 正版/皮肤站档案的名称由账号体系维护，不在此编辑。
+    /// </summary>
     [RelayCommand]
-    private void EditProfile() => _toast?.Invoke("编辑档案暂未支持，可在配置文件中修改玩家名");
+    private void EditProfile()
+    {
+        var profile = ActiveProfile;
+        if (profile is null)
+        {
+            _toast?.Invoke("请先添加账号");
+            return;
+        }
+
+        if (!profile.IsOffline || string.IsNullOrEmpty(profile.AccountUuid))
+        {
+            _toast?.Invoke("仅离线档案可修改玩家名");
+            return;
+        }
+
+        StartRenameProfile(profile);
+    }
 
     [RelayCommand]
     private async Task ManageInstanceAsync()

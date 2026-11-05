@@ -572,17 +572,28 @@
                                                 </StackPanel>
                                             </Button>
                                         </Grid>
+                                        <!-- 筛选项全部来自固定全集（版本全集+本机实例、分类全集、加载器、排序），
+                                             与搜索结果无关；窄窗口时由 WrapPanel 换行，外层可纵向滚动 -->
                                         <WrapPanel>
-                                            <c:McComboBox MinWidth="120" Margin="0,0,8,0"
-                                                          Items="{x:Static vm:CompSectionViewModel.CommonGameVersions}"
+                                            <c:McComboBox MinWidth="150" Margin="0,0,8,8"
+                                                          ToolTip.Tip="游戏版本"
+                                                          Items="{Binding ActiveCompSection.GameVersionOptions}"
                                                           SelectedItem="{Binding ActiveCompSection.SelectedGameVersion, Mode=TwoWay}" />
-                                            <c:McComboBox MinWidth="110" Margin="0,0,8,0"
-                                                          Items="{x:Static vm:CompSectionViewModel.LoaderOptions}"
+                                            <c:McComboBox MinWidth="140" Margin="0,0,8,8"
+                                                          ToolTip.Tip="分类"
+                                                          Items="{Binding ActiveCompSection.CategoryOptions}"
+                                                          SelectedItem="{Binding ActiveCompSection.SelectedCategory, Mode=TwoWay}" />
+                                            <c:McComboBox MinWidth="130" Margin="0,0,8,8"
+                                                          ToolTip.Tip="加载器"
+                                                          IsVisible="{Binding ActiveCompSection.SupportsLoaderFilter}"
+                                                          Items="{Binding ActiveCompSection.LoaderOptions}"
                                                           SelectedItem="{Binding ActiveCompSection.SelectedLoader, Mode=TwoWay}" />
-                                            <c:McComboBox MinWidth="110" Margin="0,0,8,0"
+                                            <c:McComboBox MinWidth="130" Margin="0,0,8,8"
+                                                          ToolTip.Tip="排序"
                                                           Items="{x:Static vm:CompSectionViewModel.SortOptions}"
                                                           SelectedItem="{Binding ActiveCompSection.SelectedSort, Mode=TwoWay}" />
                                             <TextBlock Classes="sline"
+                                                       Margin="0,0,0,8"
                                                        VerticalAlignment="Center"
                                                        Text="{Binding ActiveCompSection.ResultSummary}" />
                                         </WrapPanel>

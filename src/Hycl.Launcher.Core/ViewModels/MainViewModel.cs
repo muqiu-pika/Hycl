@@ -57,7 +57,7 @@ public partial class MainViewModel : ObservableObject
         Download = new DownloadPageViewModel(services, ShowToast);
         Instances = new InstancesViewModel(services);
         Settings = new SettingsPageViewModel(services, ShowToast);
-        Tools = new ToolsPageViewModel(services, ShowToast);
+        Tools = new ToolsPageViewModel();
         _currentPage = Launch;
 
         // 启动开始/成功返回时在启动页与独立启动中页面之间切换（仍走 PageHost 的串行淡入淡出）

@@ -89,14 +89,19 @@ public sealed partial class CompFileItemViewModel : ObservableObject
     {
         get
         {
-            if (File.GameVersions.Count == 0)
+            var versions = File.GameVersions
+                .Select(CompLocalization.GameVersionName)
+                .Where(name => name.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(name => name, CompLocalization.VersionComparer)
+                .ToList();
+            if (versions.Count == 0)
             {
                 return "";
             }
 
-            var first = CompLocalization.GameVersionName(File.GameVersions[0]);
-            var last = CompLocalization.GameVersionName(File.GameVersions[^1]);
-            return File.GameVersions.Count == 1 ? first : $"{first} ~ {last}";
+            // 多版本时优先展示版本号最大的一个，按 最大 ~ 最小 表示覆盖范围
+            return versions.Count == 1 ? versions[0] : $"{versions[0]} ~ {versions[^1]}";
         }
     }
 
@@ -112,15 +117,6 @@ public sealed partial class CompFileItemViewModel : ObservableObject
 /// </summary>
 public partial class CompSectionViewModel : ObservableObject
 {
-    /// <summary>常用游戏版本筛选（对应 PCL-CE TextSearchVersion 预置列表）。</summary>
-    public static readonly IReadOnlyList<string> CommonGameVersions =
-    [
-        "全部版本", "1.21.1", "1.21", "1.20.6", "1.20.4", "1.20.1", "1.19.4", "1.19.2",
-        "1.18.2", "1.16.5", "1.12.2", "1.10.2", "1.8.9", "1.7.10"
-    ];
-
-    public static readonly IReadOnlyList<string> LoaderOptions = ["全部加载器", "Forge", "NeoForge", "Fabric", "Quilt"];
-
     public static readonly IReadOnlyList<string> SortOptions = ["综合排序", "相关性", "下载量", "关注数", "最新发布", "最近更新"];
 
     private readonly LauncherServices _services;
@@ -135,6 +131,7 @@ public partial class CompSectionViewModel : ObservableObject
     private int _detailGeneration;
     private bool _attached = true;
     private bool _searchInterrupted;
+    private bool _suppressFilterSearch;
 
     public CompSectionViewModel(
         LauncherServices services,
@@ -154,6 +151,16 @@ public partial class CompSectionViewModel : ObservableObject
         Description = description;
         _installWatcher = OnInstallPropertyChanged;
         _install.PropertyChanged += _installWatcher;
+
+        LoaderOptions = ["全部加载器", "Forge", "NeoForge", "Fabric", "Quilt"];
+        CategoryOptions.Add("全部分类");
+        foreach (var category in CompLocalization.FilterCategories(type))
+        {
+            CategoryOptions.Add(category.Label);
+        }
+
+        RebuildGameVersionOptions();
+        _ = RefreshGameVersionOptionsAsync();
     }
 
     private void OnInstallPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -323,11 +330,26 @@ public partial class CompSectionViewModel : ObservableObject
 
     public ObservableCollection<CompFileItemViewModel> VersionFiles { get; } = [];
 
+    /// <summary>版本筛选选项：静态版本全集 + 本机已安装版本，按版本号降序；不随搜索结果变化。</summary>
+    public ObservableCollection<string> GameVersionOptions { get; } = [];
+
+    /// <summary>分类筛选选项：按资源类型取 PCL-CE 同款固定全集；不随搜索结果变化。</summary>
+    public ObservableCollection<string> CategoryOptions { get; } = [];
+
+    /// <summary>加载器筛选选项（仅模组/整合包使用）。</summary>
+    public IReadOnlyList<string> LoaderOptions { get; }
+
+    /// <summary>只有模组/整合包有加载器概念，其它类型不展示该筛选，避免出现点了不生效的选项。</summary>
+    public bool SupportsLoaderFilter => Type is CompResourceType.Mod or CompResourceType.ModPack;
+
     [ObservableProperty]
     private string _searchText = "";
 
     [ObservableProperty]
     private string _selectedGameVersion = "全部版本";
+
+    [ObservableProperty]
+    private string _selectedCategory = "全部分类";
 
     [ObservableProperty]
     private string _selectedLoader = "全部加载器";
@@ -1048,6 +1070,76 @@ public partial class CompSectionViewModel : ObservableObject
     }
 
 
+    /// <summary>重建版本筛选选项：静态全集 + 传入的本机版本，按版本号降序，保持当前选中项。</summary>
+    private void RebuildGameVersionOptions(IEnumerable<string>? extra = null)
+    {
+        var selected = SelectedGameVersion;
+        var versions = CompLocalization.KnownGameVersions
+            .Concat(extra ?? [])
+            .Where(version => !string.IsNullOrWhiteSpace(version))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(version => version, CompLocalization.VersionComparer)
+            .ToList();
+
+        _suppressFilterSearch = true;
+        try
+        {
+            GameVersionOptions.Clear();
+            GameVersionOptions.Add("全部版本");
+            foreach (var version in versions)
+            {
+                GameVersionOptions.Add(version);
+            }
+
+            SelectedGameVersion = GameVersionOptions.Contains(selected) ? selected : "全部版本";
+        }
+        finally
+        {
+            _suppressFilterSearch = false;
+        }
+    }
+
+    /// <summary>把本机已安装实例的游戏版本并入筛选全集；扫描失败时保留静态全集。</summary>
+    private async Task RefreshGameVersionOptionsAsync()
+    {
+        try
+        {
+            var instances = await _services.Instances
+                .ScanAsync(_services.Config.EffectiveGameDirectory)
+                .ConfigureAwait(true);
+            RebuildGameVersionOptions(instances.Select(instance => instance.GameVersion));
+        }
+        catch
+        {
+            // 筛选选项只是增强信息，扫描失败不应影响搜索
+        }
+    }
+
+    partial void OnSelectedGameVersionChanged(string value) => QueueFilterSearch();
+
+    partial void OnSelectedCategoryChanged(string value) => QueueFilterSearch();
+
+    partial void OnSelectedLoaderChanged(string value) => QueueFilterSearch();
+
+    partial void OnSelectedSortChanged(string value) => QueueFilterSearch();
+
+    /// <summary>筛选项变化后自动重搜（对应 PCL-CE 筛选项 CheckedChanged → SearchStart）。</summary>
+    private void QueueFilterSearch()
+    {
+        if (_suppressFilterSearch || !_attached)
+        {
+            return;
+        }
+
+        _ = SearchFromStartAsync();
+    }
+
+    private string? SelectedCategoryTag =>
+        SelectedCategory == "全部分类"
+            ? null
+            : CompLocalization.FilterCategories(Type)
+                .FirstOrDefault(option => option.Label == SelectedCategory)?.Tag;
+
     private CompSearchRequest BuildRequest()
     {
         var loader = SelectedLoader switch
@@ -1073,6 +1165,7 @@ public partial class CompSectionViewModel : ObservableObject
             Query = SearchText.Trim(),
             GameVersion = SelectedGameVersion == "全部版本" ? null : SelectedGameVersion,
             Loader = loader,
+            Tag = SelectedCategoryTag,
             Sort = sort,
             Limit = 40
         };

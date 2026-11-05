@@ -3,9 +3,13 @@ using System.IO.Compression;
 using System.Reflection;
 using System.Text;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Hycl.Launcher.Core.Download;
 
 namespace Hycl.Launcher.Core.Game.Comp;
+
+/// <summary>筛选分类项：显示名 + CurseForge 分类 Id / Modrinth 分类 slug 组合标签。</summary>
+public sealed record CompCategoryOption(string Label, string Tag);
 
 /// <summary>
 /// 社区资源中文显示层（对应 PCL-CE 的 Comp.Category 资源键 / TranslatedName / ChineseDescription）：
@@ -26,6 +30,21 @@ public static class CompLocalization
     private const string EmptyTitle = "未命名资源";
 
     public static readonly string[] LoaderSlugs = ["forge", "fabric", "quilt", "neoforge"];
+
+    /// <summary>
+    /// 筛选用的 Minecraft 正式版本全集（静态来源，与搜索结果无关）。
+    /// UI 会再把本机已安装版本并进来，避免筛选项被当前结果裁掉。
+    /// </summary>
+    public static readonly IReadOnlyList<string> KnownGameVersions =
+    [
+        "1.0", "1.1", "1.2.1", "1.2.5", "1.3.1", "1.3.2", "1.4.2", "1.4.7", "1.5.1", "1.5.2",
+        "1.6.1", "1.6.4", "1.7.2", "1.7.10", "1.8.8", "1.8.9", "1.9", "1.9.4", "1.10", "1.10.2",
+        "1.11", "1.11.2", "1.12", "1.12.1", "1.12.2", "1.13", "1.13.1", "1.13.2", "1.14", "1.14.2",
+        "1.14.3", "1.14.4", "1.15", "1.15.1", "1.15.2", "1.16", "1.16.1", "1.16.2", "1.16.4", "1.16.5",
+        "1.17", "1.17.1", "1.18", "1.18.1", "1.18.2", "1.19", "1.19.2", "1.19.3", "1.19.4", "1.20",
+        "1.20.1", "1.20.2", "1.20.3", "1.20.4", "1.20.5", "1.20.6", "1.21", "1.21.1", "1.21.2", "1.21.3",
+        "1.21.4", "1.21.5", "1.21.6", "1.21.7", "1.21.8", "1.21.9", "1.21.10", "1.21.11"
+    ];
 
     /// <summary>CurseForge 分类数字 Id → 中文（对照 PCL-CE CurseForgeCategoryLangKeys + zh-CN.xaml）。</summary>
     private static readonly Dictionary<long, string> CurseForgeCategories = new()
@@ -350,18 +369,18 @@ public static class CompLocalization
         return list.Count > 0 ? string.Join("、", list) : "原版 / 通用";
     }
 
-    /// <summary>项目支持的游戏版本：过滤加载器等非版本项，过多时折叠为“等 N 个版本”。</summary>
+    /// <summary>
+    /// 项目支持的游戏版本：按版本号从大到小排序（首位就是最大版本），
+    /// 过滤加载器等非版本项，过多时折叠为“等 N 个版本”。
+    /// </summary>
     public static string DisplayGameVersions(CompProject project)
     {
-        var list = new List<string>();
-        foreach (var version in project.GameVersions)
-        {
-            var name = GameVersionName(version);
-            if (name.Length > 0 && name.Any(char.IsDigit))
-            {
-                AddUnique(list, name);
-            }
-        }
+        var list = project.GameVersions
+            .Select(GameVersionName)
+            .Where(name => name.Length > 0 && name.Any(char.IsDigit))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(name => name, VersionComparer)
+            .ToList();
 
         if (list.Count == 0)
         {
@@ -372,6 +391,69 @@ public static class CompLocalization
             ? string.Join("、", list)
             : string.Join("、", list.Take(5)) + $" 等 {list.Count} 个版本";
     }
+
+    /// <summary>
+    /// Minecraft 版本号比较（语义与 PCL-CE McVersionComparer 一致）：
+    /// 版本号拆成字母段/数字段，数字段按数值比较，缺少的一段按 0 处理，
+    /// 因此 1.10 > 1.9、1.21.1 > 1.21 > 1.20.6 > 1.20.1、26.3 > 26.2；
+    /// pre / rc / snapshot / experimental 记为负值，低于同号正式版。
+    /// </summary>
+    public static int CompareGameVersion(string? left, string? right)
+    {
+        var a = VersionTokens(left);
+        var b = VersionTokens(right);
+        var count = Math.Max(a.Count, b.Count);
+        for (var i = 0; i < count; i++)
+        {
+            var textA = i < a.Count ? a[i] : "";
+            var textB = i < b.Count ? b[i] : "";
+            var valueA = VersionTokenValue(textA);
+            var valueB = VersionTokenValue(textB);
+            if (valueA != valueB)
+            {
+                return valueA < valueB ? -1 : 1;
+            }
+
+            // 只有两侧都存在该段时才做文本比较；缺失的一段已经按 0 处理（1.21 == 1.21.0）
+            if (valueA == 0 && i < a.Count && i < b.Count)
+            {
+                var textCompare = string.CompareOrdinal(textA, textB);
+                if (textCompare != 0)
+                {
+                    return textCompare < 0 ? -1 : 1;
+                }
+            }
+        }
+
+        return 0;
+    }
+
+    /// <summary>按 Minecraft 版本号从大到小排序的比较器（供筛选下拉与版本展示复用）。</summary>
+    public static readonly IComparer<string> VersionComparer =
+        Comparer<string>.Create(CompareGameVersion);
+
+    private static List<string> VersionTokens(string? version)
+    {
+        var text = Normalize(version)
+            .ToLowerInvariant()
+            .Replace("快照", "snapshot")
+            .Replace("预览版", "pre")
+            .Replace("实验性", "experimental");
+        return VersionTokenPattern.Matches(text).Select(match => match.Value).ToList();
+    }
+
+    private static readonly Regex VersionTokenPattern =
+        new("[a-z]+|[0-9]+", RegexOptions.Compiled);
+
+    private static double VersionTokenValue(string token)
+        => token switch
+        {
+            "rc" => -1,
+            "pre" => -2,
+            "snapshot" => -3,
+            "experimental" => -4,
+            _ => double.TryParse(token, out var value) ? value : 0
+        };
 
     /// <summary>更新时间：缺失时返回固定文案。</summary>
     public static string DisplayUpdateTime(CompProject project)
@@ -414,6 +496,88 @@ public static class CompLocalization
             CompResourceType.DataPack => "数据包",
             CompResourceType.World => "世界",
             _ => "资源"
+        };
+
+    /// <summary>
+    /// 分类筛选项：固定全集（与 PCL-CE 各 PageDownload*.xaml 的 SearchTags 一一对应），
+    /// 不随搜索结果变化；标签格式为 “CurseForge 分类 Id/Modrinth slug”，空的一侧表示该源不过滤。
+    /// </summary>
+    public static IReadOnlyList<CompCategoryOption> FilterCategories(CompResourceType type)
+        => type switch
+        {
+            CompResourceType.Mod =>
+            [
+                new("世界元素", "406/worldgen"), new("生物群系", "407/"),
+                new("维度", "410/"), new("矿物与资源", "408/"),
+                new("天然结构", "409/"), new("科技", "412/technology"),
+                new("管道与物流", "415/"), new("自动化", "4843/"),
+                new("能源", "417/"), new("红石", "4558/"),
+                new("食物与烹饪", "436/food"), new("农业", "416/"),
+                new("游戏机制", "/game-mechanics"), new("运输", "414/transportation"),
+                new("仓储", "420/storage"), new("魔法", "419/magic"),
+                new("冒险", "422/adventure"), new("装饰", "424/decoration"),
+                new("生物", "411/mobs"), new("实用", "5191/utility"),
+                new("装备与工具", "434/equipment"), new("创造模式", "9026/"),
+                new("性能优化", "6814/optimization"), new("信息显示", "423/"),
+                new("服务器", "435/social"), new("支持库", "421/library")
+            ],
+            CompResourceType.ModPack =>
+            [
+                new("多人", "4484/"), new("性能优化", "/optimization"),
+                new("硬核", "4479/challenging"), new("战斗", "4483/combat"),
+                new("任务", "4478/quests"), new("科技", "4472/technology"),
+                new("魔法", "4473/magic"), new("冒险", "4475/adventure"),
+                new("水槽包", "/kitchen-sink"), new("探索", "4476/"),
+                new("小游戏", "4477/"), new("科幻", "4471/"),
+                new("空岛", "4736/"), new("原版改良", "5128/"),
+                new("FTB", "4487/"), new("基于地图", "4480/"),
+                new("轻量整合", "4481/lightweight"), new("大型整合", "4482/")
+            ],
+            CompResourceType.ResourcePack =>
+            [
+                new("原版风", "403/vanilla-like"), new("写实风", "400/realistic"),
+                new("现代风", "401/"), new("中世纪", "402/"),
+                new("蒸汽朋克", "399/"), new("主题化", "/themed"),
+                new("简洁", "/simplistic"), new("装饰", "/decoration"),
+                new("战斗", "/combat"), new("实用", "/utility"),
+                new("改良", "/tweaks"), new("鬼畜", "/cursed"),
+                new("生物", "/entities"), new("含声音", "/audio"),
+                new("含字体", "5244/fonts"), new("含模型", "/models"),
+                new("含语言", "/locale"), new("含 UI", "/gui"),
+                new("核心着色器", "/core-shaders"), new("动态效果", "404/"),
+                new("兼容模组", "4465/modded"), new("8x 或更低", "/8x-"),
+                new("16x", "393/16x"), new("32x", "394/32x"), new("48x", "/48x"),
+                new("64x", "395/64x"), new("128x", "396/128x"),
+                new("256x", "397/256x"), new("512x 或更高", "398/512x+")
+            ],
+            CompResourceType.Shader =>
+            [
+                new("原版风", "6555/vanilla-like"), new("幻想风", "6554/fantasy"),
+                new("写实风", "6553/realistic"), new("半写实风", "/semi-realistic"),
+                new("卡通风", "/cartoon"), new("彩色光照", "/colored-lighting"),
+                new("路径追踪", "/path-tracing"), new("PBR", "/pbr"),
+                new("反射", "/reflections"), new("极低", "/potato"),
+                new("低", "/low"), new("中", "/medium"), new("高", "/high")
+            ],
+            CompResourceType.DataPack =>
+            [
+                new("世界元素", "/worldgen"), new("科技", "6951/technology"),
+                new("游戏机制", "/game-mechanics"), new("运输", "/transportation"),
+                new("仓储", "/storage"), new("魔法", "6952/magic"),
+                new("冒险", "6948/adventure"), new("幻想", "6949/"),
+                new("装饰", "/decoration"), new("生物", "/mobs"),
+                new("实用", "6953/utility"), new("装备与工具", "/equipment"),
+                new("性能优化", "/optimization"), new("服务器", "/social"),
+                new("支持库", "6950/library"), new("模组相关", "6946/")
+            ],
+            CompResourceType.World =>
+            [
+                new("冒险", "248/"), new("创造", "249/"),
+                new("小游戏", "250/"), new("跑酷", "251/"),
+                new("解谜", "252/"), new("生存", "253/"),
+                new("模组世界", "4464/")
+            ],
+            _ => []
         };
 
     /// <summary>版本标识中文：CurseForge 的 Client/Server 伪版本显示为客户端/服务端。</summary>
