@@ -26,6 +26,9 @@ public partial class VersionInstaller
 
         public required DownloadPolicy Policy { get; init; }
 
+        /// <summary>目标实例是否启用版本隔离；附属 OptiFine 的 mods 目录据此解析。</summary>
+        public bool VersionIsolation { get; init; } = true;
+
         public int Threads { get; init; } = 16;
 
         public bool DownloadAssets { get; init; } = true;
@@ -60,49 +63,72 @@ public partial class VersionInstaller
                 request.DownloadAssets)
             .ConfigureAwait(false);
 
-        // 2) 下载 OptiFine 安装器/文件（BMCLAPI 在前，官方 adloadx 解析地址在后）
-        reporter.Stage("下载 OptiFine");
-        var isNewVersion = inherit.Contains('w')
-                           || CompareVersionGreaterOrEqual(inherit, "1.14");
-        var target = isNewVersion
-            ? Path.Combine(_cacheDirectory ?? Path.GetTempPath(), "OptiFine.jar")
-            : GetLegacyOptiFineTarget(request.GameDirectory, entry);
-        await DownloadOptiFineFileAsync(entry, request.Policy, target, reporter, cancellationToken)
-            .ConfigureAwait(false);
-
-        if (isNewVersion)
+        // 版本目录快照：安装失败时回滚本次新建的 OptiFine 实例目录（对齐原版/Forge 的回滚策略）
+        var versionsDirectory = Path.Combine(request.GameDirectory, "versions");
+        var knownVersions = Directory.Exists(versionsDirectory)
+            ? Directory.EnumerateDirectories(versionsDirectory).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
         {
-            reporter.Stage("运行 OptiFine 安装器");
-            await InstallNewOptiFineAsync(target, request, reporter, cancellationToken)
+            // 2) 下载 OptiFine 安装器/文件（BMCLAPI 在前，官方 adloadx 解析地址在后）
+            reporter.Stage("下载 OptiFine");
+            var isNewVersion = inherit.Contains('w')
+                               || CompareVersionGreaterOrEqual(inherit, "1.14");
+            var target = isNewVersion
+                ? Path.Combine(_cacheDirectory ?? Path.GetTempPath(), "OptiFine.jar")
+                : GetLegacyOptiFineTarget(request.GameDirectory, entry);
+            await DownloadOptiFineFileAsync(entry, request.Policy, target, reporter, cancellationToken)
                 .ConfigureAwait(false);
-        }
-        else
-        {
-            reporter.Stage("写入旧版 OptiFine 配置");
-            await InstallLegacyOptiFineAsync(target, request, reporter, cancellationToken)
-                .ConfigureAwait(false);
-        }
 
-        // 3) 下载最终版本 json 的库
-        var installedName = isNewVersion ? ResolveOptiFineInstalledName(request) : (request.TargetName ?? entry.NameVersion!);
-        var versionJsonPath = Path.Combine(request.GameDirectory, "versions", installedName, installedName + ".json");
-        if (File.Exists(versionJsonPath))
-        {
-            var info = JsonSerializer.Deserialize<VersionInfo>(
-                await File.ReadAllTextAsync(versionJsonPath, cancellationToken).ConfigureAwait(false),
-                JsonOptions);
-            if (info is not null)
+            if (isNewVersion)
             {
-                var libraries = LibraryResolver.CollectLibraries(info, RuleEnvironment.Current(false), request.Policy);
-                reporter.Stage("下载 OptiFine 依赖", libraries.Count);
-                await DownloadLibrariesAsync(libraries, request.GameDirectory, request.Threads, reporter, cancellationToken)
+                reporter.Stage("运行 OptiFine 安装器");
+                await InstallNewOptiFineAsync(target, request, reporter, cancellationToken)
                     .ConfigureAwait(false);
             }
-        }
+            else
+            {
+                reporter.Stage("写入旧版 OptiFine 配置");
+                await InstallLegacyOptiFineAsync(target, request, reporter, cancellationToken)
+                    .ConfigureAwait(false);
+            }
 
-        reporter.Stage("安装完成");
-        _logger.Info($"OptiFine {entry.NameVersion}（{inherit}）安装完成：{installedName}");
-        return installedName;
+            // 3) 下载最终版本 json 的库
+            string installedName = isNewVersion ? ResolveOptiFineInstalledName(request) : (request.TargetName ?? entry.NameVersion!);
+            var versionJsonPath = Path.Combine(request.GameDirectory, "versions", installedName, installedName + ".json");
+            if (File.Exists(versionJsonPath))
+            {
+                var info = JsonSerializer.Deserialize<VersionInfo>(
+                    await File.ReadAllTextAsync(versionJsonPath, cancellationToken).ConfigureAwait(false),
+                    JsonOptions);
+                if (info is not null)
+                {
+                    var libraries = LibraryResolver.CollectLibraries(info, RuleEnvironment.Current(false), request.Policy);
+                    reporter.Stage("下载 OptiFine 依赖", libraries.Count);
+                    await DownloadLibrariesAsync(libraries, request.GameDirectory, request.Threads, reporter, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+            }
+
+            reporter.Stage("安装完成");
+            _logger.Info($"OptiFine {entry.NameVersion}（{inherit}）安装完成：{installedName}");
+            return installedName;
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or DownloadException or IOException or HttpRequestException)
+        {
+            if (Directory.Exists(versionsDirectory))
+            {
+                foreach (var directory in Directory.EnumerateDirectories(versionsDirectory))
+                {
+                    if (!knownVersions.Contains(directory))
+                    {
+                        TryDeleteDirectory(directory, Path.GetFileName(directory));
+                    }
+                }
+            }
+
+            throw;
+        }
     }
 
     /// <summary>与 Forge 等加载器共存时，把 OptiFine 安装器 jar 直接放入 mods 目录（对应 PCL-CE OptiFineAsMod）。</summary>
@@ -113,7 +139,11 @@ public partial class VersionInstaller
     {
         var reporter = new ProgressReporter(progress);
         reporter.Stage("下载 OptiFine");
-        var modsDirectory = Path.Combine(request.GameDirectory, "mods");
+        // 遵循版本隔离：隔离实例的 mods 在实例目录内，而非游戏根目录
+        var contentRoot = request.TargetName is null
+            ? request.GameDirectory
+            : InstanceManager.GetContentRoot(request.GameDirectory, request.TargetName, request.VersionIsolation);
+        var modsDirectory = Path.Combine(contentRoot, "mods");
         Directory.CreateDirectory(modsDirectory);
         var target = Path.Combine(modsDirectory, request.Entry.NameFile ?? "OptiFine.jar");
         await DownloadOptiFineFileAsync(request.Entry, request.Policy, target, reporter, cancellationToken)

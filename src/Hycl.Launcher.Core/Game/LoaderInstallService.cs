@@ -35,6 +35,9 @@ public sealed record LoaderInstallPlan
 
     public DownloadPolicy Policy { get; init; } = DownloadPolicy.Default;
 
+    /// <summary>目标实例是否启用版本隔离；附属内容（OptiFine Mod、前置 Mod）的 mods 目录据此解析。</summary>
+    public bool VersionIsolation { get; init; } = true;
+
     public int Threads { get; init; } = 16;
 
     public bool DownloadAssets { get; init; } = true;
@@ -48,10 +51,6 @@ public sealed record LoaderInstallPlan
 public sealed class LoaderInstallService
 {
     public const string VanillaKind = "vanilla";
-
-    /// <summary>与 OptiFine 互斥的加载器（对应 PCL-CE 下载页规则）。</summary>
-    private static readonly string[] OptiFineIncompatible =
-        ["neoforge", "cleanroom", "labymod", "quilt", "legacyfabric", "fabric"];
 
     private readonly VersionInstaller _installer;
     private readonly LoaderProviderRegistry _providers;
@@ -172,7 +171,7 @@ public sealed class LoaderInstallService
     private static void Validate(LoaderInstallPlan plan)
     {
         var kind = plan.Kind.ToLowerInvariant();
-        if (plan.OptiFine is not null && OptiFineIncompatible.Contains(kind))
+        if (plan.OptiFine is not null && !LoaderCompat.IsOptiFineCompatibleWith(kind, plan.GameVersion))
         {
             throw new InvalidOperationException($"{plan.Kind} 与 OptiFine 不兼容，请分开安装");
         }
@@ -272,6 +271,7 @@ public sealed class LoaderInstallService
             TargetName = plan.TargetName,
             Entry = plan.OptiFine ?? throw new InvalidOperationException("OptiFine 安装缺少条目"),
             Policy = plan.Policy,
+            VersionIsolation = plan.VersionIsolation,
             Threads = plan.Threads,
             DownloadAssets = plan.DownloadAssets,
             JavaPath = plan.JavaPath
@@ -294,7 +294,9 @@ public sealed class LoaderInstallService
                 return;
             }
 
-            var modsDirectory = Path.Combine(plan.GameDirectory, "versions", installedName, "mods");
+            var modsDirectory = Path.Combine(
+                InstanceManager.GetContentRoot(plan.GameDirectory, installedName, plan.VersionIsolation),
+                "mods");
             await _modrinth.DownloadModAsync(recommended, modsDirectory, cancellationToken).ConfigureAwait(false);
             _logger.Info($"前置 Mod {recommended.VersionNumber} 已放入 {modsDirectory}");
         }

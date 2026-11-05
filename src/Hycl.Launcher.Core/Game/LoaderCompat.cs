@@ -43,11 +43,9 @@ public static class LoaderCompat
             "neoforge" or "labymod" or "cleanroom" => false,
             // Forge 1.13 ~ 1.14.3 与 OptiFine 全部不兼容
             "forge" => !(IsVersionAtLeast(minecraftVersion, "1.13") && IsVersionAtMost(minecraftVersion, "1.14.3")),
-            // Fabric 1.20.5+ 与 OptiFine 不兼容
-            "fabric" => !IsVersionAtLeast(minecraftVersion, "1.20.5"),
-            // Quilt / LegacyFabric / 其它按 Fabric 处理
-            "quilt" => !IsVersionAtLeast(minecraftVersion, "1.20.5"),
-            "legacyfabric" => !IsVersionAtLeast(minecraftVersion, "1.20.5"),
+            // Fabric / Quilt / LegacyFabric 需要 OptiFabric 桥（尚未实现），一律判不兼容，
+            // 与 LoaderInstallService 的执行口径保持一致，避免 UI 可选但安装必失败
+            "fabric" or "quilt" or "legacyfabric" => false,
             _ => true
         };
     }

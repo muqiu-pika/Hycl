@@ -344,6 +344,7 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
             TargetName = targetName,
             CompanionModSlug = companionModSlug,
             Policy = DownloadPolicy.FromConfig(_services.Config),
+            VersionIsolation = _services.Config.IsInstanceIsolated(targetName),
             Threads = _services.Config.DownloadThreads,
             JavaPath = _services.Config.JavaPath
         };

@@ -78,24 +78,38 @@ public partial class VersionInstaller
         };
 
         var versionDirectory = Path.Combine(gameDirectory, "versions", id);
-        Directory.CreateDirectory(versionDirectory);
-        await File.WriteAllTextAsync(
-                Path.Combine(versionDirectory, id + ".json"),
-                versionJson.ToJsonString(JsonOptions),
-                cancellationToken)
-            .ConfigureAwait(false);
+        var versionDirectoryExisted = Directory.Exists(versionDirectory);
+        try
+        {
+            Directory.CreateDirectory(versionDirectory);
+            await File.WriteAllTextAsync(
+                    Path.Combine(versionDirectory, id + ".json"),
+                    versionJson.ToJsonString(JsonOptions),
+                    cancellationToken)
+                .ConfigureAwait(false);
 
-        // 3) 下载依赖库
-        var info = JsonSerializer.Deserialize<VersionInfo>(versionJson.ToJsonString(JsonOptions), JsonOptions)
-                   ?? throw new DownloadException("LiteLoader 版本 JSON 解析失败");
-        var collected = LibraryResolver.CollectLibraries(info, RuleEnvironment.Current(false), policy);
-        reporter.Stage("下载 LiteLoader 依赖", collected.Count);
-        await DownloadLibrariesAsync(collected, gameDirectory, threads, reporter, cancellationToken)
-            .ConfigureAwait(false);
+            // 3) 下载依赖库
+            var info = JsonSerializer.Deserialize<VersionInfo>(versionJson.ToJsonString(JsonOptions), JsonOptions)
+                       ?? throw new DownloadException("LiteLoader 版本 JSON 解析失败");
+            var collected = LibraryResolver.CollectLibraries(info, RuleEnvironment.Current(false), policy);
+            reporter.Stage("下载 LiteLoader 依赖", collected.Count);
+            await DownloadLibrariesAsync(collected, gameDirectory, threads, reporter, cancellationToken)
+                .ConfigureAwait(false);
 
-        reporter.Stage("安装完成");
-        _logger.Info($"LiteLoader（{gameVersion}）安装完成：{id}");
-        return id;
+            reporter.Stage("安装完成");
+            _logger.Info($"LiteLoader（{gameVersion}）安装完成：{id}");
+            return id;
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or DownloadException or IOException or HttpRequestException)
+        {
+            // 回滚本次新建的版本目录，不留半成品（对齐原版/Forge 的回滚策略）
+            if (!versionDirectoryExisted)
+            {
+                TryDeleteDirectory(versionDirectory, id);
+            }
+
+            throw;
+        }
     }
 
     /// <summary>
@@ -142,32 +156,46 @@ public partial class VersionInstaller
         manifestJson["id"] = id;
 
         var versionDirectory = Path.Combine(gameDirectory, "versions", id);
-        Directory.CreateDirectory(versionDirectory);
-        await File.WriteAllTextAsync(
-                Path.Combine(versionDirectory, id + ".json"),
-                manifestJson.ToJsonString(JsonOptions),
-                cancellationToken)
-            .ConfigureAwait(false);
-
-        // 3) 复制原版客户端 jar
-        var vanillaJarPath = Path.Combine(gameDirectory, "versions", gameVersion, gameVersion + ".jar");
-        var outputJarPath = Path.Combine(versionDirectory, id + ".jar");
-        if (File.Exists(vanillaJarPath) && !File.Exists(outputJarPath))
+        var versionDirectoryExisted = Directory.Exists(versionDirectory);
+        try
         {
-            File.Copy(vanillaJarPath, outputJarPath, true);
+            Directory.CreateDirectory(versionDirectory);
+            await File.WriteAllTextAsync(
+                    Path.Combine(versionDirectory, id + ".json"),
+                    manifestJson.ToJsonString(JsonOptions),
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            // 3) 复制原版客户端 jar
+            var vanillaJarPath = Path.Combine(gameDirectory, "versions", gameVersion, gameVersion + ".jar");
+            var outputJarPath = Path.Combine(versionDirectory, id + ".jar");
+            if (File.Exists(vanillaJarPath) && !File.Exists(outputJarPath))
+            {
+                File.Copy(vanillaJarPath, outputJarPath, true);
+            }
+
+            // 4) 下载 LabyMod 的依赖库
+            var info = JsonSerializer.Deserialize<VersionInfo>(manifestJson.ToJsonString(JsonOptions), JsonOptions)
+                       ?? throw new DownloadException("LabyMod 版本 JSON 解析失败");
+            var collected = LibraryResolver.CollectLibraries(info, RuleEnvironment.Current(false), policy);
+            reporter.Stage("下载 LabyMod 依赖", collected.Count);
+            await DownloadLibrariesAsync(collected, gameDirectory, threads, reporter, cancellationToken)
+                .ConfigureAwait(false);
+
+            // 5) LabyMod manifest 使用与原版相同的资源索引，无需重复下载
+            reporter.Stage("安装完成");
+            _logger.Info($"LabyMod {entry.LabyModVersion}（{gameVersion}）安装完成：{id}");
+            return id;
         }
+        catch (Exception ex) when (ex is OperationCanceledException or DownloadException or IOException or HttpRequestException)
+        {
+            // 回滚本次新建的版本目录，不留半成品（对齐原版/Forge 的回滚策略）
+            if (!versionDirectoryExisted)
+            {
+                TryDeleteDirectory(versionDirectory, id);
+            }
 
-        // 4) 下载 LabyMod 的依赖库
-        var info = JsonSerializer.Deserialize<VersionInfo>(manifestJson.ToJsonString(JsonOptions), JsonOptions)
-                   ?? throw new DownloadException("LabyMod 版本 JSON 解析失败");
-        var collected = LibraryResolver.CollectLibraries(info, RuleEnvironment.Current(false), policy);
-        reporter.Stage("下载 LabyMod 依赖", collected.Count);
-        await DownloadLibrariesAsync(collected, gameDirectory, threads, reporter, cancellationToken)
-            .ConfigureAwait(false);
-
-        // 5) LabyMod manifest 使用与原版相同的资源索引，无需重复下载
-        reporter.Stage("安装完成");
-        _logger.Info($"LabyMod {entry.LabyModVersion}（{gameVersion}）安装完成：{id}");
-        return id;
+            throw;
+        }
     }
 }

@@ -1164,6 +1164,7 @@ public partial class InstallWizardViewModel : ObservableObject
             LiteLoader = _selectedLiteLoaderItem?.Payload as LiteLoaderEntry,
             CompanionModSlug = _companionModSlug,
             Policy = DownloadPolicy.FromConfig(_services.Config),
+            VersionIsolation = _services.Config.IsInstanceIsolated(targetName),
             Threads = _services.Config.DownloadThreads,
             JavaPath = _services.Config.JavaPath
         };
