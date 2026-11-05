@@ -17,10 +17,14 @@ namespace Hycl.Launcher.Core.ViewModels.Pages;
 public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
 {
     private readonly LauncherServices _services;
+    private bool _skipAutoSearch;
 
     public DownloadPageViewModel(LauncherServices services, Action<string>? toast)
     {
         _services = services;
+        Favorites = new FavoritesStore(
+            Path.Combine(services.Paths.DataDirectory, "favorites.json"),
+            services.Logger);
         Install = new InstallTaskViewModel(services, toast);
         Wizard = new InstallWizardViewModel(services, Install, toast);
         Install.Completed += OnInstallCompleted;
@@ -45,8 +49,16 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
             new(services, Install, CompResourceType.ModPack, "整合包", "package", "搜索并安装 Modrinth / CurseForge 整合包，自动安装所需原版与加载器", toast),
             new(services, Install, CompResourceType.Mod, "模组", "forge", "搜索 Modrinth / CurseForge 模组，安装到实例 mods 目录", toast),
             new(services, Install, CompResourceType.ResourcePack, "资源包", "cobblestone", "搜索并安装资源包（原版可用，无需加载器）", toast),
-            new(services, Install, CompResourceType.Shader, "光影", "gold-block", "搜索 Iris / OptiFine 光影包，安装到 shaderpacks 目录", toast)
+            new(services, Install, CompResourceType.Shader, "光影", "gold-block", "搜索 Iris / OptiFine 光影包，安装到 shaderpacks 目录", toast),
+            new(services, Install, CompResourceType.DataPack, "数据包", "bookmark", "搜索并安装数据包，隔离时装入实例 datapacks，否则装入游戏根目录", toast),
+            new(services, Install, CompResourceType.World, "世界", "grass-block", "搜索并安装世界存档，自动解压到 saves 目录", toast)
         };
+        foreach (var section in CompSections)
+        {
+            section.Favorites = Favorites;
+        }
+
+        FavoritesSection = new FavoritesSectionViewModel(Favorites, OpenFavorite, toast);
         Groups = new ObservableCollection<NavGroupViewModel>
         {
             new("", [minecraft]),
@@ -65,10 +77,13 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
             ]),
             new("社区资源",
             [
+                new NavItemViewModel("收藏夹", "star", FavoritesSection),
                 new NavItemViewModel("整合包", "package", CompSections[0]),
                 new NavItemViewModel("模组", "forge", CompSections[1]),
                 new NavItemViewModel("资源包", "cobblestone", CompSections[2]),
-                new NavItemViewModel("光影", "gold-block", CompSections[3])
+                new NavItemViewModel("光影", "gold-block", CompSections[3]),
+                new NavItemViewModel("数据包", "bookmark", CompSections[4]),
+                new NavItemViewModel("世界", "grass-block", CompSections[5])
             ])
         };
 
@@ -90,9 +105,20 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
     /// <summary>社区资源分区（与左侧导航一一对应）。</summary>
     public IReadOnlyList<CompSectionViewModel> CompSections { get; }
 
+    /// <summary>本地收藏夹。</summary>
+    public FavoritesStore Favorites { get; }
+
+    public FavoritesSectionViewModel FavoritesSection { get; }
+
     /// <summary>当前选中的社区资源分区（非 null 时显示社区资源界面）。</summary>
     public CompSectionViewModel? ActiveCompSection =>
         SelectedSection?.Section as CompSectionViewModel;
+
+    public FavoritesSectionViewModel? ActiveFavoritesSection =>
+        SelectedSection?.Section as FavoritesSectionViewModel;
+
+    /// <summary>收藏夹分区可见性。</summary>
+    public bool IsFavoritesSection => ActiveFavoritesSection is not null;
 
     public ObservableCollection<NavGroupViewModel> Groups { get; }
 
@@ -214,13 +240,37 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
             }
         }
 
-        if (ActiveCompSection is { Results.Count: 0 } compSection && !compSection.IsSearching)
+        if (ActiveCompSection is { Results.Count: 0 } compSection && !compSection.IsSearching && !_skipAutoSearch)
         {
             _ = compSection.SearchFromStartCommand.ExecuteAsync(null);
         }
 
         OnPropertyChanged(nameof(IsStartButtonVisible));
         OnPropertyChanged(nameof(IsSaveDialogVisible));
+        OnPropertyChanged(nameof(IsFavoritesSection));
+        OnPropertyChanged(nameof(ActiveFavoritesSection));
+
+        if (IsFavoritesSection)
+        {
+            FavoritesSection.Refresh();
+        }
+    }
+
+    /// <summary>从收藏夹打开项目：切到对应社区分区并直接加载详情（不触发列表重搜）。</summary>
+    private void OpenFavorite(CompProject project, CompResourceType type)
+    {
+        var section = CompSections.FirstOrDefault(item => item.Type == type);
+        var nav = Groups.SelectMany(group => group.Items)
+            .FirstOrDefault(item => ReferenceEquals(item.Section, section));
+        if (section is null || nav is null)
+        {
+            return;
+        }
+
+        _skipAutoSearch = true;
+        SelectedSection = nav;
+        _skipAutoSearch = false;
+        _ = section.OpenProjectAsync(project);
     }
 
     [RelayCommand]
@@ -229,6 +279,13 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
     [RelayCommand]
     private async Task RefreshAsync()
     {
+        if (IsFavoritesSection)
+        {
+            // 收藏夹只读本地文件，刷新不发网络请求
+            FavoritesSection.Refresh();
+            return;
+        }
+
         if (IsInstallSection)
         {
             Wizard.Invalidate();

@@ -212,7 +212,13 @@ public partial class InstallTaskViewModel : ObservableObject
         await RunAsync(
             $"{file.DisplayName}（{sectionTitle}）",
             (progress, token) => _services.CompInstall
-                .InstallFileAsync(file, _services.Config.EffectiveGameDirectory, instanceId, progress, token))
+                .InstallFileAsync(
+                    file,
+                    _services.Config.EffectiveGameDirectory,
+                    instanceId,
+                    _services.Config.IsInstanceIsolated(instanceId),
+                    progress,
+                    token))
             .ConfigureAwait(true);
     }
 

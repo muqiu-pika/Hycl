@@ -403,6 +403,19 @@ public static class CompLocalization
             _ => "正式版"
         };
 
+    /// <summary>资源类型中文名（收藏夹分类与筛选用）。</summary>
+    public static string TypeName(CompResourceType type)
+        => type switch
+        {
+            CompResourceType.Mod => "模组",
+            CompResourceType.ModPack => "整合包",
+            CompResourceType.ResourcePack => "资源包",
+            CompResourceType.Shader => "光影",
+            CompResourceType.DataPack => "数据包",
+            CompResourceType.World => "世界",
+            _ => "资源"
+        };
+
     /// <summary>版本标识中文：CurseForge 的 Client/Server 伪版本显示为客户端/服务端。</summary>
     public static string GameVersionName(string? version)
     {

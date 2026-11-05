@@ -232,6 +232,10 @@ public sealed class LauncherConfig
     public InstanceSettings? FindInstanceSettings(string instanceId) =>
         InstanceSettings.TryGetValue(instanceId, out var settings) ? settings : null;
 
+    /// <summary>该实例是否启用版本隔离（未设置时与 PCL-CE 一致，默认开启）。</summary>
+    public bool IsInstanceIsolated(string instanceId) =>
+        FindInstanceSettings(instanceId)?.VersionIsolation ?? true;
+
     /// <summary>删除实例覆盖设置（删除/重命名实例时调用）。</summary>
     public void RemoveInstanceSettings(string instanceId) => InstanceSettings.Remove(instanceId);
 

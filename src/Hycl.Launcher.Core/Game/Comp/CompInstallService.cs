@@ -32,13 +32,17 @@ public sealed class CompInstallService
         _logger = logger;
     }
 
-    /// <summary>资源类型在实例内的落盘子目录（对应 PCL-CE _GetSubFolder；DataPack 落实例根目录）。</summary>
+    /// <summary>
+    /// 资源类型在内容根目录下的落盘子目录（对应 PCL-CE _GetSubFolder）；
+    /// 数据包落到 datapacks（隔离时实例、否则全局），世界落到 saves。
+    /// </summary>
     public static string GetSubFolder(CompResourceType type)
         => type switch
         {
             CompResourceType.Mod => "mods",
             CompResourceType.ResourcePack => "resourcepacks",
             CompResourceType.Shader => "shaderpacks",
+            CompResourceType.DataPack => "datapacks",
             CompResourceType.World => "saves",
             _ => ""
         };
@@ -63,11 +67,12 @@ public sealed class CompInstallService
         return compatible ?? instances.OrderByDescending(instance => instance.LastWriteTime).First();
     }
 
-    /// <summary>把资源文件安装进指定实例（Mod → mods；资源包/光影/数据包 → 对应目录）。</summary>
+    /// <summary>把资源文件安装进指定实例（内容根目录按版本隔离规则解析）。</summary>
     public async Task<string> InstallFileAsync(
         CompFile file,
         string gameDirectory,
         string instanceId,
+        bool versionIsolation,
         IProgress<InstallProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
@@ -77,10 +82,12 @@ public sealed class CompInstallService
             throw new CompException($"目标实例不存在：{instanceId}");
         }
 
+        // 隔离时落实例目录，否则落游戏根目录：数据包 → datapacks，世界 → saves
+        var contentRoot = InstanceManager.GetContentRoot(gameDirectory, instanceId, versionIsolation);
         var subFolder = GetSubFolder(file.Type);
         var targetDirectory = string.IsNullOrEmpty(subFolder)
-            ? instanceDirectory
-            : Path.Combine(instanceDirectory, subFolder);
+            ? contentRoot
+            : Path.Combine(contentRoot, subFolder);
         return await InstallFileToDirectoryAsync(file, targetDirectory, progress, cancellationToken)
             .ConfigureAwait(false);
     }
@@ -118,9 +125,94 @@ public sealed class CompInstallService
                 cancellationToken)
             .ConfigureAwait(false);
         reporter.FileCompleted(file.Size);
+
+        // 世界以压缩包发布：下载完成后解压到 saves 目录并删除压缩包（对应 PCL-CE InstallWorld + CleanCache）
+        if (file.Type == CompResourceType.World)
+        {
+            reporter.Stage("解压世界存档");
+            ExtractWorld(targetPath, directory);
+            TryDeleteFile(targetPath);
+            targetPath = directory;
+        }
+
         reporter.Stage("安装完成");
         _logger.Info($"社区资源已保存：{fileName} → {targetPath}");
         return targetPath;
+    }
+
+    /// <summary>解压世界压缩包；失败时回滚本次新建的文件/目录，避免留下半截存档。</summary>
+    private static void ExtractWorld(string archivePath, string extractDirectory)
+    {
+        var root = Path.GetFullPath(extractDirectory);
+        var created = new List<string>();
+        try
+        {
+            using var archive = ZipFile.OpenRead(archivePath);
+            if (archive.Entries.Count == 0)
+            {
+                throw new CompException("世界压缩包为空");
+            }
+
+            foreach (var entry in archive.Entries)
+            {
+                var destination = Path.GetFullPath(Path.Combine(root, entry.FullName));
+                if (!destination.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                    && !destination.Equals(root, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new CompException("世界压缩包包含非法路径");
+                }
+
+                if (entry.FullName.EndsWith('/') || entry.FullName.EndsWith('\\'))
+                {
+                    if (!Directory.Exists(destination))
+                    {
+                        Directory.CreateDirectory(destination);
+                        created.Add(destination);
+                    }
+
+                    continue;
+                }
+
+                var parent = Path.GetDirectoryName(destination);
+                if (parent is not null && !Directory.Exists(parent))
+                {
+                    Directory.CreateDirectory(parent);
+                    created.Add(parent);
+                }
+
+                if (!File.Exists(destination))
+                {
+                    created.Add(destination);
+                }
+
+                entry.ExtractToFile(destination, true);
+            }
+        }
+        catch
+        {
+            // 回滚：先删文件再删目录，失败时不掩盖原始异常
+            for (var index = created.Count - 1; index >= 0; index--)
+            {
+                var path = created[index];
+                try
+                {
+                    if (File.Exists(path))
+                    {
+                        File.Delete(path);
+                    }
+                    else if (Directory.Exists(path))
+                    {
+                        Directory.Delete(path, true);
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // 回滚尽力而为
+                }
+            }
+
+            throw;
+        }
     }
 
     // ---------- 整合包安装 ----------

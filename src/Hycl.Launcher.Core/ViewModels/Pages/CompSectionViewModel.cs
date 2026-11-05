@@ -240,6 +240,14 @@ public partial class CompSectionViewModel : ObservableObject
 
     private readonly InstallTaskViewModel _install;
 
+    /// <summary>收藏夹存储（由下载页注入；为 null 时不显示收藏入口）。</summary>
+    public FavoritesStore? Favorites { get; set; }
+
+    public bool IsSelectedFavorite =>
+        SelectedProject is not null && Favorites?.Contains(SelectedProject.Project) == true;
+
+    public string FavoriteActionText => IsSelectedFavorite ? "已收藏" : "收藏";
+
     public CompResourceType Type { get; }
 
     public string Title { get; }
@@ -508,6 +516,7 @@ public partial class CompSectionViewModel : ObservableObject
         var generation = ++_detailGeneration;
 
         SelectedProject = item;
+        NotifyFavoriteState();
         SelectedProjectDescription = CompLocalization.DisplayDescription(item.Project);
         SelectedProjectAuthor = item.Author;
         SelectedProjectCategoryText = item.CategoryText;
@@ -602,6 +611,7 @@ public partial class CompSectionViewModel : ObservableObject
         _detailGeneration++;
         IsLoadingVersions = false;
         SelectedProject = null;
+        NotifyFavoriteState();
         SelectedProjectDescription = "";
         SelectedProjectAuthor = "";
         SelectedProjectCategoryText = "";
@@ -611,6 +621,42 @@ public partial class CompSectionViewModel : ObservableObject
         SelectedProjectLoaderText = "";
         VersionFiles.Clear();
         VersionErrorText = "";
+    }
+
+    /// <summary>收藏 / 取消收藏当前项目（写入本地收藏夹，不依赖社区接口）。</summary>
+    [RelayCommand]
+    private async Task ToggleFavoriteAsync()
+    {
+        if (SelectedProject is null || Favorites is null)
+        {
+            return;
+        }
+
+        var wasFavorite = IsSelectedFavorite;
+        await Favorites.ToggleAsync(SelectedProject.Project, Type).ConfigureAwait(true);
+        NotifyFavoriteState();
+        _toast?.Invoke(wasFavorite
+            ? $"已取消收藏：{SelectedProject.Title}"
+            : $"已收藏：{SelectedProject.Title}");
+    }
+
+    /// <summary>从收藏夹打开项目详情：把项目补进结果列表后按常规流程加载版本文件。</summary>
+    public async Task OpenProjectAsync(CompProject project)
+    {
+        var item = new CompProjectItemViewModel(project);
+        if (!Results.Any(existing => existing.Project.Id == item.Project.Id
+                                     && existing.Project.FromCurseForge == item.Project.FromCurseForge))
+        {
+            Results.Insert(0, item);
+        }
+
+        await SelectProjectAsync(item).ConfigureAwait(true);
+    }
+
+    private void NotifyFavoriteState()
+    {
+        OnPropertyChanged(nameof(IsSelectedFavorite));
+        OnPropertyChanged(nameof(FavoriteActionText));
     }
 
     /// <summary>
@@ -656,7 +702,9 @@ public partial class CompSectionViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            SaveDirectory = gameDirectory;
+            SaveDirectory = string.IsNullOrEmpty(subFolder)
+                ? gameDirectory
+                : Path.Combine(gameDirectory, subFolder);
             SelectedTargetInstance = "";
             SaveHint = $"扫描实例失败：{ex.Message}";
             return;
@@ -685,15 +733,21 @@ public partial class CompSectionViewModel : ObservableObject
         if (target is null)
         {
             SelectedTargetInstance = "";
-            SaveDirectory = gameDirectory;
+            SaveDirectory = string.IsNullOrEmpty(subFolder)
+                ? gameDirectory
+                : Path.Combine(gameDirectory, subFolder);
             SaveHint = "未找到可用实例，将保存到游戏目录，也可手动修改路径。";
             return;
         }
 
         SelectedTargetInstance = TargetInstanceOptions[_dialogInstances.IndexOf(target)];
+        var contentRoot = InstanceManager.GetContentRoot(
+            gameDirectory,
+            target.Id,
+            _services.Config.IsInstanceIsolated(target.Id));
         SaveDirectory = string.IsNullOrEmpty(subFolder)
-            ? target.Directory
-            : Path.Combine(target.Directory, subFolder);
+            ? contentRoot
+            : Path.Combine(contentRoot, subFolder);
     }
 
     /// <summary>实例选择变化时同步默认保存目录（用户仍可再手动修改）。</summary>
@@ -711,8 +765,12 @@ public partial class CompSectionViewModel : ObservableObject
         }
 
         var subFolder = CompInstallService.GetSubFolder(_pendingFile.File.Type);
-        var directory = _dialogInstances[index].Directory;
-        SaveDirectory = string.IsNullOrEmpty(subFolder) ? directory : Path.Combine(directory, subFolder);
+        var instance = _dialogInstances[index];
+        var contentRoot = InstanceManager.GetContentRoot(
+            _services.Config.EffectiveGameDirectory,
+            instance.Id,
+            _services.Config.IsInstanceIsolated(instance.Id));
+        SaveDirectory = string.IsNullOrEmpty(subFolder) ? contentRoot : Path.Combine(contentRoot, subFolder);
         SaveHint = "";
     }
 
@@ -900,8 +958,9 @@ public partial class CompSectionViewModel : ObservableObject
 
     private CompSourceType SourceFlags()
     {
-        // CurseForge 走镜像（Key 留空时官方 403 由镜像兜底），双源并行
-        return CompSourceType.Any;
+        // 世界只有 CurseForge 提供（Modrinth 无对应项目类型）；其余双源并行。
+        // CurseForge 走镜像（Key 留空时官方 403 由镜像兜底）。
+        return Type == CompResourceType.World ? CompSourceType.CurseForge : CompSourceType.Any;
     }
 
     private static string Signature(CompSearchRequest request)

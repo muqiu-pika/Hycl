@@ -132,6 +132,11 @@ public sealed class ModrinthClient(CompRequester requester)
         {
             new[] { $"project_type:{ToProjectType(request.Type)}" }
         };
+        if (request.Type == CompResourceType.DataPack)
+        {
+            // Modrinth 的数据包以 mod 类型 + datapack 分类发布（对应 PCL-CE 的类型识别）
+            facets.Add(new[] { "categories:'datapack'" });
+        }
         if (request.Loader != CompLoaderFilter.Any)
         {
             facets.Add(new[] { $"categories:'{request.Loader.ToString().ToLowerInvariant()}'" });
@@ -166,7 +171,9 @@ public sealed class ModrinthClient(CompRequester requester)
             IconUrl = string.IsNullOrWhiteSpace(hit.IconUrl) ? null : hit.IconUrl,
             DownloadCount = hit.Downloads,
             LastUpdate = hit.DateModified,
-            Type = FromProjectType(hit.ProjectType),
+            Type = request.Type == CompResourceType.DataPack
+                ? CompResourceType.DataPack
+                : FromProjectType(hit.ProjectType),
             FromCurseForge = false,
             ModLoaders = hit.DisplayCategories?
                 .Where(c => c is "forge" or "fabric" or "quilt" or "neoforge")

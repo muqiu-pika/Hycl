@@ -347,6 +347,85 @@
                             </StackPanel>
                         </Border>
 
+                        <!-- 3.5 本地存档：列表 / 复制 / 删除 / 打开目录（落点随隔离与独立存档目录变化） -->
+                        <Border Classes="setting-card" Margin="0,0,0,14">
+                            <StackPanel>
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Classes="setting-card-title" Text="{Binding SavesTitleText}" />
+                                    <Button Grid.Column="1"
+                                            Classes="mc-btn"
+                                            MinHeight="0"
+                                            Padding="8,3"
+                                            FontSize="11.5"
+                                            Content="刷新"
+                                            Command="{Binding RefreshSavesCommand}" />
+                                </Grid>
+                                <Border Classes="setting-card-rule" />
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="存档目录" />
+                                    <TextBlock Grid.Column="1"
+                                               Classes="srow-value"
+                                               Text="{Binding SavesDirectory}"
+                                               TextWrapping="Wrap" />
+                                </Grid>
+                                <TextBlock IsVisible="{Binding !HasSaves}"
+                                           Margin="0,4,0,2"
+                                           FontSize="11.5"
+                                           TextWrapping="Wrap"
+                                           Foreground="{DynamicResource Gray2Brush}"
+                                           Text="{Binding SavesEmptyText}" />
+                                <ItemsControl IsVisible="{Binding HasSaves}" ItemsSource="{Binding Saves}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="g:LocalSaveInfo">
+                                            <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,5,0,5">
+                                                <c:HyclIcon Kind="bookmark"
+                                                            Width="16"
+                                                            Height="16"
+                                                            Margin="0,0,10,0"
+                                                            VerticalAlignment="Center"
+                                                            Foreground="{DynamicResource Gray2Brush}" />
+                                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                                                    <TextBlock Text="{Binding Name}"
+                                                               FontSize="12.5"
+                                                               Foreground="{DynamicResource TextBrush}"
+                                                               TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Text="{Binding Info}"
+                                                               FontSize="10.5"
+                                                               Foreground="{DynamicResource Gray2Brush}" />
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="2"
+                                                            Orientation="Horizontal"
+                                                            Spacing="6"
+                                                            VerticalAlignment="Center">
+                                                    <Button Classes="mc-btn"
+                                                            MinHeight="0"
+                                                            Padding="9,3"
+                                                            FontSize="11.5"
+                                                            Content="打开"
+                                                            Command="{Binding $parent[UserControl].((vm:InstancesViewModel)DataContext).OpenSaveCommand}"
+                                                            CommandParameter="{Binding}" />
+                                                    <Button Classes="mc-btn"
+                                                            MinHeight="0"
+                                                            Padding="9,3"
+                                                            FontSize="11.5"
+                                                            Content="复制"
+                                                            Command="{Binding $parent[UserControl].((vm:InstancesViewModel)DataContext).CopySaveCommand}"
+                                                            CommandParameter="{Binding}" />
+                                                    <Button Classes="mc-btn danger"
+                                                            MinHeight="0"
+                                                            Padding="9,3"
+                                                            FontSize="11.5"
+                                                            Content="删除"
+                                                            Command="{Binding $parent[UserControl].((vm:InstancesViewModel)DataContext).DeleteSaveCommand}"
+                                                            CommandParameter="{Binding}" />
+                                                </StackPanel>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+
                         <!-- 4. 实例操作 -->
                         <Border Classes="setting-card" Margin="0,0,0,14">
                             <StackPanel>

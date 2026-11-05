@@ -24,6 +24,7 @@ public sealed class CurseForgeClient(CompRequester requester)
             CompResourceType.DataPack => 6945,
             CompResourceType.Shader => 6552,
             CompResourceType.ResourcePack => 12,
+            CompResourceType.World => 17,
             _ => 6
         };
 

@@ -10,10 +10,12 @@ namespace Hycl.Launcher.Core.ViewModels;
 /// 版本管理：实例列表、切换当前实例、实例设置（名称/备注/隔离/内存/JVM/窗口/Java）、
 /// 复制、重命名、删除与目录入口。
 /// </summary>
-public sealed partial class InstancesViewModel : ObservableObject
+public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycle
 {
     private readonly LauncherServices _services;
     private bool _suppressEditorReload;
+    private CancellationTokenSource? _savesCts;
+    private int _savesGeneration;
 
     public InstancesViewModel(LauncherServices services)
     {
@@ -23,6 +25,11 @@ public sealed partial class InstancesViewModel : ObservableObject
             OnPropertyChanged(nameof(HasInstances));
             OnPropertyChanged(nameof(IsEmpty));
             OnPropertyChanged(nameof(InstanceCountText));
+        };
+        Saves.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasSaves));
+            OnPropertyChanged(nameof(SavesTitleText));
         };
     }
 
@@ -97,6 +104,24 @@ public sealed partial class InstancesViewModel : ObservableObject
         : string.IsNullOrWhiteSpace(EditorSavesDirectory)
             ? Path.Combine(ContentRoot, "saves")
             : EditorSavesDirectory;
+
+    // ------------------------- 本地存档（列表 / 复制 / 删除 / 打开目录） -------------------------
+
+    /// <summary>当前实例存档目录下的存档（随选中实例、隔离开关与独立存档目录变化重载）。</summary>
+    public ObservableCollection<LocalSaveInfo> Saves { get; } = new();
+
+    public bool HasSaves => Saves.Count > 0;
+
+    public string SavesTitleText => Saves.Count == 0 ? "本地存档" : $"本地存档（{Saves.Count}）";
+
+    public string SavesEmptyText => SelectedInstance is null
+        ? "选择左侧版本后查看本地存档。"
+        : string.IsNullOrWhiteSpace(SavesDirectory)
+            ? "存档目录无效，请检查实例设置。"
+            : "该目录下没有存档。";
+
+    [ObservableProperty]
+    private bool _isLoadingSaves;
 
     // ------------------------- 实例设置编辑区 -------------------------
 
@@ -398,6 +423,7 @@ public sealed partial class InstancesViewModel : ObservableObject
         StatusMessage = $"已保存 {SelectedInstance.Name} 的实例设置";
         NotifySelection();
         NotifyDirectories();
+        await ReloadSavesAsync().ConfigureAwait(true);
     }
 
     [RelayCommand]
@@ -412,6 +438,7 @@ public sealed partial class InstancesViewModel : ObservableObject
         await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
         LoadEditor(SelectedInstance);
         StatusMessage = "已恢复为跟随全局设置";
+        await ReloadSavesAsync().ConfigureAwait(true);
     }
 
     [RelayCommand]
@@ -464,6 +491,127 @@ public sealed partial class InstancesViewModel : ObservableObject
 
     [RelayCommand]
     private void OpenSavesFolder() => OpenDirectory(SavesDirectory);
+
+    [RelayCommand]
+    private void OpenSave(LocalSaveInfo? save)
+    {
+        if (save is null)
+        {
+            return;
+        }
+
+        OpenDirectory(save.Directory);
+    }
+
+    [RelayCommand]
+    private async Task CopySaveAsync(LocalSaveInfo? save)
+    {
+        if (save is null)
+        {
+            return;
+        }
+
+        var result = SaveManager.Duplicate(save.Directory);
+        StatusMessage = result.Message;
+        await ReloadSavesAsync().ConfigureAwait(true);
+    }
+
+    [RelayCommand]
+    private async Task DeleteSaveAsync(LocalSaveInfo? save)
+    {
+        if (save is null)
+        {
+            return;
+        }
+
+        var deleted = SaveManager.DeleteToRecycleBin(save.Directory, _services.Logger);
+        StatusMessage = deleted
+            ? $"已删除存档到回收站：{save.Name}"
+            : $"删除存档失败：{save.Name}";
+        if (deleted)
+        {
+            await ReloadSavesAsync().ConfigureAwait(true);
+        }
+    }
+
+    [RelayCommand]
+    private async Task RefreshSavesAsync() => await ReloadSavesAsync().ConfigureAwait(true);
+
+    /// <summary>重新扫描存档目录；结果按选中实例/目录变化做代次校验，旧任务直接丢弃。</summary>
+    private async Task ReloadSavesAsync()
+    {
+        _savesCts?.Cancel();
+        _savesCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        _savesCts = cts;
+        var token = cts.Token;
+        var generation = ++_savesGeneration;
+
+        var directory = SavesDirectory;
+        if (SelectedInstance is null || string.IsNullOrWhiteSpace(directory))
+        {
+            Saves.Clear();
+            IsLoadingSaves = false;
+            return;
+        }
+
+        IsLoadingSaves = true;
+        try
+        {
+            var list = await Task.Run(() => SaveManager.Scan(directory, token), token).ConfigureAwait(true);
+            token.ThrowIfCancellationRequested();
+            if (generation != _savesGeneration)
+            {
+                return;
+            }
+
+            Saves.Clear();
+            foreach (var save in list)
+            {
+                Saves.Add(save);
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // 切页/切实例导致取消：保留已有列表，不写错误
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            if (generation == _savesGeneration)
+            {
+                Saves.Clear();
+                StatusMessage = $"读取存档目录失败：{ex.Message}";
+            }
+        }
+        finally
+        {
+            if (ReferenceEquals(_savesCts, cts))
+            {
+                _savesCts = null;
+                IsLoadingSaves = false;
+            }
+
+            cts.Dispose();
+        }
+    }
+
+    /// <summary>离开版本页：取消正在进行的存档扫描（切页即取消）。</summary>
+    public void Deactivate()
+    {
+        _savesCts?.Cancel();
+        _savesCts?.Dispose();
+        _savesCts = null;
+        _savesGeneration++;
+        IsLoadingSaves = false;
+    }
+
+    public void Activate()
+    {
+        if (SelectedInstance is not null)
+        {
+            _ = ReloadSavesAsync();
+        }
+    }
 
     private void OpenDirectory(string? directory)
     {
@@ -599,6 +747,7 @@ public sealed partial class InstancesViewModel : ObservableObject
 
         NotifySelection();
         StatusMessage = "";
+        _ = ReloadSavesAsync();
     }
 
     partial void OnEditorVersionIsolationChanged(bool value)
@@ -606,6 +755,7 @@ public sealed partial class InstancesViewModel : ObservableObject
         if (!_suppressEditorReload)
         {
             NotifyDirectories();
+            _ = ReloadSavesAsync();
         }
     }
 
@@ -614,6 +764,7 @@ public sealed partial class InstancesViewModel : ObservableObject
         if (!_suppressEditorReload)
         {
             NotifyDirectories();
+            _ = ReloadSavesAsync();
         }
     }
 
@@ -708,5 +859,6 @@ public sealed partial class InstancesViewModel : ObservableObject
         OnPropertyChanged(nameof(ResourcePacksDirectory));
         OnPropertyChanged(nameof(ShaderPacksDirectory));
         OnPropertyChanged(nameof(SavesDirectory));
+        OnPropertyChanged(nameof(SavesEmptyText));
     }
 }
