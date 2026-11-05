@@ -32,6 +32,15 @@
         <Setter Property="Transitions">
             <Transitions>
                 <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.08" />
+            </Transitions>
+        </Setter>
+    </Style>
+    <!-- 底色过渡必须挂在真正绘制底色的 ContentPresenter 上；
+         起点用与 hover 同色系的全透明画刷，避免从 Transparent（#00FFFFFF）起步在深色下泛白 -->
+    <Style Selector="Button.mc-btn /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource BlockButtonClearBrush}" />
+        <Setter Property="Transitions">
+            <Transitions>
                 <BrushTransition Property="Background" Duration="0:0:0.12" />
             </Transitions>
         </Setter>
@@ -64,7 +73,7 @@
     </Style>
     <!-- 禁用态只降不透明度：锁回无底色 + 深蓝边框，避免被 Fluent 刷成灰底 -->
     <Style Selector="Button.mc-btn:disabled /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Background" Value="{DynamicResource BlockButtonClearBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
         <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
@@ -103,6 +112,7 @@
         <Setter Property="Cursor" Value="Hand" />
     </Style>
     <Style Selector="Button.action-btn /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource BlockButtonClearBrush}" />
         <Setter Property="Transitions">
             <Transitions>
                 <BrushTransition Property="Background" Duration="0:0:0.12" />
@@ -133,7 +143,7 @@
 
     <Style Selector="Button.action-btn:disabled /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
-        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Background" Value="{DynamicResource BlockButtonClearBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
 
@@ -200,13 +210,18 @@
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Transitions">
             <Transitions>
-                <BrushTransition Property="Background" Duration="0:0:0.12" />
                 <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.18" />
             </Transitions>
         </Setter>
     </Style>
+    <!-- 同 mc-btn：底色过渡挂在 ContentPresenter，起点用同色系全透明，避免深色下泛白 -->
     <Style Selector="Button.accent-btn /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Background" Value="{DynamicResource BlockButtonClearBrush}" />
+        <Setter Property="Transitions">
+            <Transitions>
+                <BrushTransition Property="Background" Duration="0:0:0.12" />
+            </Transitions>
+        </Setter>
     </Style>
     <!-- 悬停：只出现浅蓝底，文字/图标/边框不变 -->
     <Style Selector="Button.accent-btn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
@@ -234,7 +249,7 @@
         <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
     <Style Selector="Button.accent-btn:disabled /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Background" Value="{DynamicResource BlockButtonClearBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
     <!-- 启动中仍展示进度条，仅轻微降透明度 -->
@@ -372,7 +387,7 @@
         <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
     </Style>
     <Style Selector="Button.mc-btn.danger:disabled /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Background" Value="{DynamicResource BlockButtonClearBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource ErrorBrush}" />
         <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
     </Style>
@@ -827,7 +842,7 @@
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Template">
             <ControlTemplate>
-                <Border x:Name="itemRoot" Background="Transparent" CornerRadius="4" Padding="10,6">
+                <Border x:Name="itemRoot" Background="{DynamicResource BlockButtonClearBrush}" CornerRadius="4" Padding="10,6">
                     <Border.Transitions>
                         <Transitions>
                             <BrushTransition Property="Background" Duration="0:0:0.12" />

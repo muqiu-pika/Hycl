@@ -64,6 +64,10 @@
             <SolidColorBrush x:Key="BlockButtonHoverBrush" Color="#EAF2FE" />
             <SolidColorBrush x:Key="BlockButtonPressedBrush" Color="#E0EAFD" />
             <SolidColorBrush x:Key="BlockButtonSelectedBrush" Color="#D5E6FD" />
+            <!-- 悬停过渡的起点：与 Hover 底色同色系的「全透明」画刷。
+                 Transparent 的 RGB 是白色（#00FFFFFF），从它过渡到深色会在中途泛白，
+                 深色主题下表现为悬停/移出时闪一下浅灰白。 -->
+            <SolidColorBrush x:Key="BlockButtonClearBrush" Color="#00EAF2FE" />
 
             <!-- 标题栏前景：默认白色文字/图标（选中态改为 PCL-CE 蓝） -->
             <SolidColorBrush x:Key="TitleTabBrush" Color="#FFFFFF" />
@@ -148,6 +152,8 @@
             <SolidColorBrush x:Key="BlockButtonHoverBrush" Color="#182C49" />
             <SolidColorBrush x:Key="BlockButtonPressedBrush" Color="#1B3355" />
             <SolidColorBrush x:Key="BlockButtonSelectedBrush" Color="#1E3A5F" />
+            <!-- 悬停过渡起点：与 Hover 同色系的全透明（避免 Transparent 的白底在过渡中泛白） -->
+            <SolidColorBrush x:Key="BlockButtonClearBrush" Color="#00182C49" />
 
             <SolidColorBrush x:Key="TitleTabBrush" Color="#FFFFFF" />
             <SolidColorBrush x:Key="TitleTabSelectedBrush" Color="#1370F3" />
