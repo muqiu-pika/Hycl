@@ -322,6 +322,14 @@ public partial class MainWindow : Window
 
     // —— 以下为自定义标题栏的窗口行为，仅做极薄的事件转发 ——
 
+    // 触屏拖动状态：Avalonia 的 BeginMoveDrag 仅可靠响应鼠标（触屏指针被控件捕获后
+    // Win32 移动循环收不到输入），触屏改为按下记录起点、移动中手动更新窗口位置
+    private PixelPoint? _touchDragStartScreen;
+    private PixelPoint _touchDragStartWindow;
+
+    private PixelPoint GetPointerScreenPoint(PointerEventArgs e, Visual? relativeTo)
+        => ((Window)VisualRoot!).PointToScreen(e.GetCurrentPoint(relativeTo).Position);
+
     private void OnTitleBarPointerPressed(object? sender, PointerPressedEventArgs e)
     {
         // 只有按在标题栏空白处才拖动窗口；标签页、品牌、窗口按钮的点击交给子控件
@@ -333,11 +341,52 @@ public partial class MainWindow : Window
         if (e.ClickCount == 2)
         {
             WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+            return;
         }
-        else if (WindowState != WindowState.Maximized)
+
+        if (WindowState == WindowState.Maximized)
         {
-            BeginMoveDrag(e);
+            return;
         }
+
+        if (e.Pointer.Type == PointerType.Touch)
+        {
+            _touchDragStartScreen = GetPointerScreenPoint(e, (Visual?)sender);
+            _touchDragStartWindow = Position;
+            e.Pointer.Capture((IInputElement?)sender);
+            return;
+        }
+
+        BeginMoveDrag(e);
+    }
+
+    private void OnTitleBarPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_touchDragStartScreen is not { } startScreen)
+        {
+            return;
+        }
+
+        var current = GetPointerScreenPoint(e, null);
+        Position = new PixelPoint(
+            _touchDragStartWindow.X + (current.X - startScreen.X),
+            _touchDragStartWindow.Y + (current.Y - startScreen.Y));
+    }
+
+    private void OnTitleBarPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (_touchDragStartScreen is null)
+        {
+            return;
+        }
+
+        _touchDragStartScreen = null;
+        e.Pointer.Capture(null);
+    }
+
+    private void OnTitleBarPointerCaptureLost(object? sender, RoutedEventArgs e)
+    {
+        _touchDragStartScreen = null;
     }
 
     private void OnMinimizeClick(object? sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
@@ -369,6 +418,12 @@ public partial class MainWindow : Window
         SetupResize("rzBottomRight", StandardCursorType.BottomRightCorner, WindowEdge.SouthEast);
     }
 
+    // 触屏缩放状态：与拖动同理，BeginResizeDrag 对触屏不可靠，手动计算新尺寸/位置
+    private PixelPoint? _touchResizeStartScreen;
+    private PixelPoint _touchResizeStartWindowPos;
+    private Size _touchResizeStartSize;
+    private WindowEdge _touchResizeEdge;
+
     private void SetupResize(string name, StandardCursorType cursor, WindowEdge edge)
     {
         if (this.FindControl<Control>(name) is not { } handle)
@@ -379,11 +434,100 @@ public partial class MainWindow : Window
         handle.Cursor = new Cursor(cursor);
         handle.PointerPressed += (_, e) =>
         {
-            if (e.GetCurrentPoint(handle).Properties.IsLeftButtonPressed)
+            if (!e.GetCurrentPoint(handle).Properties.IsLeftButtonPressed)
             {
-                BeginResizeDrag(edge, e);
+                return;
             }
+
+            if (e.Pointer.Type == PointerType.Touch && WindowState == WindowState.Normal)
+            {
+                _touchResizeEdge = edge;
+                _touchResizeStartScreen = GetPointerScreenPoint(e, handle);
+                _touchResizeStartWindowPos = Position;
+                _touchResizeStartSize = new Size(Width, Height);
+                e.Pointer.Capture(handle);
+                e.Handled = true;
+                return;
+            }
+
+            BeginResizeDrag(edge, e);
         };
+        handle.PointerMoved += (_, e) => TouchResizeMove(edge, e);
+        handle.PointerReleased += (_, e) => EndTouchResize(e);
+        handle.PointerCaptureLost += (_, e) => EndTouchResize(e);
+    }
+
+    /// <summary>触屏缩放：以按下时的窗口尺寸/位置为基准，按边缘方向套用指针位移（DIP）。</summary>
+    private void TouchResizeMove(WindowEdge edge, PointerEventArgs e)
+    {
+        if (_touchResizeStartScreen is not { } startScreen)
+        {
+            return;
+        }
+
+        var scale = RenderScaling;
+        var current = GetPointerScreenPoint(e, null);
+        var dx = (current.X - startScreen.X) / scale;
+        var dy = (current.Y - startScreen.Y) / scale;
+
+        var edgeName = edge.ToString();
+        var newWidth = _touchResizeStartSize.Width;
+        var newHeight = _touchResizeStartSize.Height;
+        var pos = _touchResizeStartWindowPos;
+
+        if (edgeName.Contains("East", StringComparison.Ordinal))
+        {
+            newWidth = Math.Max(MinWidth, _touchResizeStartSize.Width + dx);
+        }
+
+        if (edgeName.Contains("South", StringComparison.Ordinal))
+        {
+            newHeight = Math.Max(MinHeight, _touchResizeStartSize.Height + dy);
+        }
+
+        if (edgeName.Contains("West", StringComparison.Ordinal))
+        {
+            newWidth = Math.Max(MinWidth, _touchResizeStartSize.Width - dx);
+            pos = new PixelPoint(
+                pos.X + (int)Math.Round((_touchResizeStartSize.Width - newWidth) * scale),
+                pos.Y);
+        }
+
+        if (edgeName.Contains("North", StringComparison.Ordinal))
+        {
+            newHeight = Math.Max(MinHeight, _touchResizeStartSize.Height - dy);
+            pos = new PixelPoint(
+                pos.X,
+                pos.Y + (int)Math.Round((_touchResizeStartSize.Height - newHeight) * scale));
+        }
+
+        Width = newWidth;
+        Height = newHeight;
+        Position = pos;
+    }
+
+    private void EndTouchResize(PointerEventArgs e)
+    {
+        if (_touchResizeStartScreen is null)
+        {
+            return;
+        }
+
+        _touchResizeStartScreen = null;
+        e.Pointer.Capture(null);
+        // 缩放期间圆角区域更新被防抖延迟，结束后立即应用一次
+        ApplyWindowRegion();
+    }
+
+    private void EndTouchResize(RoutedEventArgs e)
+    {
+        if (_touchResizeStartScreen is null)
+        {
+            return;
+        }
+
+        _touchResizeStartScreen = null;
+        ApplyWindowRegion();
     }
 
     /// <summary>最大化时去除圆角，并停用边缘缩放手柄（避免与系统最大化行为冲突）。</summary>
@@ -402,23 +546,27 @@ public partial class MainWindow : Window
 
     // —— Windows 圆角窗形区域：把圆角外的四角从窗口矩形中裁掉，点击可穿透到下层窗口 ——
 
-    private bool _regionUpdateQueued;
+    // 圆角区域重设（SetWindowRgn）在缩放过程中每帧调用会造成明显卡顿（触屏尤其明显），
+    // 改为 120ms 防抖：连续变化只在停止后应用一次；触屏缩放结束时由 EndTouchResize 立即应用
+    private DispatcherTimer? _regionDebounceTimer;
 
     private void ScheduleWindowRegionUpdate()
     {
-        if (_regionUpdateQueued)
+        if (_regionDebounceTimer is null)
         {
-            return;
+            _regionDebounceTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(120)
+            };
+            _regionDebounceTimer.Tick += (_, _) =>
+            {
+                _regionDebounceTimer.Stop();
+                ApplyWindowRegion();
+            };
         }
 
-        _regionUpdateQueued = true;
-        Dispatcher.UIThread.Post(
-            () =>
-            {
-                _regionUpdateQueued = false;
-                ApplyWindowRegion();
-            },
-            DispatcherPriority.Background);
+        _regionDebounceTimer.Stop();
+        _regionDebounceTimer.Start();
     }
 
     private void ApplyWindowRegion()

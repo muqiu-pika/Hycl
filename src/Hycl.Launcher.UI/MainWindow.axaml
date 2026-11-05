@@ -30,7 +30,10 @@
             <Grid RowDefinitions="48,*">
                 <!-- ===== 标题栏：品牌 + 居中胶囊标签 + 窗口控制 ===== -->
                 <Border Background="{DynamicResource TitleGradientBrush}"
-                        PointerPressed="OnTitleBarPointerPressed">
+                        PointerPressed="OnTitleBarPointerPressed"
+                        PointerMoved="OnTitleBarPointerMoved"
+                        PointerReleased="OnTitleBarPointerReleased"
+                        PointerCaptureLost="OnTitleBarPointerCaptureLost">
                     <Grid ColumnDefinitions="*,Auto,*" Margin="19,0,10,0">
                         <StackPanel Orientation="Horizontal"
                                     Spacing="9"
