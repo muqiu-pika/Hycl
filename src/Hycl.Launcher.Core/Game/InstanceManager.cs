@@ -171,6 +171,7 @@ public sealed class InstanceManager
             .ToList();
     }
 
+    /// <summary>删除实例：Windows 进回收站，其他平台移入 .hycl-trash 兜底目录（与 PCL-CE 回收站策略一致）。</summary>
     public bool Delete(string gameDirectory, string instanceId)
     {
         if (instanceId.IndexOfAny(new[] { '\\', '/' }) >= 0 || instanceId.Contains("..", StringComparison.Ordinal))
@@ -184,17 +185,13 @@ public sealed class InstanceManager
             return false;
         }
 
-        try
+        if (RecycleBin.DeleteDirectory(directory, gameDirectory, instanceId, _logger))
         {
-            Directory.Delete(directory, true);
             _logger.Info($"已删除实例：{instanceId}");
             return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            _logger.Error($"删除实例失败：{instanceId}", ex);
-            return false;
-        }
+
+        return false;
     }
 
     /// <summary>实例名必须是 versions 下的单层目录名：不含分隔符、.. 与非法字符。</summary>

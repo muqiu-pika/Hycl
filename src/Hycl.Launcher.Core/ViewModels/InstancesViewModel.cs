@@ -550,7 +550,10 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
             return;
         }
 
-        var deleted = SaveManager.DeleteToRecycleBin(save.Directory, _services.Logger);
+        var deleted = SaveManager.DeleteToRecycleBin(
+            save.Directory,
+            _services.Config.EffectiveGameDirectory,
+            _services.Logger);
         StatusMessage = deleted
             ? $"已删除存档到回收站：{save.Name}"
             : $"删除存档失败：{save.Name}";

@@ -82,27 +82,10 @@ public static class SaveManager
         }
     }
 
-    /// <summary>删除到回收站（与 PCL-CE 一致，可从回收站恢复）。</summary>
-    public static bool DeleteToRecycleBin(string directory, LauncherLogger logger)
+    /// <summary>删除到回收站（Windows）或 .hycl-trash 兜底目录，与 PCL-CE 回收站策略一致。</summary>
+    public static bool DeleteToRecycleBin(string directory, string gameDirectory, LauncherLogger logger)
     {
-        if (!Directory.Exists(directory))
-        {
-            return false;
-        }
-
-        try
-        {
-            Microsoft.VisualBasic.FileIO.FileSystem.DeleteDirectory(
-                directory,
-                Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
-                Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
-            return true;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or OperationCanceledException)
-        {
-            logger.Error($"删除存档失败：{directory}", ex);
-            return false;
-        }
+        return RecycleBin.DeleteDirectory(directory, gameDirectory, Path.GetFileName(directory.TrimEnd('/', '\\')), logger);
     }
 
     private static void CopyDirectory(string source, string target)
