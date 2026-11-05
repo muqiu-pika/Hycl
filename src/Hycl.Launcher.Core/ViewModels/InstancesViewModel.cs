@@ -146,6 +146,18 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
     [ObservableProperty]
     private string _editorJvmArguments = "";
 
+    [ObservableProperty]
+    private string _editorGameArguments = "";
+
+    [ObservableProperty]
+    private string _editorWindowTitle = "";
+
+    [ObservableProperty]
+    private string _editorTypeInfo = "";
+
+    [ObservableProperty]
+    private string _editorServerToEnter = "";
+
     /// <summary>窗口模式选项（索引 0 跟随全局，其余映射到 0~4）。</summary>
     [ObservableProperty]
     private string _editorWindowTypeOption = "跟随全局";
@@ -415,6 +427,10 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         settings.MemoryMegabytes = memory;
         settings.InitialMemoryMegabytes = initial;
         settings.ExtraJvmArguments = EditorJvmArguments.Trim();
+        settings.ExtraGameArguments = EditorGameArguments.Trim();
+        settings.WindowTitle = EditorWindowTitle.Trim();
+        settings.TypeInfo = EditorTypeInfo.Trim();
+        settings.ServerToEnter = EditorServerToEnter.Trim();
         settings.WindowType = windowTypeIndex == 0 ? -1 : windowTypeIndex - 1;
         settings.WindowWidth = width;
         settings.WindowHeight = height;
@@ -781,6 +797,10 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
             ? ""
             : settings.InitialMemoryMegabytes.ToString();
         EditorJvmArguments = settings?.ExtraJvmArguments ?? "";
+        EditorGameArguments = settings?.ExtraGameArguments ?? "";
+        EditorWindowTitle = settings?.WindowTitle ?? "";
+        EditorTypeInfo = settings?.TypeInfo ?? "";
+        EditorServerToEnter = settings?.ServerToEnter ?? "";
         EditorWindowTypeOption = settings is null || settings.WindowType < 0
             ? "跟随全局"
             : WindowTypeOptions[Math.Min(settings.WindowType + 1, WindowTypeOptions.Count - 1)];
@@ -799,6 +819,10 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         EditorMemoryText = "";
         EditorInitialMemoryText = "";
         EditorJvmArguments = "";
+        EditorGameArguments = "";
+        EditorWindowTitle = "";
+        EditorTypeInfo = "";
+        EditorServerToEnter = "";
         EditorWindowTypeOption = "跟随全局";
         EditorWindowWidthText = "";
         EditorWindowHeightText = "";

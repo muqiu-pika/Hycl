@@ -699,6 +699,7 @@
                                         BorderThickness="1"
                                         CornerRadius="10"
                                         Padding="12,10">
+                                    <StackPanel Spacing="8">
                                     <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="10">
                                         <Button Classes="line-btn"
                                                 MinHeight="0"
@@ -753,26 +754,44 @@
                                                 </Border>
                                             </StackPanel>
                                         </StackPanel>
-                                        <Button Grid.Column="3"
-                                                Classes="mc-btn"
-                                                MinHeight="0"
-                                                Height="30"
-                                                Padding="10,4"
-                                                VerticalAlignment="Center"
-                                                ToolTip.Tip="收藏到本地收藏夹（离线可查看）"
-                                                Command="{Binding ActiveCompSection.ToggleFavoriteCommand}">
-                                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                                <c:HyclIcon Kind="star"
-                                                            Width="13"
-                                                            Height="13"
-                                                            VerticalAlignment="Center"
-                                                            Foreground="{DynamicResource PrimaryDeepBrush}" />
-                                                <TextBlock Text="{Binding ActiveCompSection.FavoriteActionText}"
-                                                           FontSize="12"
-                                                           VerticalAlignment="Center"
-                                                           Foreground="{DynamicResource PrimaryDeepBrush}" />
-                                            </StackPanel>
-                                        </Button>
+                                        <StackPanel Grid.Column="3"
+                                                    Orientation="Horizontal"
+                                                    Spacing="6"
+                                                    VerticalAlignment="Center">
+                                            <c:McComboBox Width="132"
+                                                          Height="30"
+                                                          VerticalAlignment="Center"
+                                                          ToolTip.Tip="收藏到哪个收藏夹"
+                                                          Items="{Binding ActiveCompSection.FavoriteFolderNames}"
+                                                          SelectedItem="{Binding ActiveCompSection.SelectedFavoriteFolder, Mode=TwoWay}" />
+                                            <Button Classes="mc-btn"
+                                                    MinHeight="0"
+                                                    Height="30"
+                                                    Padding="10,4"
+                                                    VerticalAlignment="Center"
+                                                    ToolTip.Tip="收藏到所选收藏夹（离线可查看）"
+                                                    Command="{Binding ActiveCompSection.ToggleFavoriteCommand}">
+                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <c:HyclIcon Kind="star"
+                                                                Width="13"
+                                                                Height="13"
+                                                                VerticalAlignment="Center"
+                                                                Foreground="{DynamicResource PrimaryDeepBrush}" />
+                                                    <TextBlock Text="{Binding ActiveCompSection.FavoriteActionText}"
+                                                               FontSize="12"
+                                                               VerticalAlignment="Center"
+                                                               Foreground="{DynamicResource PrimaryDeepBrush}" />
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Classes="line-btn"
+                                                    MinHeight="0"
+                                                    Height="30"
+                                                    Padding="9,4"
+                                                    VerticalAlignment="Center"
+                                                    ToolTip.Tip="新建收藏夹"
+                                                    Content="新建夹"
+                                                    Command="{Binding ActiveCompSection.BeginCreateFavoriteFolderCommand}" />
+                                        </StackPanel>
                                         <c:McLoading Grid.Column="4"
                                                      Width="56"
                                                      Height="46"
@@ -780,6 +799,33 @@
                                                      HorizontalAlignment="Right"
                                                      IsVisible="{Binding ActiveCompSection.IsLoadingVersions}" />
                                     </Grid>
+                                    <Grid Margin="0,8,0,0"
+                                          ColumnDefinitions="Auto,*,Auto,Auto"
+                                          ColumnSpacing="8"
+                                          IsVisible="{Binding ActiveCompSection.IsNewFavoriteFolderVisible}">
+                                        <TextBlock Text="收藏夹名称"
+                                                   Classes="sline"
+                                                   VerticalAlignment="Center" />
+                                        <TextBox Grid.Column="1"
+                                                 Height="30"
+                                                 PlaceholderText="例如：常用模组"
+                                                 Text="{Binding ActiveCompSection.NewFavoriteFolderName, Mode=TwoWay}" />
+                                        <Button Grid.Column="2"
+                                                Classes="mc-btn"
+                                                MinHeight="0"
+                                                Height="30"
+                                                Padding="12,4"
+                                                Content="新建"
+                                                Command="{Binding ActiveCompSection.ConfirmCreateFavoriteFolderCommand}" />
+                                        <Button Grid.Column="3"
+                                                Classes="line-btn"
+                                                MinHeight="0"
+                                                Height="30"
+                                                Padding="10,4"
+                                                Content="取消"
+                                                Command="{Binding ActiveCompSection.CancelCreateFavoriteFolderCommand}" />
+                                    </Grid>
+                                    </StackPanel>
                                 </Border>
 
                                 <!-- 信息卡：分类 / 更新时间 / 下载量 / 支持版本 / 加载器 -->
@@ -1074,38 +1120,100 @@
                             BorderThickness="1"
                             CornerRadius="10"
                             Padding="12,9">
-                        <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
+                        <StackPanel Spacing="8">
                             <TextBlock Text="{Binding ActiveFavoritesSection.Description}"
                                        FontSize="11.5"
-                                       VerticalAlignment="Center"
                                        TextWrapping="Wrap"
                                        Foreground="{DynamicResource Gray2Brush}" />
-                            <c:McComboBox Grid.Column="1"
-                                          MinWidth="110"
-                                          Items="{x:Static vm:FavoritesSectionViewModel.FilterOptions}"
-                                          SelectedItem="{Binding ActiveFavoritesSection.SelectedFilter, Mode=TwoWay}" />
+                            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="8">
+                                <TextBlock Text="收藏夹"
+                                           Classes="sline"
+                                           VerticalAlignment="Center" />
+                                <c:McComboBox Grid.Column="1"
+                                              MinWidth="140"
+                                              HorizontalAlignment="Left"
+                                              Items="{Binding ActiveFavoritesSection.FolderNames}"
+                                              SelectedItem="{Binding ActiveFavoritesSection.SelectedFolderName, Mode=TwoWay}" />
+                                <Button Grid.Column="2"
+                                        Classes="mc-btn"
+                                        MinHeight="0"
+                                        Padding="10,4"
+                                        FontSize="12"
+                                        Content="新建"
+                                        Command="{Binding ActiveFavoritesSection.BeginCreateFolderCommand}" />
+                                <Button Grid.Column="3"
+                                        Classes="mc-btn"
+                                        MinHeight="0"
+                                        Padding="10,4"
+                                        FontSize="12"
+                                        Content="改名"
+                                        Command="{Binding ActiveFavoritesSection.BeginRenameFolderCommand}" />
+                                <Button Grid.Column="4"
+                                        Classes="mc-btn danger"
+                                        MinHeight="0"
+                                        Padding="10,4"
+                                        FontSize="12"
+                                        Content="删除夹"
+                                        IsEnabled="{Binding ActiveFavoritesSection.CanDeleteFolder}"
+                                        Command="{Binding ActiveFavoritesSection.DeleteFolderCommand}" />
+                                <c:McComboBox Grid.Column="5"
+                                              MinWidth="100"
+                                              Items="{x:Static vm:FavoritesSectionViewModel.FilterOptions}"
+                                              SelectedItem="{Binding ActiveFavoritesSection.SelectedFilter, Mode=TwoWay}" />
+                                <Button Grid.Column="6"
+                                        Classes="mc-btn"
+                                        MinHeight="0"
+                                        Padding="10,4"
+                                        FontSize="12"
+                                        Content="刷新"
+                                        Command="{Binding ActiveFavoritesSection.RefreshCommand}" />
+                            </Grid>
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                <TextBlock VerticalAlignment="Center"
+                                           FontSize="11.5"
+                                           Foreground="{DynamicResource Gray2Brush}"
+                                           Text="{Binding ActiveFavoritesSection.SummaryText}" />
+                                <Button Grid.Column="1"
+                                        Classes="mc-btn danger"
+                                        MinHeight="0"
+                                        Padding="10,4"
+                                        FontSize="12"
+                                        IsEnabled="{Binding ActiveFavoritesSection.HasChecked}"
+                                        Content="{Binding ActiveFavoritesSection.RemoveCheckedText}"
+                                        Command="{Binding ActiveFavoritesSection.RemoveCheckedCommand}" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Background="{DynamicResource GlassSurfaceBrush}"
+                            BorderBrush="{DynamicResource SoftLineBrush}"
+                            BorderThickness="1"
+                            CornerRadius="10"
+                            Padding="12,9"
+                            IsVisible="{Binding ActiveFavoritesSection.IsFolderDialogVisible}">
+                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+                            <TextBlock Text="{Binding ActiveFavoritesSection.FolderDialogTitle}"
+                                       Classes="sline"
+                                       VerticalAlignment="Center" />
+                            <TextBox Grid.Column="1"
+                                     Height="30"
+                                     Text="{Binding ActiveFavoritesSection.FolderDialogText, Mode=TwoWay}" />
                             <Button Grid.Column="2"
                                     Classes="mc-btn"
                                     MinHeight="0"
-                                    Padding="10,4"
+                                    Padding="12,4"
                                     FontSize="12"
-                                    Content="刷新"
-                                    Command="{Binding ActiveFavoritesSection.RefreshCommand}" />
+                                    Content="确定"
+                                    Command="{Binding ActiveFavoritesSection.CommitFolderDialogCommand}" />
                             <Button Grid.Column="3"
-                                    Classes="mc-btn danger"
+                                    Classes="line-btn"
                                     MinHeight="0"
                                     Padding="10,4"
                                     FontSize="12"
-                                    IsEnabled="{Binding ActiveFavoritesSection.HasChecked}"
-                                    Content="{Binding ActiveFavoritesSection.RemoveCheckedText}"
-                                    Command="{Binding ActiveFavoritesSection.RemoveCheckedCommand}" />
+                                    Content="取消"
+                                    Command="{Binding ActiveFavoritesSection.CancelFolderDialogCommand}" />
                         </Grid>
                     </Border>
-
-                    <TextBlock Margin="2,0,0,0"
-                               FontSize="11.5"
-                               Foreground="{DynamicResource Gray2Brush}"
-                               Text="{Binding ActiveFavoritesSection.SummaryText}" />
 
                     <TextBlock IsVisible="{Binding ActiveFavoritesSection.IsEmpty}"
                                Margin="2,18,0,0"
@@ -1126,6 +1234,7 @@
                                         CornerRadius="8"
                                         Padding="10,8"
                                         Margin="0,0,0,4">
+                                    <StackPanel Spacing="6">
                                     <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="10">
                                         <CheckBox VerticalAlignment="Center"
                                                   IsChecked="{Binding IsChecked, Mode=TwoWay}" />
@@ -1186,6 +1295,26 @@
                                                 Command="{Binding $parent[UserControl].((vm:DownloadPageViewModel)DataContext).ActiveFavoritesSection.RemoveCommand}"
                                                 CommandParameter="{Binding}" />
                                     </Grid>
+                                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                        <TextBlock Text="备注"
+                                                   Classes="sline"
+                                                   VerticalAlignment="Center" />
+                                        <TextBox Grid.Column="1"
+                                                 Height="28"
+                                                 FontSize="11.5"
+                                                 PlaceholderText="给这条收藏加个备注，例如：服务端必备"
+                                                 Text="{Binding Note, Mode=TwoWay}" />
+                                        <Button Grid.Column="2"
+                                                Classes="mc-btn"
+                                                MinHeight="0"
+                                                Height="28"
+                                                Padding="10,2"
+                                                FontSize="11.5"
+                                                Content="保存备注"
+                                                Command="{Binding $parent[UserControl].((vm:DownloadPageViewModel)DataContext).ActiveFavoritesSection.SaveNoteCommand}"
+                                                CommandParameter="{Binding}" />
+                                    </Grid>
+                                    </StackPanel>
                                 </Border>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>

@@ -240,13 +240,76 @@ public partial class CompSectionViewModel : ObservableObject
 
     private readonly InstallTaskViewModel _install;
 
+    private FavoritesStore? _favorites;
+    private EventHandler? _favoritesChanged;
+
     /// <summary>收藏夹存储（由下载页注入；为 null 时不显示收藏入口）。</summary>
-    public FavoritesStore? Favorites { get; set; }
+    public FavoritesStore? Favorites
+    {
+        get => _favorites;
+        set
+        {
+            if (ReferenceEquals(_favorites, value))
+            {
+                return;
+            }
 
-    public bool IsSelectedFavorite =>
-        SelectedProject is not null && Favorites?.Contains(SelectedProject.Project) == true;
+            if (_favorites is not null && _favoritesChanged is not null)
+            {
+                _favorites.Changed -= _favoritesChanged;
+            }
 
-    public string FavoriteActionText => IsSelectedFavorite ? "已收藏" : "收藏";
+            _favorites = value;
+            _favoritesChanged = (_, _) => RefreshFavoriteFolders();
+            if (_favorites is not null)
+            {
+                _favorites.Changed += _favoritesChanged;
+            }
+
+            RefreshFavoriteFolders();
+        }
+    }
+
+    /// <summary>收藏夹名称列表（下拉框按名称选择，收藏夹名称在本地保持唯一）。</summary>
+    [ObservableProperty]
+    private IReadOnlyList<string> _favoriteFolderNames = [];
+
+    private string _selectedFavoriteFolder = "";
+
+    public string SelectedFavoriteFolder
+    {
+        get => _selectedFavoriteFolder;
+        set
+        {
+            if (!SetProperty(ref _selectedFavoriteFolder, value))
+            {
+                return;
+            }
+
+            NotifyFavoriteState();
+        }
+    }
+
+    /// <summary>当前项目是否已收藏在选中的收藏夹里。</summary>
+    public bool IsFavoriteInSelectedFolder =>
+        SelectedProject is not null
+        && Favorites?.ContainsInFolder(CurrentFavoriteFolder?.Id ?? "", SelectedProject.Project.Id) == true;
+
+    public bool IsFavoriteAnywhere =>
+        SelectedProject is not null && Favorites?.Contains(SelectedProject.Project.Id) == true;
+
+    public string FavoriteActionText => IsFavoriteInSelectedFolder ? "已收藏" : "收藏";
+
+    /// <summary>新建收藏夹内嵌输入框。</summary>
+    [ObservableProperty]
+    private bool _isNewFavoriteFolderVisible;
+
+    [ObservableProperty]
+    private string _newFavoriteFolderName = "";
+
+    private FavoriteFolder? CurrentFavoriteFolder =>
+        Favorites?.Folders.FirstOrDefault(folder => folder.Name == SelectedFavoriteFolder)
+        ?? Favorites?.Folders.FirstOrDefault();
 
     public CompResourceType Type { get; }
 
@@ -623,7 +686,7 @@ public partial class CompSectionViewModel : ObservableObject
         VersionErrorText = "";
     }
 
-    /// <summary>收藏 / 取消收藏当前项目（写入本地收藏夹，不依赖社区接口）。</summary>
+    /// <summary>收藏 / 取消收藏当前项目到选中的收藏夹（写入本地收藏夹，不依赖社区接口）。</summary>
     [RelayCommand]
     private async Task ToggleFavoriteAsync()
     {
@@ -632,12 +695,67 @@ public partial class CompSectionViewModel : ObservableObject
             return;
         }
 
-        var wasFavorite = IsSelectedFavorite;
-        await Favorites.ToggleAsync(SelectedProject.Project, Type).ConfigureAwait(true);
+        var folder = CurrentFavoriteFolder;
+        if (folder is null)
+        {
+            return;
+        }
+
+        var wasFavorite = IsFavoriteInSelectedFolder;
+        await Favorites.ToggleAsync(folder.Id, SelectedProject.Project, Type).ConfigureAwait(true);
         NotifyFavoriteState();
         _toast?.Invoke(wasFavorite
-            ? $"已取消收藏：{SelectedProject.Title}"
-            : $"已收藏：{SelectedProject.Title}");
+            ? $"已从「{folder.Name}」取消收藏：{SelectedProject.Title}"
+            : $"已收藏到「{folder.Name}」：{SelectedProject.Title}");
+    }
+
+    [RelayCommand]
+    private void BeginCreateFavoriteFolder()
+    {
+        NewFavoriteFolderName = "";
+        IsNewFavoriteFolderVisible = true;
+    }
+
+    [RelayCommand]
+    private void CancelCreateFavoriteFolder()
+    {
+        IsNewFavoriteFolderVisible = false;
+        NewFavoriteFolderName = "";
+    }
+
+    [RelayCommand]
+    private async Task ConfirmCreateFavoriteFolderAsync()
+    {
+        if (Favorites is null)
+        {
+            return;
+        }
+
+        var name = NewFavoriteFolderName.Trim();
+        if (name.Length == 0)
+        {
+            _toast?.Invoke("收藏夹名称不能为空");
+            return;
+        }
+
+        var folder = await Favorites.CreateFolderAsync(name).ConfigureAwait(true);
+        IsNewFavoriteFolderVisible = false;
+        NewFavoriteFolderName = "";
+        _toast?.Invoke($"已新建收藏夹：{folder.Name}");
+    }
+
+    /// <summary>收藏夹列表变化后同步下拉框，尽量保留当前选择。</summary>
+    private void RefreshFavoriteFolders()
+    {
+        var names = Favorites?.Folders.Select(folder => folder.Name).ToList() ?? [];
+        FavoriteFolderNames = names;
+        if (!names.Contains(SelectedFavoriteFolder))
+        {
+            _selectedFavoriteFolder = names.FirstOrDefault() ?? "";
+            OnPropertyChanged(nameof(SelectedFavoriteFolder));
+        }
+
+        NotifyFavoriteState();
     }
 
     /// <summary>从收藏夹打开项目详情：把项目补进结果列表后按常规流程加载版本文件。</summary>
@@ -655,7 +773,8 @@ public partial class CompSectionViewModel : ObservableObject
 
     private void NotifyFavoriteState()
     {
-        OnPropertyChanged(nameof(IsSelectedFavorite));
+        OnPropertyChanged(nameof(IsFavoriteInSelectedFolder));
+        OnPropertyChanged(nameof(IsFavoriteAnywhere));
         OnPropertyChanged(nameof(FavoriteActionText));
     }
 

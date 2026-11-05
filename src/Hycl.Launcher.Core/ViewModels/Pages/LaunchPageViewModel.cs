@@ -1212,7 +1212,9 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             ExtraJvmArguments = string.IsNullOrWhiteSpace(instanceSettings?.ExtraJvmArguments)
                 ? config.ExtraJvmArguments
                 : instanceSettings.ExtraJvmArguments,
-            ExtraGameArguments = config.ExtraGameArguments,
+            ExtraGameArguments = string.IsNullOrWhiteSpace(instanceSettings?.ExtraGameArguments)
+                ? config.ExtraGameArguments
+                : instanceSettings.ExtraGameArguments,
             PlayerName = account?.Name ?? "",
             PlayerUuid = account?.Uuid ?? "",
             AccessToken = account?.AccessToken ?? "",
@@ -1227,13 +1229,18 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             AuthlibServer = account?.Type == "authlib" ? account.Server : "",
             AuthlibJarPath = authlibJar ?? "",
             AuthlibPrefetched = authlibPrefetched ?? "",
-            WindowTitle = config.WindowTitle,
-            TypeInfo = config.TypeInfo,
+            WindowTitle = string.IsNullOrWhiteSpace(instanceSettings?.WindowTitle)
+                ? config.WindowTitle
+                : instanceSettings.WindowTitle,
+            TypeInfo = string.IsNullOrWhiteSpace(instanceSettings?.TypeInfo)
+                ? config.TypeInfo
+                : instanceSettings.TypeInfo,
             LauncherVisibility = config.LauncherVisibility,
             ProcessPriority = config.ProcessPriority,
             PreferredIpStack = config.PreferredIpStack,
             PreLaunchCommand = config.PreLaunchCommand,
-            PreLaunchCommandWait = config.PreLaunchCommandWait
+            PreLaunchCommandWait = config.PreLaunchCommandWait,
+            ServerToEnter = instanceSettings?.ServerToEnter.Trim() ?? ""
         };
     }
 

@@ -312,6 +312,18 @@ public sealed class InstanceSettings
     /// <summary>覆盖的附加 JVM 参数；空字符串表示跟随全局。</summary>
     public string ExtraJvmArguments { get; set; } = "";
 
+    /// <summary>覆盖的附加游戏参数；空字符串表示跟随全局。</summary>
+    public string ExtraGameArguments { get; set; } = "";
+
+    /// <summary>覆盖的窗口标题；空字符串表示跟随全局。</summary>
+    public string WindowTitle { get; set; } = "";
+
+    /// <summary>覆盖的自定义版本信息；空字符串表示跟随全局。</summary>
+    public string TypeInfo { get; set; } = "";
+
+    /// <summary>自动进入的服务器（host 或 host:port）；空字符串表示不自动进服。</summary>
+    public string ServerToEnter { get; set; } = "";
+
     /// <summary>覆盖的窗口模式（0 默认 / 1 全屏 / 2 与启动器相同 / 3 自定义 / 4 最大化）；-1 表示跟随全局。</summary>
     public int WindowType { get; set; } = -1;
 
@@ -327,6 +339,10 @@ public sealed class InstanceSettings
         SavesDirectory ??= "";
         JavaPath ??= "";
         ExtraJvmArguments ??= "";
+        ExtraGameArguments ??= "";
+        WindowTitle ??= "";
+        TypeInfo ??= "";
+        ServerToEnter ??= "";
         MemoryMegabytes = Math.Clamp(MemoryMegabytes, 0, 65536);
         InitialMemoryMegabytes = Math.Clamp(InitialMemoryMegabytes, -1, 65536);
         WindowType = Math.Clamp(WindowType, -1, 4);

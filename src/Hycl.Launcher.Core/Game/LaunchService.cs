@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -92,6 +93,9 @@ public sealed class LaunchOptions
 
     /// <summary>等待启动前命令执行完成后再继续启动。</summary>
     public bool PreLaunchCommandWait { get; init; } = true;
+
+    /// <summary>自动进入的服务器；空 = 不自动进服。对应 PCL-CE VersionServerEnter。</summary>
+    public string ServerToEnter { get; init; } = "";
 }
 
 public sealed class GameSession : IDisposable
@@ -419,7 +423,8 @@ public sealed class LaunchService
 
         if (PlatformInfo.IsWindows && !string.IsNullOrWhiteSpace(options.WindowTitle))
         {
-            _ = InjectWindowTitleAsync(process, options.WindowTitle, placeholders);
+            var windowTitle = ApplyTitlePlaceholders(options, resolved.Info);
+            _ = InjectWindowTitleAsync(process, windowTitle, placeholders);
         }
 
         return new GameSession(process, logSignal);
@@ -705,6 +710,28 @@ public sealed class LaunchService
         }
 
         arguments.AddRange(ArgumentTokenizer.Split(options.ExtraGameArguments));
+
+        // 自动进服（对应 PCL-CE _AppendWorldAndServerArguments）：1.20.3+ 用 quickPlay，旧版本用 --server/--port
+        if (!string.IsNullOrWhiteSpace(options.ServerToEnter))
+        {
+            var server = options.ServerToEnter.Trim();
+            if (DateTimeOffset.TryParse(info.ReleaseTime, CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal, out var releaseTime)
+                && releaseTime > new DateTimeOffset(2023, 4, 4, 0, 0, 0, TimeSpan.Zero))
+            {
+                arguments.Add("--quickPlayMultiplayer");
+                arguments.Add(server);
+            }
+            else
+            {
+                var parts = server.Split(':');
+                arguments.Add("--server");
+                arguments.Add(parts[0]);
+                arguments.Add("--port");
+                arguments.Add(parts.Length > 1 ? parts[1] : "25565");
+            }
+        }
+
         return arguments;
     }
 
@@ -790,6 +817,25 @@ public sealed class LaunchService
         }
     }
 
+    /// <summary>展开 PCL-CE 支持的大括号标题标记（{name}/{user}/{login}/{version}/{date}/{time}）。</summary>
+    private static string ApplyTitlePlaceholders(LaunchOptions options, VersionInfo info)
+    {
+        var login = options.UserType switch
+        {
+            "msa" => "正版",
+            "authlib" => "第三方",
+            _ => "离线"
+        };
+        var now = DateTime.Now;
+        return options.WindowTitle
+            .Replace("{name}", options.InstanceId, StringComparison.Ordinal)
+            .Replace("{user}", options.PlayerName, StringComparison.Ordinal)
+            .Replace("{login}", login, StringComparison.Ordinal)
+            .Replace("{version}", info.Id, StringComparison.Ordinal)
+            .Replace("{date}", now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), StringComparison.Ordinal)
+            .Replace("{time}", now.ToString("HH:mm:ss", CultureInfo.InvariantCulture), StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// 游戏窗口标题注入（对应 PCL-CE LaunchArgumentTitle）：
     /// 游戏窗口创建后轮询主窗口句柄并用 SetWindowText 覆写（仅 Windows）。
@@ -800,7 +846,9 @@ public sealed class LaunchService
         IReadOnlyDictionary<string, string> placeholders)
     {
         var title = Substitute(titleTemplate, placeholders);
-        for (var attempt = 0; attempt < 90; attempt++)
+        var logged = false;
+        // 与 PCL-CE Watcher 一致：游戏会自行重置标题，因此需要在进程存活期间反复设置。
+        while (true)
         {
             try
             {
@@ -811,12 +859,17 @@ public sealed class LaunchService
                 }
 
                 var handle = process.MainWindowHandle;
-                if (handle != IntPtr.Zero)
+                if (handle == IntPtr.Zero)
                 {
-                    if (Win32WindowTitle.SetWindowText(handle, title))
+                    handle = GameWindowProbe.Probe(process.Id).Handle;
+                }
+
+                if (handle != IntPtr.Zero && Win32WindowTitle.SetWindowText(handle, title))
+                {
+                    if (!logged)
                     {
                         _logger.Info($"已设置游戏窗口标题：{title}");
-                        return;
+                        logged = true;
                     }
                 }
             }
@@ -825,7 +878,7 @@ public sealed class LaunchService
                 return;
             }
 
-            await Task.Delay(1000).ConfigureAwait(false);
+            await Task.Delay(200).ConfigureAwait(false);
         }
     }
 

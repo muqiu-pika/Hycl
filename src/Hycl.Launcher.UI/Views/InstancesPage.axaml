@@ -262,6 +262,43 @@
                                              PlaceholderText="留空使用全局参数" />
                                 </Grid>
                                 <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="附加游戏参数" />
+                                    <TextBox Grid.Column="1"
+                                             Classes="stext"
+                                             HorizontalAlignment="Stretch"
+                                             VerticalAlignment="Center"
+                                             Text="{Binding EditorGameArguments, Mode=TwoWay}"
+                                             PlaceholderText="留空使用全局参数，例如 --fullscreen" />
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="游戏窗口标题" />
+                                    <TextBox Grid.Column="1"
+                                             Classes="stext"
+                                             HorizontalAlignment="Stretch"
+                                             VerticalAlignment="Center"
+                                             Text="{Binding EditorWindowTitle, Mode=TwoWay}"
+                                             ToolTip.Tip="支持 {name} 实例名、{user} 玩家名、{login} 登录方式、{version} 版本号、{date} 日期、{time} 时间"
+                                             PlaceholderText="留空跟随全局，例如 {name} | 玩家 : {user}" />
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="自定义版本信息" />
+                                    <TextBox Grid.Column="1"
+                                             Classes="stext"
+                                             HorizontalAlignment="Stretch"
+                                             VerticalAlignment="Center"
+                                             Text="{Binding EditorTypeInfo, Mode=TwoWay}"
+                                             PlaceholderText="留空跟随全局（显示在游戏左下角与 F3）" />
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="自动进服地址" />
+                                    <TextBox Grid.Column="1"
+                                             Classes="stext"
+                                             HorizontalAlignment="Stretch"
+                                             VerticalAlignment="Center"
+                                             Text="{Binding EditorServerToEnter, Mode=TwoWay}"
+                                             PlaceholderText="例如 play.example.com:25565，留空不自动进服" />
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
                                     <TextBlock Classes="srow-label" Text="Java 路径" />
                                     <Grid Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
                                         <TextBox Classes="stext"
