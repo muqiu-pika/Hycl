@@ -156,6 +156,9 @@ public sealed partial class InstancesViewModel : ObservableObject
     /// <summary>删除实例后列表已重置：UI 应滚动回开头，避免用户误以为还停在旧实例。</summary>
     public event EventHandler? ListResetRequested;
 
+    /// <summary>删除/复制/重命名导致选中实例被自动切换：右侧详情应滚回顶部，避免停在危险操作区。</summary>
+    public event EventHandler? DetailResetRequested;
+
     [RelayCommand]
     public async Task RefreshAsync()
     {
@@ -319,8 +322,10 @@ public sealed partial class InstancesViewModel : ObservableObject
         await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
         await RefreshAsync().ConfigureAwait(true);
         SelectionChanged?.Invoke(this, "");
-        // 选中项已回到列表第一项（RefreshAsync 兜底），通知 UI 滚回开头
+        // 选中项已回到列表第一项（RefreshAsync 兜底），通知 UI 滚回开头；
+        // 右侧详情同样归位，避免滚动位置停在刚才点击确认删除的底部区域
         ListResetRequested?.Invoke(this, EventArgs.Empty);
+        DetailResetRequested?.Invoke(this, EventArgs.Empty);
     }
 
     // ------------------------- 设置保存 -------------------------
@@ -560,6 +565,8 @@ public sealed partial class InstancesViewModel : ObservableObject
         await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
         await RefreshAsync().ConfigureAwait(true);
         SelectedInstance = Instances.FirstOrDefault(x => x.Id.Equals(newId, StringComparison.OrdinalIgnoreCase));
+        // 复制/重命名后选中的是新实例，详情内容整体更换：滚回顶部
+        DetailResetRequested?.Invoke(this, EventArgs.Empty);
     }
 
     // ------------------------- 选中变化 -------------------------

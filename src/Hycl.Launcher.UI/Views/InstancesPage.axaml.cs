@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using Hycl.Launcher.Core.ViewModels;
 
 namespace Hycl.Launcher.UI.Views;
@@ -26,6 +27,8 @@ public partial class InstancesPage : UserControl
         viewModel.FolderPicker = PickFolderAsync;
         viewModel.ListResetRequested -= OnListResetRequested;
         viewModel.ListResetRequested += OnListResetRequested;
+        viewModel.DetailResetRequested -= OnDetailResetRequested;
+        viewModel.DetailResetRequested += OnDetailResetRequested;
     }
 
     private void OnListResetRequested(object? sender, EventArgs e)
@@ -36,6 +39,22 @@ public partial class InstancesPage : UserControl
         {
             scroll.Offset = new Vector(scroll.Offset.X, 0);
         }
+    }
+
+    /// <summary>
+    /// 删除/复制/重命名导致选中实例被自动切换后，把右侧详情滚回顶部。
+    /// 延后到布局完成再设置，避免内容尚未收缩时偏移被旧范围夹住；
+    /// 手动点选列表不触发这里，保留用户自己的滚动位置。
+    /// </summary>
+    private void OnDetailResetRequested(object? sender, EventArgs e)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (this.FindControl<ScrollViewer>("DetailScroll") is { } scroll)
+            {
+                scroll.Offset = new Vector(0, 0);
+            }
+        }, DispatcherPriority.Background);
     }
 
     private async Task<string?> PickFolderAsync(string? startDirectory)

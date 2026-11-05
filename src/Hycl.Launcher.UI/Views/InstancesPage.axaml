@@ -135,7 +135,7 @@
 
         <!-- 右栏：实例详情与设置（分组对齐 PCL-CE：基础信息 / 启动设置 / 目录与隔离 / 实例操作 / 危险操作） -->
         <Panel Grid.Column="1" Margin="22,18,18,18">
-            <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+            <ScrollViewer Name="DetailScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                 <Panel>
                     <StackPanel IsVisible="{Binding HasInstances}">
                         <!-- 标题：大图标 + 名称/加载器 + 版本类型 -->
