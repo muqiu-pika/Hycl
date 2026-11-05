@@ -178,6 +178,61 @@ public sealed class AccountStore
         }
     }
 
+    /// <summary>归一化皮肤站 API 根：去空白、去结尾斜杠、统一小写（仅用于分组比较，不改写已存值）。</summary>
+    public static string NormalizeServer(string? server)
+        => (server ?? "").Trim().TrimEnd('/').ToLowerInvariant();
+
+    /// <summary>账号分组键：皮肤站按归一化后的 API 根分组，正版与离线各自单独一组。</summary>
+    public static string GroupKey(PlayerAccount account)
+        => account.Type switch
+        {
+            "authlib" => "authlib:" + NormalizeServer(account.Server),
+            "msa" => "msa",
+            _ => "offline"
+        };
+
+    /// <summary>重名判定用的「录入名」：皮肤站用登录时填写的账号名，离线用玩家名，正版用角色名。</summary>
+    public static string RecordedName(PlayerAccount account)
+    {
+        if (account.IsAuthlib)
+        {
+            var loginName = account.LoginName.Trim();
+            if (loginName.Length > 0)
+            {
+                return loginName;
+            }
+        }
+
+        return account.Name.Trim();
+    }
+
+    /// <summary>
+    /// 在指定分组内查找同名账号（大小写不敏感）。excludeUuid 用于排除正在更新的账号本身
+    /// （同 UUID 重新登录/改名时应视为同一条目）。只用于新增/改名/导入，不影响已存数据的读取。
+    /// </summary>
+    public PlayerAccount? FindNameConflict(string groupKey, string recordedName, string? excludeUuid = null)
+    {
+        var name = (recordedName ?? "").Trim();
+        if (name.Length == 0)
+        {
+            return null;
+        }
+
+        return Accounts.FirstOrDefault(x =>
+            GroupKey(x).Equals(groupKey, StringComparison.OrdinalIgnoreCase)
+            && !(excludeUuid is not null && x.Uuid.Equals(excludeUuid, StringComparison.OrdinalIgnoreCase))
+            && RecordedName(x).Equals(name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>分组的人类可读名称（用于重名提示：具体是哪个皮肤站 / 正版 / 离线）。</summary>
+    public static string GroupLabel(PlayerAccount account)
+        => account.Type switch
+        {
+            "authlib" => string.IsNullOrWhiteSpace(account.ServerName) ? account.Server : account.ServerName,
+            "msa" => "正版账户",
+            _ => "离线档案"
+        };
+
     public void RemoveAt(int index)
     {
         if (index < 0 || index >= Accounts.Count)

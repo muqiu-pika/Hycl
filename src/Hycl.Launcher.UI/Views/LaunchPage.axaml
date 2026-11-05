@@ -48,6 +48,7 @@
                             </Ellipse>
                             <c:McSkin SkinKey="{Binding ActiveProfile.SkinKey}"
                                       SkinPath="{Binding ActiveProfile.SkinPath}"
+                                      IsSlim="{Binding ActiveProfile.IsSlim}"
                                       Scale="5"
                                       HorizontalAlignment="Center"
                                       VerticalAlignment="Bottom"
@@ -90,12 +91,36 @@
                                     Command="{Binding EditProfileCommand}">
                                 <c:HyclIcon Kind="pencil" Width="16" Height="16" />
                             </Button>
+                            <Button Classes="pa-btn"
+                                    ToolTip.Tip="{Binding ProfileRefreshTip}"
+                                    IsVisible="{Binding ProfileRefreshVisible}"
+                                    IsEnabled="{Binding CanRefreshProfile}"
+                                    Command="{Binding RefreshProfileCommand}">
+                                <c:HyclIcon Kind="refresh" Width="16" Height="16" />
+                            </Button>
                             <Button Classes="pa-btn" ToolTip.Tip="切换档案" Command="{Binding OpenProfilesCommand}">
                                 <c:HyclIcon Kind="arrow-right-left" Width="16" Height="16" />
                             </Button>
                             <Button Classes="pa-btn" ToolTip.Tip="添加账号（正版 / 离线）" Command="{Binding OpenLoginDialogCommand}">
                                 <c:HyclIcon Kind="user-plus" Width="16" Height="16" />
                             </Button>
+                        </StackPanel>
+
+                        <!-- 刷新资料的失败提示：令牌失效时额外给出「重新登录」入口，不静默失败 -->
+                        <StackPanel IsVisible="{Binding HasProfileRefreshError}"
+                                    HorizontalAlignment="Center"
+                                    Margin="0,8,0,0">
+                            <TextBlock Text="{Binding ProfileRefreshError}"
+                                       FontSize="11.5"
+                                       Foreground="{DynamicResource ErrorBrush}"
+                                       TextWrapping="Wrap"
+                                       TextAlignment="Center" />
+                            <Button Classes="action-btn"
+                                    Content="重新登录"
+                                    HorizontalAlignment="Center"
+                                    Margin="0,6,0,0"
+                                    IsVisible="{Binding ProfileRefreshNeedsLogin}"
+                                    Command="{Binding ReLoginProfileCommand}" />
                         </StackPanel>
                         </StackPanel>
 
@@ -237,6 +262,39 @@
                 <!-- 当前版本：仿照 PCL-CE 的版本信息项（图标 + 标签 + 值），只展示版本真实属性 -->
                 <c:McCard Title="当前版本" Margin="0,0,0,15">
                     <StackPanel>
+                    <!-- 未安装任何版本：不展示“未选择版本”之类的无效字段，改为指向下载页的引导条 -->
+                    <Button Classes="quick-row"
+                            IsVisible="{Binding !HasInstances}"
+                            Command="{Binding GoToDownloadCommand}">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <Border Classes="quick-icon" VerticalAlignment="Center">
+                                <c:HyclIcon Kind="download"
+                                            Width="17"
+                                            Height="17"
+                                            Foreground="{DynamicResource BlockButtonTextBrush}"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center" />
+                            </Border>
+                            <StackPanel Grid.Column="1" Margin="11,0" VerticalAlignment="Center">
+                                <TextBlock Text="还没有安装任何游戏版本"
+                                           FontSize="13"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource BlockButtonNeutralTextBrush}" />
+                                <TextBlock Text="点击前往下载页安装第一个版本"
+                                           FontSize="11.5"
+                                           Foreground="{DynamicResource Gray3Brush}"
+                                           Margin="0,2,0,0" />
+                            </StackPanel>
+                            <c:HyclIcon Grid.Column="2"
+                                        Kind="chevron-right"
+                                        Width="14"
+                                        Height="14"
+                                        Foreground="{DynamicResource Gray3Brush}"
+                                        VerticalAlignment="Center" />
+                        </Grid>
+                    </Button>
+
+                    <StackPanel IsVisible="{Binding HasInstances}">
                     <Grid ColumnDefinitions="*,*,*">
                         <Grid ColumnDefinitions="Auto,*">
                             <c:BlockIcon Kind="{Binding CurrentIconKey}"
@@ -318,6 +376,7 @@
                             <TextBlock Text="管理实例" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
+                    </StackPanel>
                     </StackPanel>
                 </c:McCard>
 

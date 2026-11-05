@@ -184,6 +184,30 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     /// <summary>按钮是否可点击：启动中/关闭中禁用；游戏运行中仍可再次启动（多开）。</summary>
     public bool PrimaryEnabled => !IsLaunching && !IsClosing;
 
+    /// <summary>当前账号资料是否正在刷新（刷新按钮禁用并显示进行中文案）。</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanRefreshProfile))]
+    [NotifyPropertyChangedFor(nameof(ProfileRefreshTip))]
+    private bool _isRefreshingProfile;
+
+    /// <summary>资料刷新失败的可读提示（空字符串表示成功或无错误）。</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasProfileRefreshError))]
+    private string _profileRefreshError = "";
+
+    /// <summary>是否需要引导玩家重新登录（令牌失效 / 刷新被服务端拒绝）。</summary>
+    [ObservableProperty]
+    private bool _profileRefreshNeedsLogin;
+
+    /// <summary>刷新按钮只对正版/皮肤站账号显示：离线账号没有远端资料可拉取。</summary>
+    public bool ProfileRefreshVisible => ActiveProfile is { IsOffline: false };
+
+    public bool CanRefreshProfile => ProfileRefreshVisible && !IsRefreshingProfile;
+
+    public bool HasProfileRefreshError => !string.IsNullOrWhiteSpace(ProfileRefreshError);
+
+    public string ProfileRefreshTip => IsRefreshingProfile ? "正在刷新资料…" : "刷新资料（皮肤 / 披风 / 玩家名）";
+
     /// <summary>已安装实例列表（仅内部维护，启动页按当前选中实例展示）。</summary>
     public ObservableCollection<MinecraftInstance> Instances { get; } = [];
 
@@ -222,17 +246,26 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     /// <summary>启动按钮副标题：版本号 + 加载器。</summary>
     public string VersionSummary => $"{CurrentVersion} · {LoaderName}";
 
+    /// <summary>是否已安装任意版本：无实例时启动按钮改为「下载游戏」并跳转下载页（对齐 PCL）。</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(LaunchText))]
+    [NotifyPropertyChangedFor(nameof(LaunchSubText))]
+    [NotifyPropertyChangedFor(nameof(LaunchIconKey))]
+    private bool _hasInstances;
+
     public string LaunchText => IsClosing
         ? "正在关闭…"
         : IsLaunching
             ? "正在启动…"
-            : "启动游戏";
+            : HasInstances ? "启动游戏" : "下载游戏";
 
-    /// <summary>按钮图标键：始终为播放图标（运行中也可再次启动，关闭游戏由右下角悬浮按钮承担）。</summary>
-    public string LaunchIconKey => "play";
+    /// <summary>按钮图标键：无实例时为下载图标；有实例时始终为播放图标（运行中也可再次启动）。</summary>
+    public string LaunchIconKey => HasInstances ? "play" : "download";
 
-    /// <summary>按钮副标题：启动中显示阶段提示，其余显示版本信息（灰色小字）。</summary>
-    public string LaunchSubText => IsLaunching ? LaunchStageText : VersionSummary;
+    /// <summary>按钮副标题：启动中显示阶段提示；无实例时引导去下载页；其余显示版本信息。</summary>
+    public string LaunchSubText => IsLaunching
+        ? LaunchStageText
+        : HasInstances ? VersionSummary : "前往下载页安装第一个版本";
 
     /// <summary>该实例的累计启动次数（持久化在配置的 instanceLaunchCounts 字段）。</summary>
     [ObservableProperty]
@@ -286,6 +319,9 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                 InstanceNames.Add(instance.Id);
             }
 
+            // 空状态（未装任何版本）由 HasInstances 驱动：启动按钮改为「下载游戏」、版本栏改为下载引导
+            HasInstances = list.Count > 0;
+
             var target = FindTarget(list, preferredId);
             _selectedInstance = target;
             _suppressInstanceSelection = true;
@@ -332,6 +368,8 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     public void Activate()
     {
         _ = RefreshSkinsAsync();
+        // 回到启动页时重扫实例：空状态下装好版本后无需重启即可恢复正常按钮与版本栏
+        _ = RefreshInstancesAsync();
     }
 
     /// <summary>离开启动页：取消在途的实例扫描/配置保存。</summary>
@@ -475,12 +513,179 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                 isActive: index == selectedIndex,
                 accountUuid: account.Uuid,
                 skinPath: account.SkinPath,
-                isOffline: account.Type == "offline"));
+                isOffline: account.Type == "offline",
+                isSlim: account.SkinModel.Equals("slim", StringComparison.OrdinalIgnoreCase)));
         }
 
         ActiveProfile = Profiles.FirstOrDefault(x => x.IsActive) ?? Profiles.FirstOrDefault();
         OnPropertyChanged(nameof(PlayerCardName));
         OnPropertyChanged(nameof(PlayerCardType));
+    }
+
+    /// <summary>无实例时的版本栏引导：跳转下载页。</summary>
+    [RelayCommand]
+    private void GoToDownload() => NavigateRequested?.Invoke(this, "download");
+
+    /// <summary>
+    /// 刷新当前正版/皮肤站账号的资料（角色名 / 皮肤 / 披风 / 模型），并立即更新首页纸娃娃。
+    /// 离线账号没有远端资料，不提供该操作。失败时给出可读提示，令牌失效时引导重新登录。
+    /// </summary>
+    [RelayCommand]
+    private async Task RefreshProfileAsync()
+    {
+        var account = _services.Accounts.SelectedAccount;
+        if (account is null || account.Type == "offline" || IsRefreshingProfile)
+        {
+            return;
+        }
+
+        IsRefreshingProfile = true;
+        ProfileRefreshError = "";
+        ProfileRefreshNeedsLogin = false;
+        try
+        {
+            var error = "";
+            var needsLogin = false;
+            string? skinUrl = null;
+
+            if (account.IsAuthlib)
+            {
+                // 令牌续期：失败说明需要重新登录（档案接口本身公开，仍尝试拉取最新资料）
+                if (string.IsNullOrWhiteSpace(account.AccessToken))
+                {
+                    error = "登录凭据已失效，请重新登录";
+                    needsLogin = true;
+                }
+                else
+                {
+                    try
+                    {
+                        var renewed = await _services.AuthlibAuth.RefreshAsync(account).ConfigureAwait(true);
+                        AccountStore.ApplyAuthlibAuth(account, renewed);
+                    }
+                    catch (AuthlibException ex)
+                    {
+                        error = ex.Message;
+                        needsLogin = ex.Message.Contains("重新登录", StringComparison.Ordinal);
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        error = $"登录凭据不完整：{ex.Message}";
+                        needsLogin = true;
+                    }
+                }
+
+                var textures = await _services.AuthlibAuth
+                    .TryGetProfileAsync(account.Server, account.Uuid, account.AccessToken)
+                    .ConfigureAwait(true);
+                if (textures is not null)
+                {
+                    ApplyTextures(account, textures);
+                    skinUrl = textures.SkinUrl;
+                }
+                else if (error.Length == 0)
+                {
+                    error = "无法从皮肤站读取角色资料，请稍后重试";
+                }
+            }
+            else if (account.IsMicrosoft)
+            {
+                if (string.IsNullOrWhiteSpace(account.RefreshToken))
+                {
+                    error = "登录凭据已失效，请重新登录";
+                    needsLogin = true;
+                }
+                else
+                {
+                    try
+                    {
+                        var refreshed = await _services.MicrosoftAuth.RefreshAsync(account.RefreshToken).ConfigureAwait(true);
+                        AccountStore.ApplyMicrosoftAuth(account, refreshed);
+                        skinUrl = refreshed.SkinUrl;
+                        account.SkinModel = refreshed.SkinModel;
+                    }
+                    catch (MicrosoftAuthException ex)
+                    {
+                        error = ex.Message;
+                        needsLogin = true;
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        error = $"登录凭据不完整：{ex.Message}";
+                        needsLogin = true;
+                    }
+                }
+
+                // sessionserver 是公开接口：即便令牌失效也能取到最新角色名/皮肤/披风
+                var textures = await _services.MicrosoftAuth.GetProfileTexturesAsync(account.Uuid).ConfigureAwait(true);
+                if (textures is not null)
+                {
+                    ApplyTextures(account, textures);
+                    if (!string.IsNullOrWhiteSpace(textures.SkinUrl))
+                    {
+                        skinUrl = textures.SkinUrl;
+                    }
+                }
+                else if (error.Length == 0)
+                {
+                    error = "无法从正版服务器读取角色资料，请稍后重试";
+                }
+            }
+            else
+            {
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(skinUrl))
+            {
+                account.SkinUrl = skinUrl;
+                if (!await DownloadSkinAsync(account, skinUrl).ConfigureAwait(true) && error.Length == 0)
+                {
+                    error = "皮肤图片下载失败，请稍后重试";
+                }
+            }
+
+            await _services.Accounts.SaveAsync().ConfigureAwait(true);
+            _services.Config.UserName = account.Name;
+            await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
+            BuildProfiles();
+
+            ProfileRefreshError = error;
+            ProfileRefreshNeedsLogin = needsLogin
+                                       || error.Contains("重新登录", StringComparison.Ordinal);
+            _toast?.Invoke(error.Length > 0 ? $"刷新资料失败：{error}" : $"已刷新资料：{account.Name}");
+        }
+        catch (Exception ex)
+        {
+            ProfileRefreshError = $"刷新失败：{ex.Message}";
+            _services.Logger.Error("刷新账号资料失败", ex);
+            _toast?.Invoke(ProfileRefreshError);
+        }
+        finally
+        {
+            IsRefreshingProfile = false;
+        }
+    }
+
+    /// <summary>令牌失效后引导重新登录：打开登录弹窗并预填当前账号信息。</summary>
+    [RelayCommand]
+    private void ReLoginProfile()
+    {
+        var account = _services.Accounts.SelectedAccount;
+        OpenLoginDialog();
+        if (account?.IsAuthlib == true)
+        {
+            LoginTabIndex = 1;
+            AuthlibServerText = account.Server;
+            AuthlibUsernameText = account.LoginName;
+        }
+        else
+        {
+            LoginTabIndex = 0;
+        }
+
+        ProfileRefreshNeedsLogin = false;
+        ProfileRefreshError = "";
     }
 
     /// <summary>档案头像的皮肤键：本地缓存皮肤存在时无需回退；离线账号用自选皮肤。</summary>
@@ -588,13 +793,11 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             return;
         }
 
-        var conflict = _services.Accounts.Accounts.Any(x =>
-            x.Type == "offline"
-            && !x.Uuid.Equals(_renameProfileUuid, StringComparison.OrdinalIgnoreCase)
-            && x.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
-        if (conflict)
+        // 先分组再组内比名：只与离线档案比较，允许与皮肤站/正版账号同名
+        var conflict = _services.Accounts.FindNameConflict("offline", name, _renameProfileUuid);
+        if (conflict is not null)
         {
-            RenameProfileError = "该名称已被使用";
+            RenameProfileError = $"离线档案中已存在同名玩家：{conflict.Name}";
             return;
         }
 
@@ -659,6 +862,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     public async Task RefreshSkinsAsync(bool force = false)
     {
         var changed = false;
+        var metadataChanged = false;
         foreach (var account in _services.Accounts.Accounts.ToList())
         {
             if (account.Type == "offline")
@@ -676,9 +880,15 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                 if (force || _skinChecked.Add(key))
                 {
                     _skinChecked.Add(key);
-                    latestUrl = await _services.AuthlibAuth
-                        .TryGetSkinUrlAsync(account.Server, account.Uuid)
+                    var textures = await _services.AuthlibAuth
+                        .TryGetProfileAsync(account.Server, account.Uuid, account.AccessToken)
                         .ConfigureAwait(false);
+                    if (textures is not null)
+                    {
+                        latestUrl = string.IsNullOrWhiteSpace(textures.SkinUrl) ? null : textures.SkinUrl;
+                        metadataChanged |= ApplyTextures(account, textures);
+                    }
+
                     if (string.IsNullOrWhiteSpace(latestUrl))
                     {
                         _services.Logger.Warn($"皮肤站未返回皮肤（{account.Name}），继续使用本地缓存");
@@ -704,10 +914,36 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             }
         }
 
-        if (changed)
+        if (changed || metadataChanged)
         {
+            await _services.Accounts.SaveAsync().ConfigureAwait(false);
             _services.Dispatcher.Post(BuildProfiles);
         }
+    }
+
+    /// <summary>把档案接口返回的角色名/披风/模型写回账号；返回是否有变化。</summary>
+    private static bool ApplyTextures(PlayerAccount account, MinecraftTextures textures)
+    {
+        var changed = false;
+        if (!string.IsNullOrWhiteSpace(textures.Name) && !account.Name.Equals(textures.Name, StringComparison.Ordinal))
+        {
+            account.Name = textures.Name;
+            changed = true;
+        }
+
+        if (!account.CapeUrl.Equals(textures.CapeUrl, StringComparison.Ordinal))
+        {
+            account.CapeUrl = textures.CapeUrl;
+            changed = true;
+        }
+
+        if (!account.SkinModel.Equals(textures.Model, StringComparison.Ordinal))
+        {
+            account.SkinModel = textures.Model;
+            changed = true;
+        }
+
+        return changed;
     }
 
     /// <summary>离线皮肤更换：把内置皮肤键写回当前账号。</summary>
@@ -789,6 +1025,12 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
 
     partial void OnActiveProfileChanged(PlayerProfileViewModel? value)
     {
+        // 刷新按钮的可见性/可用性跟随当前账号；切换账号时清掉上一个账号的刷新错误
+        OnPropertyChanged(nameof(ProfileRefreshVisible));
+        OnPropertyChanged(nameof(CanRefreshProfile));
+        ProfileRefreshError = "";
+        ProfileRefreshNeedsLogin = false;
+
         foreach (var profile in Profiles)
         {
             profile.IsActive = ReferenceEquals(profile, value);
@@ -821,7 +1063,8 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         var instance = _selectedInstance;
         if (instance is null)
         {
-            _toast?.Invoke("尚未安装版本，请先在「下载」页安装");
+            // 无实例时按钮是「下载游戏」（PCL 同款）：直接跳转下载页，而不是弹提示或灰掉按钮
+            NavigateRequested?.Invoke(this, "download");
             return;
         }
 
@@ -1881,7 +2124,24 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
 
                 if (poll.Result is not null)
                 {
+                    // 正版单独一组、组内按角色名判重（同 UUID 视为同一条目，允许更新）
+                    var conflict = _services.Accounts.FindNameConflict("msa", poll.Result.UserName, poll.Result.Uuid);
+                    if (conflict is not null)
+                    {
+                        MsLoginStage = $"正版账户中已存在同名玩家：{AccountStore.RecordedName(conflict)}，请先删除已有档案";
+                        MsUserCode = "";
+                        _toast?.Invoke(MsLoginStage);
+                        return;
+                    }
+
                     _services.Accounts.AddMicrosoft(poll.Result);
+                    var signedIn = _services.Accounts.SelectedAccount;
+                    if (signedIn is not null)
+                    {
+                        signedIn.SkinUrl = poll.Result.SkinUrl;
+                        signedIn.SkinModel = poll.Result.SkinModel;
+                    }
+
                     await _services.Accounts.SaveAsync(cts.Token).ConfigureAwait(true);
                     _services.Config.UserName = poll.Result.UserName;
                     await _services.ConfigStore.SaveAsync(cts.Token).ConfigureAwait(true);
@@ -1971,6 +2231,14 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         if (name.Length > 16)
         {
             _toast?.Invoke("玩家名最长 16 个字符");
+            return;
+        }
+
+        // 离线组内按玩家名比较：允许与皮肤站/正版账号同名，但不允许离线档案之间重名
+        var conflict = _services.Accounts.FindNameConflict("offline", name);
+        if (conflict is not null)
+        {
+            _toast?.Invoke($"离线档案中已存在同名玩家：{conflict.Name}");
             return;
         }
 
@@ -2145,6 +2413,20 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
 
     private void FinishAuthlibLogin(AuthlibAuthResult result)
     {
+        // 先分组（同一皮肤站 API 根）再按录入的账号名判重；跨皮肤站/离线允许同名
+        var groupKey = "authlib:" + AccountStore.NormalizeServer(result.ApiRoot);
+        var conflict = _services.Accounts.FindNameConflict(groupKey, result.LoginName, result.Uuid);
+        if (conflict is not null)
+        {
+            var label = string.IsNullOrWhiteSpace(result.ServerName) ? result.ApiRoot : result.ServerName;
+            AuthlibLoginStage = $"该皮肤站（{label}）下已存在同名账号：{AccountStore.RecordedName(conflict)}，请换一个账号或先删除已有档案";
+            _toast?.Invoke(AuthlibLoginStage);
+            AuthlibProfileOptions = null;
+            SelectedAuthlibProfile = null;
+            IsAuthlibLoginBusy = false;
+            return;
+        }
+
         _services.Accounts.AddAuthlib(result);
         _ = _services.Accounts.SaveAsync();
         _services.Config.UserName = result.UserName;

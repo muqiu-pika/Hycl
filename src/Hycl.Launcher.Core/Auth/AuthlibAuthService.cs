@@ -13,6 +13,9 @@ public sealed record AuthlibServerInfo(string ApiRoot, string ServerName);
 /// <summary>Yggdrasil 角色。</summary>
 public sealed record AuthlibProfile(string Id, string Name);
 
+/// <summary>档案接口解析出的纹理信息：角色名 / 皮肤 / 披风 / 模型（slim 或空）。</summary>
+public sealed record MinecraftTextures(string Name, string SkinUrl, string CapeUrl, string Model);
+
 /// <summary>皮肤站登录成功结果。</summary>
 public sealed record AuthlibAuthResult(
     string UserName,
@@ -354,6 +357,17 @@ public sealed class AuthlibAuthService
         string apiRoot,
         string uuid,
         CancellationToken cancellationToken = default)
+        => (await TryGetProfileAsync(apiRoot, uuid, null, cancellationToken).ConfigureAwait(false))?.SkinUrl;
+
+    /// <summary>
+    /// 读取皮肤站档案（角色名 / 皮肤 / 披风 / 模型）。档案接口是公开的，
+    /// 令牌仅用于让支持鉴权的站点返回当前登录身份下的数据；失败静默返回 null。
+    /// </summary>
+    public async Task<MinecraftTextures?> TryGetProfileAsync(
+        string apiRoot,
+        string uuid,
+        string? accessToken = null,
+        CancellationToken cancellationToken = default)
     {
         try
         {
@@ -361,6 +375,11 @@ public sealed class AuthlibAuthService
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             // 皮肤站纹理地址在 LittleSkin 等站点可直接匿名访问；带上 API 地址头便于其他站点识别来源
             request.Headers.TryAddWithoutValidation("x-authlib-injector-api-location", apiRoot.TrimEnd('/'));
+            if (!string.IsNullOrWhiteSpace(accessToken))
+            {
+                request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + accessToken);
+            }
+
             using var response = await SendWithRedirectAsync(request, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
@@ -369,41 +388,74 @@ public sealed class AuthlibAuthService
             }
 
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            using var document = JsonDocument.Parse(body);
-            if (!document.RootElement.TryGetProperty("properties", out var properties)
-                || properties.ValueKind != JsonValueKind.Array)
+            var textures = ParseProfile(body);
+            if (textures is null)
             {
-                return null;
+                _logger.Warn("皮肤档案缺少 textures/SKIN（账号可能未设置自定义皮肤）");
             }
 
-            foreach (var property in properties.EnumerateArray())
-            {
-                if ((property.TryGetProperty("name", out var n) ? n.GetString() : null) != "textures")
-                {
-                    continue;
-                }
-
-                var value = property.TryGetProperty("value", out var v) ? v.GetString() : null;
-                if (string.IsNullOrWhiteSpace(value))
-                {
-                    return null;
-                }
-
-                var decoded = JsonDocument.Parse(Encoding.UTF8.GetString(Convert.FromBase64String(value))).RootElement;
-                if (decoded.TryGetProperty("textures", out var textures)
-                    && textures.TryGetProperty("SKIN", out var skin)
-                    && skin.TryGetProperty("url", out var skinUrlNode))
-                {
-                    return skinUrlNode.GetString();
-                }
-
-                _logger.Warn("皮肤档案的 textures 中缺少 SKIN.url（账号可能未设置自定义皮肤）");
-                return null;
-            }
+            return textures;
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or FormatException or TaskCanceledException)
         {
             _logger.Warn($"获取皮肤站皮肤失败（忽略）：{ex.Message}");
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 解析 sessionserver 档案响应：根节点的 name + properties[textures].value（Base64 JSON）。
+    /// 皮肤站与 Mojang 的响应结构一致，正版刷新也复用此解析。
+    /// </summary>
+    public static MinecraftTextures? ParseProfile(string body)
+    {
+        using var document = JsonDocument.Parse(body);
+        var name = document.RootElement.TryGetProperty("name", out var nameNode) ? nameNode.GetString() ?? "" : "";
+        if (!document.RootElement.TryGetProperty("properties", out var properties)
+            || properties.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        foreach (var property in properties.EnumerateArray())
+        {
+            if ((property.TryGetProperty("name", out var n) ? n.GetString() : null) != "textures")
+            {
+                continue;
+            }
+
+            var value = property.TryGetProperty("value", out var v) ? v.GetString() : null;
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            var decoded = JsonDocument.Parse(Encoding.UTF8.GetString(Convert.FromBase64String(value)));
+            if (!decoded.RootElement.TryGetProperty("textures", out var textures))
+            {
+                return null;
+            }
+
+            var skinUrl = "";
+            var model = "";
+            if (textures.TryGetProperty("SKIN", out var skin))
+            {
+                skinUrl = skin.TryGetProperty("url", out var skinUrlNode) ? skinUrlNode.GetString() ?? "" : "";
+                if (skin.TryGetProperty("metadata", out var metadata)
+                    && metadata.TryGetProperty("model", out var modelNode))
+                {
+                    model = modelNode.GetString() ?? "";
+                }
+            }
+
+            var capeUrl = "";
+            if (textures.TryGetProperty("CAPE", out var cape))
+            {
+                capeUrl = cape.TryGetProperty("url", out var capeUrlNode) ? capeUrlNode.GetString() ?? "" : "";
+            }
+
+            return new MinecraftTextures(name, skinUrl, capeUrl, model);
         }
 
         return null;

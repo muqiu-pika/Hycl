@@ -16,6 +16,7 @@ public enum McSkinMode
 /// <summary>
 /// 从 64x64 的 Minecraft 皮肤贴图中裁剪并拼出「纸娃娃」全身像 / 头像。
 /// 对应网页版 McSkin 组件：正面视图中角色的右臂/右腿在观者左侧。
+/// 同时兼容 64x32 旧版皮肤（四肢贴图与 64x64 不同，另一侧为镜像）与 Alex(slim) 模型（手臂 3 宽）。
 /// </summary>
 public class McSkin : Control
 {
@@ -32,43 +33,17 @@ public class McSkin : Control
     public static readonly StyledProperty<McSkinMode> ModeProperty =
         AvaloniaProperty.Register<McSkin, McSkinMode>(nameof(Mode), McSkinMode.Body);
 
+    /// <summary>Alex(slim) 模型：手臂宽度为 3 像素（仅 64x64 皮肤生效）。</summary>
+    public static readonly StyledProperty<bool> IsSlimProperty =
+        AvaloniaProperty.Register<McSkin, bool>(nameof(IsSlim));
+
     // 键为「路径 + 修改时间 + 大小」/「内置皮肤名」；文件被重新下载（换皮肤）后键会变化，
     // 避免继续命中旧的位图。加载失败不写缓存，下次属性变化时可以重试。
     private static readonly Dictionary<string, Bitmap> BitmapCache = new();
 
-    // 贴图正面区域：[texX, texY, w, h]（标准 64x64 皮肤布局）
-    private static readonly Dictionary<string, (int X, int Y, int W, int H)> Texture = new()
-    {
-        ["head"] = (8, 8, 8, 8),
-        ["headOverlay"] = (40, 8, 8, 8),
-        ["body"] = (20, 20, 8, 12),
-        ["bodyOverlay"] = (20, 36, 8, 12),
-        ["armR"] = (44, 20, 4, 12),
-        ["armROverlay"] = (44, 36, 4, 12),
-        ["armL"] = (36, 52, 4, 12),
-        ["armLOverlay"] = (52, 52, 4, 12),
-        ["legR"] = (4, 20, 4, 12),
-        ["legROverlay"] = (4, 36, 4, 12),
-        ["legL"] = (20, 52, 4, 12),
-        ["legLOverlay"] = (4, 52, 4, 12),
-    };
-
-    // 在 16 x 32 画布中的位置：[left, top]
-    private static readonly Dictionary<string, (int X, int Y)> Placement = new()
-    {
-        ["head"] = (4, 0),
-        ["body"] = (4, 8),
-        ["armR"] = (0, 8),
-        ["armL"] = (12, 8),
-        ["legR"] = (4, 20),
-        ["legL"] = (8, 20),
-    };
-
-    private static readonly string[] BodyPartOrder =
-    [
-        "armR", "legR", "legL", "body", "armL", "head",
-        "armROverlay", "legROverlay", "legLOverlay", "bodyOverlay", "armLOverlay", "headOverlay",
-    ];
+    // 头像（头顶面）：8x8 纹理，两种皮肤格式位置相同
+    private const int HeadX = 8, HeadY = 8;
+    private const int HeadOverlayX = 40, HeadOverlayY = 8;
 
     private Bitmap? _bitmap;
 
@@ -104,6 +79,13 @@ public class McSkin : Control
         set => SetValue(ModeProperty, value);
     }
 
+    /// <summary>皮肤是否为 Alex(slim) 模型（来自档案接口的 SKIN.metadata.model）。</summary>
+    public bool IsSlim
+    {
+        get => GetValue(IsSlimProperty);
+        set => SetValue(IsSlimProperty, value);
+    }
+
     protected override Size MeasureOverride(Size availableSize)
     {
         var scale = Math.Max(1, Scale);
@@ -121,7 +103,9 @@ public class McSkin : Control
             _bitmap = LoadBitmap();
             InvalidateVisual();
         }
-        else if (change.Property == ScaleProperty || change.Property == ModeProperty)
+        else if (change.Property == ScaleProperty
+                 || change.Property == ModeProperty
+                 || change.Property == IsSlimProperty)
         {
             InvalidateMeasure();
             InvalidateVisual();
@@ -147,29 +131,73 @@ public class McSkin : Control
                 (Bounds.Height - side) / 2,
                 side,
                 side);
-            DrawPart(context, "head", scale, bounds);
-            DrawPart(context, "headOverlay", scale, bounds);
+            DrawPart(context, new SkinPart(HeadX, HeadY, 8, 8, 4, 0, false), scale, bounds);
+            DrawPart(context, new SkinPart(HeadOverlayX, HeadOverlayY, 8, 8, 4, 0, false), scale, bounds);
             return;
         }
 
-        foreach (var key in BodyPartOrder)
+        foreach (var part in BuildBodyParts())
         {
-            DrawPart(context, key, scale, null);
+            DrawPart(context, part, scale, null);
         }
+    }
+
+    /// <summary>一个部件的贴图矩形（X/Y/W/H）、在 16×32 画布中的位置（PlaceX/PlaceY）与是否水平镜像。</summary>
+    private readonly record struct SkinPart(
+        int X, int Y, int W, int H,
+        int PlaceX, int PlaceY,
+        bool Mirror);
+
+    /// <summary>
+    /// 按贴图格式生成部件列表：
+    /// 64×64 现代皮肤直接取左臂/左腿各自的贴图；64×32 旧版皮肤没有左臂/左腿贴图，
+    /// 分别用右臂(44,20)/右腿(4,20) 的正脸镜像绘制。旧版没有身体/四肢的第二层，只保留帽子层。
+    /// </summary>
+    private List<SkinPart> BuildBodyParts()
+    {
+        var legacy = _bitmap is { } bitmap && bitmap.PixelSize.Width == bitmap.PixelSize.Height * 2;
+        var slim = !legacy && IsSlim;
+        var armWidth = slim ? 3 : 4;
+        // slim 手臂 3 宽，左右两侧各留 1 像素空隙，画布仍为 16 宽
+        var leftArmX = slim ? 13 : 12;
+
+        var parts = new List<SkinPart>(12);
+        // 与原网页版叠加顺序一致：四肢 → 身体 → 头，最后叠加第二层
+        parts.Add(new SkinPart(44, 20, armWidth, 12, 0, 8, false));   // 右臂
+        parts.Add(new SkinPart(4, 20, 4, 12, 4, 20, false));          // 右腿
+        parts.Add(legacy
+            ? new SkinPart(4, 20, 4, 12, 8, 20, true)                 // 左腿：旧皮肤镜像右腿
+            : new SkinPart(20, 52, 4, 12, 8, 20, false));             // 左腿：现代皮肤独立贴图
+        parts.Add(new SkinPart(20, 20, 8, 12, 4, 8, false));           // 身体
+        parts.Add(legacy
+            ? new SkinPart(44, 20, armWidth, 12, leftArmX, 8, true)   // 左臂：旧皮肤镜像右臂
+            : new SkinPart(36, 52, armWidth, 12, leftArmX, 8, false)); // 左臂：现代皮肤独立贴图
+        parts.Add(new SkinPart(HeadX, HeadY, 8, 8, 4, 0, false));      // 头
+        parts.Add(new SkinPart(HeadOverlayX, HeadOverlayY, 8, 8, 4, 0, false)); // 帽子（两种格式都存在）
+
+        if (!legacy)
+        {
+            parts.Add(new SkinPart(44, 36, armWidth, 12, 0, 8, false));   // 右臂外层
+            parts.Add(new SkinPart(4, 36, 4, 12, 4, 20, false));          // 右腿外层
+            parts.Add(new SkinPart(4, 52, 4, 12, 8, 20, false));          // 左腿外层
+            parts.Add(new SkinPart(20, 36, 8, 12, 4, 8, false));          // 身体外层
+            parts.Add(new SkinPart(52, 52, armWidth, 12, leftArmX, 8, false)); // 左臂外层
+        }
+
+        return parts;
     }
 
     /// <summary>
     /// 绘制贴图的一个部件。<paramref name="headBounds"/> 非空时（头像模式）忽略像素放置表，
     /// 直接把部件铺满该正方形。
     /// </summary>
-    private void DrawPart(DrawingContext context, string key, int scale, Rect? headBounds)
+    private void DrawPart(DrawingContext context, SkinPart part, int scale, Rect? headBounds)
     {
         if (_bitmap is null)
         {
             return;
         }
 
-        var texture = Texture[key];
         // 高清皮肤（128×128 等）按与 64×64 的比例换算 UV，避免只取到左上角一小块（表现为头像被裁切）
         var uv = _bitmap.PixelSize.Width / 64.0;
         if (uv <= 0)
@@ -177,16 +205,23 @@ public class McSkin : Control
             uv = 1d;
         }
 
-        var isOverlay = key.EndsWith("Overlay", StringComparison.Ordinal);
-        var placementKey = isOverlay ? key[..^"Overlay".Length] : key;
-        var placement = Placement[placementKey];
-
-        var source = new Rect(texture.X * uv, texture.Y * uv, texture.W * uv, texture.H * uv);
+        var source = new Rect(part.X * uv, part.Y * uv, part.W * uv, part.H * uv);
         var destination = headBounds ?? new Rect(
-            placement.X * scale,
-            placement.Y * scale,
-            texture.W * scale,
-            texture.H * scale);
+            part.PlaceX * scale,
+            part.PlaceY * scale,
+            part.W * scale,
+            part.H * scale);
+
+        if (part.Mirror)
+        {
+            // 旧版皮肤的另一侧四肢是同一贴图的水平镜像：绕部件左边缘翻转绘制
+            using (context.PushTransform(new Matrix(-1, 0, 0, 1, destination.X * 2 + destination.Width, 0)))
+            {
+                context.DrawImage(_bitmap, source, destination);
+            }
+
+            return;
+        }
 
         context.DrawImage(_bitmap, source, destination);
     }

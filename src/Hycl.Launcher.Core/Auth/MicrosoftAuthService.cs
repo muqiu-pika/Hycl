@@ -32,7 +32,8 @@ public sealed record MicrosoftAuthResult(
     string RefreshToken,
     string Xuid,
     DateTimeOffset ExpiresAt,
-    string SkinUrl);
+    string SkinUrl,
+    string SkinModel = "");
 
 /// <summary>正版登录失败（消息已按用户可读组织）。</summary>
 public sealed class MicrosoftAuthException : Exception
@@ -58,6 +59,7 @@ public sealed class MicrosoftAuthService
     private const string MinecraftAuthEndpoint = "https://api.minecraftservices.com/authentication/login_with_xbox";
     private const string EntitlementsEndpoint = "https://api.minecraftservices.com/entitlements/mcstore";
     private const string ProfileEndpoint = "https://api.minecraftservices.com/minecraft/profile";
+    private const string SessionServerEndpoint = "https://sessionserver.mojang.com/session/minecraft/profile/";
 
     private const string Scopes = "XboxLive.signin offline_access";
 
@@ -282,9 +284,10 @@ public sealed class MicrosoftAuthService
         var uuid = Required(profile, "id");
         var xuid = ExtractXuid(xstsBody);
         var skinUrl = ExtractActiveSkinUrl(profile);
+        var skinModel = ExtractActiveSkinModel(profile);
 
         _logger.Info($"正版登录成功：{userName}（{uuid}）");
-        return new MicrosoftAuthResult(userName, uuid, mcToken, refreshToken, xuid, expiresAt, skinUrl);
+        return new MicrosoftAuthResult(userName, uuid, mcToken, refreshToken, xuid, expiresAt, skinUrl, skinModel);
     }
 
     /// <summary>从档案响应的 skins 数组中取当前激活皮肤的贴图 URL。</summary>
@@ -310,6 +313,65 @@ public sealed class MicrosoftAuthService
         }
 
         return "";
+    }
+
+    /// <summary>当前激活皮肤的模型（SLIM → slim，其余为经典模型）。</summary>
+    private static string ExtractActiveSkinModel(JsonElement profile)
+    {
+        try
+        {
+            if (profile.TryGetProperty("skins", out var skins) && skins.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var skin in skins.EnumerateArray())
+                {
+                    var state = skin.TryGetProperty("state", out var s) ? s.GetString() : null;
+                    var variant = skin.TryGetProperty("variant", out var v) ? v.GetString() : null;
+                    if (state == "ACTIVE" && variant?.Equals("SLIM", StringComparison.OrdinalIgnoreCase) == true)
+                    {
+                        return "slim";
+                    }
+                }
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return "";
+    }
+
+    /// <summary>
+    /// 从 Mojang sessionserver 读取档案纹理（角色名 / 皮肤 / 披风 / 模型）。
+    /// 与皮肤站的响应结构一致，供「刷新」按钮重新拉取资料；失败静默返回 null。
+    /// </summary>
+    public async Task<MinecraftTextures?> GetProfileTexturesAsync(
+        string uuid,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(uuid))
+        {
+            return null;
+        }
+
+        try
+        {
+            var response = await _http
+                .GetAsync(SessionServerEndpoint + uuid + "?unsigned=false", cancellationToken)
+                .ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.Warn($"正版档案接口返回 HTTP {(int)response.StatusCode}");
+                return null;
+            }
+
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            return AuthlibAuthService.ParseProfile(body);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or FormatException or TaskCanceledException)
+        {
+            _logger.Warn($"获取正版档案纹理失败（忽略）：{ex.Message}");
+            return null;
+        }
     }
 
     // ---------- HTTP 辅助 ----------

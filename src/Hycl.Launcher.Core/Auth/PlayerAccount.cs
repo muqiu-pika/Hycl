@@ -42,6 +42,12 @@ public sealed class PlayerAccount
     /// <summary>皮肤贴图本地缓存路径（下载后填充，供首页纸娃娃渲染）。</summary>
     public string SkinPath { get; set; } = "";
 
+    /// <summary>披风贴图 URL（档案接口返回，随「刷新」更新）。</summary>
+    public string CapeUrl { get; set; } = "";
+
+    /// <summary>皮肤模型：slim（Alex）或空（Classic/Steve）。</summary>
+    public string SkinModel { get; set; } = "";
+
     /// <summary>离线档案自选的内置皮肤键（steve / alex / zuri）；仅离线账号可更换。</summary>
     public string SkinKey { get; set; } = "";
 
