@@ -5,6 +5,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Hycl.Launcher.Core.Platform;
 using Hycl.Launcher.Core.ViewModels;
 
 namespace Hycl.Launcher.UI.Views;
@@ -25,6 +26,7 @@ public partial class InstancesPage : UserControl
         }
 
         viewModel.FolderPicker = PickFolderAsync;
+        viewModel.JavaFilePicker = PickJavaFileAsync;
         viewModel.ListResetRequested -= OnListResetRequested;
         viewModel.ListResetRequested += OnListResetRequested;
         viewModel.DetailResetRequested -= OnDetailResetRequested;
@@ -85,5 +87,42 @@ public partial class InstancesPage : UserControl
             SuggestedStartLocation = startFolder
         });
         return folders.Count > 0 ? folders[0].TryGetLocalPath() : null;
+    }
+
+    /// <summary>选择 Java 可执行文件（javaw.exe / java），与保存时的 File.Exists 校验语义一致。</summary>
+    private async Task<string?> PickJavaFileAsync(string? startDirectory)
+    {
+        var top = TopLevel.GetTopLevel(this);
+        if (top?.StorageProvider is null)
+        {
+            return null;
+        }
+
+        IStorageFolder? startFolder = null;
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(startDirectory) && Directory.Exists(startDirectory))
+            {
+                startFolder = await top.StorageProvider.TryGetFolderFromPathAsync(new Uri(startDirectory));
+            }
+        }
+        catch (ArgumentException)
+        {
+            // 起始目录无效时退回系统默认位置
+        }
+
+        var javaExecutableType = new FilePickerFileType("Java 可执行文件")
+        {
+            Patterns = PlatformInfo.IsWindows ? ["javaw.exe", "java.exe"] : ["java"]
+        };
+        var allFilesType = new FilePickerFileType("所有文件") { Patterns = ["*"] };
+        var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "选择 Java（javaw.exe / java）",
+            AllowMultiple = false,
+            SuggestedStartLocation = startFolder,
+            FileTypeFilter = [javaExecutableType, allFilesType]
+        });
+        return files.Count > 0 ? files[0].TryGetLocalPath() : null;
     }
 }

@@ -50,6 +50,9 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
     /// <summary>由 UI 层注入的文件夹选择器（取消返回 null）。</summary>
     public Func<string?, Task<string?>>? FolderPicker { get; set; }
 
+    /// <summary>Java 可执行文件选择器：返回 javaw.exe / java 的完整文件路径（由 UI 层注入）。</summary>
+    public Func<string?, Task<string?>>? JavaFilePicker { get; set; }
+
     public bool HasInstances => Instances.Count > 0;
 
     public bool IsEmpty => Instances.Count == 0;
@@ -483,7 +486,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
     [RelayCommand]
     private async Task BrowseJavaPathAsync()
     {
-        if (FolderPicker is null)
+        if (JavaFilePicker is null)
         {
             return;
         }
@@ -491,7 +494,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         var start = string.IsNullOrWhiteSpace(EditorJavaPath)
             ? _services.Config.EffectiveGameDirectory
             : Path.GetDirectoryName(EditorJavaPath);
-        var picked = await FolderPicker(start).ConfigureAwait(true);
+        var picked = await JavaFilePicker(start).ConfigureAwait(true);
         if (!string.IsNullOrWhiteSpace(picked))
         {
             EditorJavaPath = picked;

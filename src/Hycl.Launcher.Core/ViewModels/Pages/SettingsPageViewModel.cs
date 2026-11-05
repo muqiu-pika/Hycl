@@ -677,7 +677,7 @@ public partial class SettingsPageViewModel : ObservableObject
                         () => _ = CheckForUpdateAsync()),
                 ]),
                 _updateStatusRow = new MutableInfoRowViewModel("检查结果", "尚未检查。"),
-                new TextLineRowViewModel("更新源未配置时仅提供框架：在 UpdateChecker.ReleasesUrl 填入仓库 releases 地址后即可检查。")
+                new TextLineRowViewModel("连接 GitHub Releases 检查最新版本；下载安装请前往仓库 Releases 页面。")
             ]),
         ]);
 
@@ -724,20 +724,20 @@ public partial class SettingsPageViewModel : ObservableObject
         ]);
     }
 
-    /// <summary>关于页/反馈页的外部链接（对应 PCL-CE About 页；HYCL 自身仓库地址确定后替换）。</summary>
+    /// <summary>关于页/反馈页的外部链接（Hycl 自身仓库；Sponsor 指向上游 PCL-CE 以致谢）。</summary>
     public static class AboutLinks
     {
-        public const string SourceCode = "https://github.com/PCL-Community/PCL2-CE";
-        public const string HomePage = "https://github.com/PCL-Community";
+        public const string SourceCode = "https://github.com/muqiu-pika/Hycl";
+        public const string HomePage = "https://github.com/muqiu-pika/Hycl";
         public const string Sponsor = "https://ifdian.net/a/LTCat";
-        public const string Feedback = "";
+        public const string Feedback = "https://github.com/muqiu-pika/Hycl/issues";
     }
 
-    /// <summary>更新检查框架（对应 PCL-CE UpdateManager；ReleasesUrl 留空 = 未配置更新源）。</summary>
+    /// <summary>更新检查框架（对应 PCL-CE UpdateManager；读取 GitHub Releases 最新版本号）。</summary>
     public static class UpdateChecker
     {
-        /// <summary>仓库 releases API 地址（如 https://api.github.com/repos/{owner}/{repo}/releases/latest）；留空表示未配置。</summary>
-        public const string ReleasesUrl = "";
+        /// <summary>仓库 releases API 地址；留空表示未配置。</summary>
+        public const string ReleasesUrl = "https://api.github.com/repos/muqiu-pika/Hycl/releases/latest";
 
         /// <summary>检查更新：有新版本时返回版本号，已是最新返回 null，未配置/失败抛异常。</summary>
         public static async Task<string?> CheckAsync(CancellationToken cancellationToken = default)
@@ -751,7 +751,8 @@ public partial class SettingsPageViewModel : ObservableObject
             client.DefaultRequestHeaders.UserAgent.ParseAdd("HYCL/1.0");
             var json = await client.GetStringAsync(ReleasesUrl, cancellationToken).ConfigureAwait(false);
             var node = System.Text.Json.Nodes.JsonNode.Parse(json);
-            var tagName = node?["tag_name"]?.ToString() ?? "";
+            // tag 可能带 v 前缀（v1.2.3），统一去掉后与 LauncherVersion 比较
+            var tagName = (node?["tag_name"]?.ToString() ?? "").TrimStart('v', 'V');
             return tagName.Equals(LaunchService.LauncherVersion, StringComparison.OrdinalIgnoreCase) ? null : tagName;
         }
     }
