@@ -486,6 +486,16 @@ public sealed class LaunchService
 
         if (best.MajorVersion < required)
         {
+            var message =
+                $"当前 Java {best.MajorVersion} 低于该版本要求的 Java {required}。{Environment.NewLine}" +
+                "请安装对应版本的 Java，或在设置中手动指定 Java 路径。";
+            if (resolved.Info.JavaVersion is not null)
+            {
+                // 版本 JSON 明确要求的主版本不满足：继续启动必然 UnsupportedClassVersionError，
+                // 与启动预检口径一致，直接阻断并给出指引
+                throw new LaunchException(message);
+            }
+
             _logger.Warn($"Java {best.MajorVersion} 低于建议版本 {required}，可能导致启动失败。");
         }
 
@@ -726,6 +736,8 @@ public sealed class LaunchService
         arguments.AddRange(ArgumentTokenizer.Split(options.ExtraGameArguments));
 
         // 自动进服（对应 PCL-CE _AppendWorldAndServerArguments）：1.20.3+ 用 quickPlay，旧版本用 --server/--port
+        // 注意：版本 JSON 中 quickPlay 系参数由 feature 规则门控（RuleEnvironment 恒 false，不参与求值），
+        // 这里手动注入最终参数，因此需防重，避免个别 json 无条件携带时重复
         if (!string.IsNullOrWhiteSpace(options.ServerToEnter))
         {
             var server = options.ServerToEnter.Trim();
@@ -733,8 +745,11 @@ public sealed class LaunchService
                     DateTimeStyles.AssumeUniversal, out var releaseTime)
                 && releaseTime > new DateTimeOffset(2023, 4, 4, 0, 0, 0, TimeSpan.Zero))
             {
-                arguments.Add("--quickPlayMultiplayer");
-                arguments.Add(server);
+                if (!arguments.Contains("--quickPlayMultiplayer", StringComparer.Ordinal))
+                {
+                    arguments.Add("--quickPlayMultiplayer");
+                    arguments.Add(server);
+                }
             }
             else
             {

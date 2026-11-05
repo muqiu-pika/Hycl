@@ -216,29 +216,41 @@ public sealed partial class HomeViewModel : ObservableObject
         try
         {
             var config = _services.Config;
-            var options = new LaunchOptions
+
+            // 皮肤站账号：校验令牌（失效则 refresh），并准备 authlib-injector 注入材料（与启动页一致）
+            string? authlibJar = null;
+            string? authlibPrefetched = null;
+            if (account0.Type == "authlib")
             {
-                InstanceId = instance.Id,
-                GameDirectory = config.EffectiveGameDirectory,
-                JavaPath = config.JavaPath,
-                MemoryMegabytes = config.GetEffectiveMemoryMegabytes(),
-                InitialMemoryMegabytes = config.InitialMemoryMegabytes,
-                LockMemory = config.LockMemory,
-                WindowType = config.WindowType,
-                WindowWidth = config.WindowWidth,
-                WindowHeight = config.WindowHeight,
-                ExtraJvmArguments = config.ExtraJvmArguments,
-                ExtraGameArguments = config.ExtraGameArguments,
-                PlayerName = account0.Name,
-                PlayerUuid = account0.Uuid,
-                WindowTitle = config.WindowTitle,
-                TypeInfo = config.TypeInfo,
-                LauncherVisibility = config.LauncherVisibility,
-                ProcessPriority = config.ProcessPriority,
-                PreferredIpStack = config.PreferredIpStack,
-                PreLaunchCommand = config.PreLaunchCommand,
-                PreLaunchCommandWait = config.PreLaunchCommandWait
-            };
+                try
+                {
+                    if (!await _services.AuthlibAuth
+                            .ValidateAsync(account0.Server, account0.AccessToken, account0.ClientToken)
+                            .ConfigureAwait(true))
+                    {
+                        var refreshed = await _services.AuthlibAuth.RefreshAsync(account0).ConfigureAwait(true);
+                        AccountStore.ApplyAuthlibAuth(account0, refreshed);
+                        await _services.Accounts.SaveAsync().ConfigureAwait(true);
+                    }
+
+                    authlibJar = await _services.AuthlibAuth
+                        .EnsureAuthlibInjectorJarAsync(_services.Paths.CacheDirectory, _services.DownloadClient)
+                        .ConfigureAwait(true);
+                    authlibPrefetched = await _services.AuthlibAuth
+                        .GetPrefetchedAsync(account0.Server)
+                        .ConfigureAwait(true);
+                }
+                catch (Exception ex)
+                {
+                    LaunchStatus = $"皮肤站账号准备失败：{ex.Message}";
+                    AppendLog("[错误] " + LaunchStatus);
+                    _services.Logger.Error("皮肤站账号准备失败", ex);
+                    IsLaunching = false;
+                    return;
+                }
+            }
+
+            var options = LaunchOptionsBuilder.Build(config, instance, account0, authlibJar, authlibPrefetched);
 
             var session = await _services.Launch.LaunchAsync(options, AppendLog).ConfigureAwait(true);
             _session = session;

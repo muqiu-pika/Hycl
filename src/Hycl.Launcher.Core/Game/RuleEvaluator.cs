@@ -22,6 +22,8 @@ public sealed class RuleEnvironment
         {
             ["is_demo_user"] = false,
             ["has_custom_resolution"] = hasCustomResolution,
+            // quickPlay 系参数由 LaunchService 手动注入最终值（自动进服），
+            // 这里保持 false 让版本 JSON 里携带 ${quickPlay*} 占位符的规则项不参与求值，避免重复与占位符缺失
             ["has_quick_plays_support"] = false,
             ["is_quick_play_singleplayer"] = false,
             ["is_quick_play_multiplayer"] = false,
