@@ -1,6 +1,7 @@
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Hycl.Launcher.Core.Download;
 using Hycl.Launcher.Core.Services;
 
@@ -113,7 +114,8 @@ public sealed class AuthlibAuthService
                 }
 
                 // 记录跟随重定向后的最终地址：后续 POST 直接用它，避免每次都经历重定向
-                var finalRoot = request.RequestUri?.ToString().TrimEnd('/') ?? candidate;
+                var finalRoot = (response.RequestMessage?.RequestUri ?? request.RequestUri)
+                    ?.ToString().TrimEnd('/') ?? candidate;
                 _logger.Info($"皮肤站探测成功：{finalRoot}（{serverName}）");
                 return new AuthlibServerInfo(finalRoot, serverName);
             }
@@ -202,7 +204,7 @@ public sealed class AuthlibAuthService
     {
         var bound = await PostAsync(
                 apiRoot.TrimEnd('/') + "/authserver/refresh",
-                new AuthlibRefreshBody(accessToken, clientToken, profile.Id, profile.Name),
+                new AuthlibRefreshBody(accessToken, clientToken, new AuthlibProfileRef(profile.Id, profile.Name)),
                 cancellationToken)
             .ConfigureAwait(false);
         var boundToken = StringOrThrow(bound, "accessToken");
@@ -257,7 +259,7 @@ public sealed class AuthlibAuthService
         ArgumentException.ThrowIfNullOrWhiteSpace(account.AccessToken);
         var root = await PostAsync(
                 account.Server.TrimEnd('/') + "/authserver/refresh",
-                new AuthlibRefreshBody(account.AccessToken, account.ClientToken, null, null),
+                new AuthlibRefreshBody(account.AccessToken, account.ClientToken, null),
                 cancellationToken)
             .ConfigureAwait(false);
         var accessToken = StringOrThrow(root, "accessToken");
@@ -444,6 +446,9 @@ public sealed class AuthlibAuthService
             var nextUri = location.IsAbsoluteUri ? location : new Uri(currentUri, location);
             var method = request.Method;
             var content = request.Content;
+            // 先摘掉 Content 再 Dispose：HttpRequestMessage.Dispose 会连带释放请求体，
+            // 而重定向后的新请求还要继续用它（307/308 必须保留 body）。
+            request.Content = null;
             request.Dispose();
             response.Dispose();
             request = new HttpRequestMessage(method, nextUri) { Content = content };
@@ -456,16 +461,20 @@ public sealed class AuthlibAuthService
     private static async Task<JsonElement> PostAsync(string url, object body, CancellationToken cancellationToken)
     {
         string text;
+        int statusCode;
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, url)
             {
                 Content = new StringContent(
+                    // 关键：Yggdrasil 规范字段名为小写 camelCase，且 agent 必须是对象；
+                    // 记录类型上的 JsonPropertyName 保证序列化形态与规范一致。
                     JsonSerializer.Serialize(body),
                     Encoding.UTF8,
                     "application/json")
             };
             using var response = await SendWithRedirectAsync(request, cancellationToken).ConfigureAwait(false);
+            statusCode = (int)response.StatusCode;
             text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
@@ -473,25 +482,71 @@ public sealed class AuthlibAuthService
             throw new AuthlibException($"无法连接皮肤站（{url}）：{Describe(ex)}", ex);
         }
 
+        JsonElement json;
         try
         {
-            var json = JsonDocument.Parse(text).RootElement.Clone();
-            if (json.ValueKind == JsonValueKind.Object && json.TryGetProperty("error", out var error))
-            {
-                var message = json.TryGetProperty("errorMessage", out var m) ? m.GetString() : null;
-                var isForbidden = error.GetString() == "ForbiddenOperationException";
-                throw new AuthlibException(
-                    isForbidden && !string.IsNullOrWhiteSpace(message) && message.Contains("credential", StringComparison.OrdinalIgnoreCase)
-                        ? "用户名或密码错误"
-                        : !string.IsNullOrWhiteSpace(message) ? message : $"皮肤站返回错误：{error}");
-            }
-
-            return json;
+            json = JsonDocument.Parse(text).RootElement.Clone();
         }
         catch (JsonException ex)
         {
-            throw new AuthlibException("皮肤站返回了无法解析的数据", ex);
+            throw new AuthlibException(
+                text.Length == 0
+                    ? $"皮肤站返回错误（HTTP {statusCode}）"
+                    : $"皮肤站返回了无法解析的数据（HTTP {statusCode}）",
+                ex);
         }
+
+        if (json.ValueKind == JsonValueKind.Object && json.TryGetProperty("error", out var error))
+        {
+            throw new AuthlibException(DescribeServerError(
+                error.GetString(),
+                json.TryGetProperty("errorMessage", out var messageNode) ? messageNode.GetString() : null,
+                statusCode));
+        }
+
+        if (statusCode is < 200 or >= 300)
+        {
+            throw new AuthlibException($"皮肤站返回错误（HTTP {statusCode}）");
+        }
+
+        return json;
+    }
+
+    /// <summary>把 Yggdrasil 错误类型/服务端消息整理成玩家可读的中文提示。</summary>
+    private static string DescribeServerError(string? error, string? message, int statusCode)
+    {
+        var type = error ?? "";
+        if (type == "ForbiddenOperationException")
+        {
+            // 已知的英文规范提示优先本地化；皮肤站自带的中文消息原样保留
+            if (message?.Contains("Incorrect username or password", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                return "用户名或密码错误";
+            }
+
+            if (message?.Contains("Invalid token", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                return "登录凭据已失效，请重新登录";
+            }
+
+            return !string.IsNullOrWhiteSpace(message) ? message : "用户名或密码错误";
+        }
+
+        if (type == "IllegalArgumentException")
+        {
+            // 形如 "username: username should not be empty, agent: agent must be an object"
+            // 属于请求体校验失败，不是玩家输入问题，给可读提示而不是原样甩给玩家。
+            return "皮肤站拒绝了登录请求（请求格式不正确），请检查皮肤站地址是否正确";
+        }
+
+        if (!string.IsNullOrWhiteSpace(message))
+        {
+            return message;
+        }
+
+        return type.Length > 0
+            ? $"皮肤站返回错误：{type}（HTTP {statusCode}）"
+            : $"皮肤站返回错误（HTTP {statusCode}）";
     }
 
     private static List<AuthlibProfile> ParseProfiles(JsonElement root)
@@ -521,11 +576,28 @@ public sealed class AuthlibAuthService
     private static string Describe(Exception? ex)
         => ex is null ? "未知原因" : ex.GetType() == typeof(TaskCanceledException) ? "连接超时" : ex.Message;
 
-    private sealed record AuthlibAgent(string Name, int Version);
+    // Yggdrasil 规范要求字段名为 camelCase，agent/selectedProfile 必须是嵌套对象。
+    private sealed record AuthlibAgent(
+        [property: JsonPropertyName("name")] string Name,
+        [property: JsonPropertyName("version")] int Version);
 
-    private sealed record AuthlibAuthenticateBody(AuthlibAgent Agent, string Username, string Password, string ClientToken);
+    private sealed record AuthlibAuthenticateBody(
+        [property: JsonPropertyName("agent")] AuthlibAgent Agent,
+        [property: JsonPropertyName("username")] string Username,
+        [property: JsonPropertyName("password")] string Password,
+        [property: JsonPropertyName("clientToken")] string ClientToken,
+        [property: JsonPropertyName("requestUser")] bool RequestUser = false);
 
-    private sealed record AuthlibRefreshBody(string AccessToken, string ClientToken, string? SelectedProfileId, string? SelectedProfileName);
+    private sealed record AuthlibProfileRef(
+        [property: JsonPropertyName("id")] string Id,
+        [property: JsonPropertyName("name")] string Name);
 
-    private sealed record AuthlibValidateBody(string AccessToken, string ClientToken);
+    private sealed record AuthlibRefreshBody(
+        [property: JsonPropertyName("accessToken")] string AccessToken,
+        [property: JsonPropertyName("clientToken")] string ClientToken,
+        [property: JsonPropertyName("selectedProfile"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AuthlibProfileRef? SelectedProfile);
+
+    private sealed record AuthlibValidateBody(
+        [property: JsonPropertyName("accessToken")] string AccessToken,
+        [property: JsonPropertyName("clientToken")] string ClientToken);
 }
