@@ -332,8 +332,14 @@ public partial class MainWindow : Window
     private PixelPoint? _touchDragStartScreen;
     private PixelPoint _touchDragStartWindow;
 
-    private PixelPoint GetPointerScreenPoint(PointerEventArgs e, Visual? relativeTo)
-        => ((Window)VisualRoot!).PointToScreen(e.GetCurrentPoint(relativeTo).Position);
+    /// <summary>
+    /// 把指针位置换算成屏幕像素坐标（触屏手动拖动/缩放用）。
+    /// 直接以窗口自身为坐标系调用 <c>VisualExtensions.PointToScreen</c>，
+    /// 不再把 <c>VisualRoot</c> 强转成 <see cref="Window"/>：Avalonia 12 下窗口的
+    /// VisualRoot 可能是 TopLevelHost，强转会抛 InvalidCastException。
+    /// </summary>
+    private PixelPoint GetPointerScreenPoint(PointerEventArgs e)
+        => this.PointToScreen(e.GetPosition(this));
 
     private void OnTitleBarPointerPressed(object? sender, PointerPressedEventArgs e)
     {
@@ -349,14 +355,17 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (WindowState == WindowState.Maximized)
-        {
-            return;
-        }
-
+        // 鼠标：交给系统原生移动循环；最大化时 Windows 会先还原原尺寸再跟随拖动，
+        // 与系统窗口行为一致。触屏：BeginMoveDrag 收不到输入，改为手动跟随，
+        // 最大化状态下不支持拖动还原（双击标题栏可还原）。
         if (e.Pointer.Type == PointerType.Touch)
         {
-            _touchDragStartScreen = GetPointerScreenPoint(e, (Visual?)sender);
+            if (WindowState == WindowState.Maximized)
+            {
+                return;
+            }
+
+            _touchDragStartScreen = GetPointerScreenPoint(e);
             _touchDragStartWindow = Position;
             e.Pointer.Capture((IInputElement?)sender);
             return;
@@ -372,7 +381,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var current = GetPointerScreenPoint(e, null);
+        var current = GetPointerScreenPoint(e);
         Position = new PixelPoint(
             _touchDragStartWindow.X + (current.X - startScreen.X),
             _touchDragStartWindow.Y + (current.Y - startScreen.Y));
@@ -447,7 +456,7 @@ public partial class MainWindow : Window
             if (e.Pointer.Type == PointerType.Touch && WindowState == WindowState.Normal)
             {
                 _touchResizeEdge = edge;
-                _touchResizeStartScreen = GetPointerScreenPoint(e, handle);
+                _touchResizeStartScreen = GetPointerScreenPoint(e);
                 _touchResizeStartWindowPos = Position;
                 _touchResizeStartSize = new Size(Width, Height);
                 e.Pointer.Capture(handle);
@@ -471,7 +480,7 @@ public partial class MainWindow : Window
         }
 
         var scale = RenderScaling;
-        var current = GetPointerScreenPoint(e, null);
+        var current = GetPointerScreenPoint(e);
         var dx = (current.X - startScreen.X) / scale;
         var dy = (current.Y - startScreen.Y) / scale;
 
