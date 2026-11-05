@@ -32,6 +32,12 @@
             <!-- 状态色 -->
             <SolidColorBrush x:Key="ErrorBrush" Color="#E74C3C" />
             <SolidColorBrush x:Key="ErrorDarkBrush" Color="#CE2111" />
+            <!-- 启动过程页：已完成步骤标记 -->
+            <SolidColorBrush x:Key="SuccessBrush" Color="#3E9B4F" />
+            <!-- 实心警示红三态：运行中的启动按钮 / 停止悬浮钮 / 危险确认按钮共用 -->
+            <SolidColorBrush x:Key="DangerSolidBrush" Color="#E5484D" />
+            <SolidColorBrush x:Key="DangerSolidHoverBrush" Color="#D63A40" />
+            <SolidColorBrush x:Key="DangerSolidPressedBrush" Color="#C32F35" />
             <!-- 关闭游戏（警示态）浅红底与危险按钮悬停底 -->
             <SolidColorBrush x:Key="ErrorSoftBrush" Color="#FDECEC" />
             <!-- 弹窗遮罩 -->
@@ -112,6 +118,12 @@
 
             <SolidColorBrush x:Key="ErrorBrush" Color="#F07060" />
             <SolidColorBrush x:Key="ErrorDarkBrush" Color="#D94A3B" />
+            <!-- 启动过程页：已完成步骤标记 -->
+            <SolidColorBrush x:Key="SuccessBrush" Color="#6FCF7A" />
+            <!-- 实心警示红三态：运行中的启动按钮 / 停止悬浮钮 / 危险确认按钮共用 -->
+            <SolidColorBrush x:Key="DangerSolidBrush" Color="#D14A44" />
+            <SolidColorBrush x:Key="DangerSolidHoverBrush" Color="#BF3E38" />
+            <SolidColorBrush x:Key="DangerSolidPressedBrush" Color="#AC342F" />
             <SolidColorBrush x:Key="ErrorSoftBrush" Color="#3A2325" />
             <SolidColorBrush x:Key="DialogScrimBrush" Color="#B3000000" />
 

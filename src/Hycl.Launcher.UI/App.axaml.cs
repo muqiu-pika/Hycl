@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
@@ -8,6 +9,8 @@ namespace Hycl.Launcher.UI;
 
 public partial class App : Application
 {
+    private bool _splashFading;
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
@@ -38,7 +41,7 @@ public partial class App : Application
 
                     // 关闭挂钩必须先于 Show() 注册：Avalonia 在 Show() 内部同步触发 Opened，
                     // 之后再订阅会永远错过（splash 将一直悬浮在主窗口之上）
-                    EventHandler closeSplash = (_, _) => splash.Close();
+                    EventHandler closeSplash = (_, _) => FadeOutAndClose(splash);
                     main.Opened += closeSplash;
                     main.Closed += closeSplash;
 
@@ -47,7 +50,7 @@ public partial class App : Application
                     failsafe.Tick += (_, _) =>
                     {
                         failsafe.Stop();
-                        splash.Close();
+                        FadeOutAndClose(splash);
                     };
                     failsafe.Start();
 
@@ -57,6 +60,34 @@ public partial class App : Application
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    /// <summary>主窗口就绪后启动画面淡出再关闭（逐帧驱动，沿用 splash 现有的手动动画方案）。</summary>
+    private void FadeOutAndClose(SplashWindow splash)
+    {
+        if (_splashFading)
+        {
+            return;
+        }
+
+        _splashFading = true;
+        var start = Stopwatch.GetTimestamp();
+        const double durationMs = 220;
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+        timer.Tick += (_, _) =>
+        {
+            var elapsedMs = (Stopwatch.GetTimestamp() - start) * 1000d / Stopwatch.Frequency;
+            var progress = Math.Clamp(elapsedMs / durationMs, 0d, 1d);
+            splash.Opacity = 1d - progress;
+            if (progress < 1d)
+            {
+                return;
+            }
+
+            timer.Stop();
+            splash.Close();
+        };
+        timer.Start();
     }
 }
 

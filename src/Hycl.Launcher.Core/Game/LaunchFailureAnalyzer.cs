@@ -6,7 +6,13 @@ namespace Hycl.Launcher.Core.Game;
 /// 启动失败的结构化结论：标题 / 原因 / 建议操作 / 退出码。
 /// 由 UI 层直接展示，不依赖任何 UI 类型，便于单测。
 /// </summary>
-public sealed record LaunchFailureInfo(string Title, string Reason, string Suggestion, int? ExitCode);
+public sealed record LaunchFailureInfo(
+    string Title,
+    string Reason,
+    string Suggestion,
+    int? ExitCode,
+    bool CrashedInGame = false,
+    string? CrashReportPath = null);
 
 /// <summary>
 /// 启动失败判定：只看进程退出码、日志特征行与启动前抛出的异常文本，

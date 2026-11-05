@@ -699,10 +699,11 @@
                 Margin="0,0,22,22"
                 ToolTip.Tip="关闭游戏"
                 Command="{Binding RequestCloseGameCommand}">
-            <StackPanel Orientation="Horizontal" Spacing="7">
-                <c:HyclIcon Kind="power" Width="17" Height="17" VerticalAlignment="Center" />
-                <TextBlock Text="关闭游戏" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
-            </StackPanel>
+            <c:HyclIcon Kind="power"
+                        Width="20" Height="20"
+                        Foreground="#FFFFFFFF"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center" />
         </Button>
     </Panel>
 </UserControl>

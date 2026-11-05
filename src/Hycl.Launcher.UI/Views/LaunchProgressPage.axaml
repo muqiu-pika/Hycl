@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:c="clr-namespace:Hycl.Launcher.UI.Controls"
              xmlns:vm="clr-namespace:Hycl.Launcher.Core.ViewModels.Pages;assembly=Hycl.Launcher.Core"
+             xmlns:game="clr-namespace:Hycl.Launcher.Core.Game;assembly=Hycl.Launcher.Core"
              x:Class="Hycl.Launcher.UI.Views.LaunchProgressPage"
              x:DataType="vm:LaunchProgressViewModel"
              x:CompileBindings="True">
@@ -9,99 +10,171 @@
     <!-- 独立「启动中」页面：不是弹窗、不是覆盖层，随标签页使用既有的串行淡入淡出 -->
     <Panel>
 
-        <!-- ─────────────── 启动中 ─────────────── -->
-        <StackPanel MaxWidth="600"
-                    Margin="40,24"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    IsVisible="{Binding !Launch.IsLaunchFailed}">
+        <!-- ─────────────── 启动中：过程简要概述（PCL-CE 信息密度） ─────────────── -->
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto"
+                      IsVisible="{Binding !Launch.IsLaunchFailed}">
+            <StackPanel MaxWidth="620"
+                        Margin="40,18,40,24"
+                        HorizontalAlignment="Center">
 
-            <c:McLoading IconSize="64"
-                         HorizontalAlignment="Center" />
+                <!-- 图标动画 + 当前步骤 + 耗时 -->
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <c:McLoading IconSize="46" VerticalAlignment="Center" />
+                    <StackPanel Grid.Column="1"
+                                Margin="16,0,0,0"
+                                Spacing="3"
+                                VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Launch.LaunchStepTitle}"
+                                   FontSize="19"
+                                   FontWeight="Bold"
+                                   Foreground="{DynamicResource TextBrush}" />
+                        <TextBlock Text="{Binding Launch.LaunchStepCounterText}"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource Gray3Brush}" />
+                    </StackPanel>
+                    <Border Grid.Column="2"
+                            Background="{DynamicResource Primary8Brush}"
+                            CornerRadius="11"
+                            Padding="10,4"
+                            VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Launch.LaunchElapsedText}"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource PrimaryDeepBrush}" />
+                    </Border>
+                </Grid>
 
-            <TextBlock Text="{Binding Launch.LaunchStageText}"
-                       FontSize="20"
-                       FontWeight="Bold"
-                       TextAlignment="Center"
-                       Foreground="{DynamicResource TextBrush}"
-                       Margin="0,16,0,0" />
+                <!-- 七步流程：已完成 ✓ / 当前高亮 / 未开始置灰 -->
+                <Border Classes="proc-card" Margin="0,14,0,0">
+                    <ItemsControl ItemsSource="{Binding Launch.LaunchSteps}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:LaunchStepItemViewModel">
+                                <Grid ColumnDefinitions="20,*,Auto" Margin="0,2.5">
+                                    <TextBlock Classes="step-marker"
+                                               Classes.done="{Binding IsCompleted}"
+                                               Classes.active="{Binding IsActive}"
+                                               Classes.failed="{Binding IsFailed}"
+                                               Text="{Binding Marker}"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock Grid.Column="1"
+                                               Classes="step-title"
+                                               Classes.done="{Binding IsCompleted}"
+                                               Classes.active="{Binding IsActive}"
+                                               Classes.failed="{Binding IsFailed}"
+                                               Classes.pending="{Binding IsPending}"
+                                               Text="{Binding Title}"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock Grid.Column="2"
+                                               Text="完成"
+                                               FontSize="11.5"
+                                               Foreground="{DynamicResource SuccessBrush}"
+                                               IsVisible="{Binding IsCompleted}"
+                                               VerticalAlignment="Center" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Border>
 
-            <StackPanel Orientation="Horizontal"
-                        Spacing="6"
+                <!-- 登录方式 + 关键参数摘要 -->
+                <Border Classes="proc-card" Margin="0,10,0,0">
+                    <Grid ColumnDefinitions="84,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="6">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Classes="param-label" Text="登录方式" />
+                        <TextBlock Grid.Row="0" Grid.Column="1" Classes="param-value" Text="{Binding Launch.LaunchAccountSummary}" />
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Classes="param-label" Text="版本" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" Classes="param-value" Text="{Binding Launch.LaunchParamsVersion}" />
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Classes="param-label" Text="内存" />
+                        <TextBlock Grid.Row="2" Grid.Column="1" Classes="param-value" Text="{Binding Launch.LaunchParamsMemory}" />
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Classes="param-label" Text="Java" />
+                        <TextBlock Grid.Row="3" Grid.Column="1" Classes="param-value" Text="{Binding Launch.LaunchParamsJava}" />
+
+                        <TextBlock Grid.Row="4" Grid.Column="0" Classes="param-label" Text="游戏目录" />
+                        <TextBlock Grid.Row="4" Grid.Column="1" Classes="param-value" Text="{Binding Launch.LaunchParamsGameDirectory}" />
+                    </Grid>
+                </Border>
+
+                <ProgressBar Classes="launch-progress"
+                             Height="6"
+                             Minimum="0"
+                             Maximum="1"
+                             Margin="0,16,0,0"
+                             Value="{Binding Launch.LaunchProgress}" />
+
+                <Grid ColumnDefinitions="*,Auto" Margin="0,8,0,0">
+                    <TextBlock Text="{Binding Launch.LaunchProgress, StringFormat='启动进度 {0:P0}'}"
+                               FontSize="12"
+                               Foreground="{DynamicResource Gray3Brush}" />
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding Launch.LaunchStageText}"
+                               FontSize="12"
+                               Foreground="{DynamicResource Gray3Brush}"
+                               TextTrimming="CharacterEllipsis"
+                               MaxWidth="320" />
+                </Grid>
+
+                <Button Classes="action-btn"
                         HorizontalAlignment="Center"
-                        Margin="0,7,0,0">
-                <TextBlock Text="{Binding Launch.ActiveProfile.Name}"
-                           FontSize="12.5"
-                           Foreground="{DynamicResource Gray3Brush}" />
-                <TextBlock Text="·" FontSize="12.5" Foreground="{DynamicResource Gray3Brush}" />
-                <TextBlock Text="{Binding Launch.SelectedInstanceName}"
-                           FontSize="12.5"
-                           Foreground="{DynamicResource Gray3Brush}"
-                           TextTrimming="CharacterEllipsis" />
+                        Margin="0,14,0,0"
+                        Command="{Binding Launch.ToggleLaunchLogCommand}">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <c:HyclIcon Kind="list" Width="15" Height="15" />
+                        <TextBlock Text="实时日志（点击展开/收起）" FontSize="12.5" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+
+                <Border Background="{DynamicResource Gray8Brush}"
+                        BorderBrush="{DynamicResource Gray6Brush}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="12,10"
+                        Margin="0,10,0,0"
+                        IsVisible="{Binding Launch.IsLaunchLogExpanded}">
+                    <ScrollViewer Height="200" VerticalScrollBarVisibility="Auto">
+                        <TextBox Text="{Binding Launch.LaunchLogText}"
+                                 IsReadOnly="True"
+                                 AcceptsReturn="True"
+                                 TextWrapping="NoWrap"
+                                 Background="Transparent"
+                                 BorderThickness="0"
+                                 Padding="0"
+                                 FontFamily="Consolas, Cascadia Code, monospace"
+                                 FontSize="12"
+                                 Foreground="{DynamicResource Gray2Brush}" />
+                    </ScrollViewer>
+                </Border>
             </StackPanel>
+        </ScrollViewer>
 
-            <ProgressBar Classes="launch-progress"
-                         Height="6"
-                         Minimum="0"
-                         Maximum="1"
-                         Margin="0,24,0,0"
-                         Value="{Binding Launch.LaunchProgress}" />
-
-            <Grid ColumnDefinitions="*,Auto" Margin="0,8,0,0">
-                <TextBlock Text="{Binding Launch.LaunchProgress, StringFormat='启动进度 {0:P0}'}"
-                           FontSize="12"
-                           Foreground="{DynamicResource Gray3Brush}" />
-                <TextBlock Grid.Column="1"
-                           Text="{Binding Launch.LaunchElapsedText}"
-                           FontSize="12"
-                           Foreground="{DynamicResource Gray3Brush}" />
-            </Grid>
-
-            <Button Classes="mc-btn"
-                    HorizontalAlignment="Center"
-                    Margin="0,20,0,0"
-                    Command="{Binding Launch.ToggleLaunchLogCommand}">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <c:HyclIcon Kind="list" Width="15" Height="15" />
-                    <TextBlock Text="实时日志（点击展开/收起）" FontSize="12.5" VerticalAlignment="Center" />
-                </StackPanel>
-            </Button>
-
-            <Border Background="{DynamicResource Gray8Brush}"
-                    BorderBrush="{DynamicResource Gray6Brush}"
-                    BorderThickness="1"
-                    CornerRadius="8"
-                    Padding="12,10"
-                    Margin="0,10,0,0"
-                    IsVisible="{Binding Launch.IsLaunchLogExpanded}">
-                <ScrollViewer Height="220" VerticalScrollBarVisibility="Auto">
-                    <TextBox Text="{Binding Launch.LaunchLogText}"
-                             IsReadOnly="True"
-                             AcceptsReturn="True"
-                             TextWrapping="NoWrap"
-                             Background="Transparent"
-                             BorderThickness="0"
-                             Padding="0"
-                             FontFamily="Consolas, Cascadia Code, monospace"
-                             FontSize="12"
-                             Foreground="{DynamicResource Gray2Brush}" />
-                </ScrollViewer>
-            </Border>
-        </StackPanel>
-
-        <!-- ─────────────── 启动失败 ─────────────── -->
+        <!-- ─────────────── 失败 / 崩溃：上半结论，下半可滚动日志 ─────────────── -->
         <ScrollViewer HorizontalScrollBarVisibility="Disabled"
                       VerticalScrollBarVisibility="Auto"
                       IsVisible="{Binding Launch.IsLaunchFailed}">
-            <StackPanel MaxWidth="640"
-                        Margin="48,32"
+            <StackPanel MaxWidth="660"
+                        Margin="44,22,44,26"
                         HorizontalAlignment="Center">
 
-                <c:HyclIcon Kind="info"
-                            Width="44"
-                            Height="44"
-                            HorizontalAlignment="Center"
-                            Foreground="{DynamicResource ErrorBrush}" />
+                <StackPanel Orientation="Horizontal"
+                            Spacing="8"
+                            HorizontalAlignment="Center">
+                    <c:HyclIcon Kind="info"
+                                Width="18"
+                                Height="18"
+                                Foreground="{DynamicResource ErrorBrush}"
+                                VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding Launch.LaunchFailureHeader}"
+                               FontSize="13"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource ErrorBrush}"
+                               VerticalAlignment="Center" />
+                </StackPanel>
 
                 <TextBlock Text="{Binding Launch.LaunchFailure.Title}"
                            FontSize="22"
@@ -109,7 +182,7 @@
                            TextAlignment="Center"
                            TextWrapping="Wrap"
                            Foreground="{DynamicResource TextBrush}"
-                           Margin="0,14,0,0" />
+                           Margin="0,10,0,0" />
 
                 <TextBlock Text="{Binding Launch.LaunchFailure.Reason}"
                            FontSize="13.5"
@@ -117,15 +190,49 @@
                            TextAlignment="Center"
                            TextWrapping="Wrap"
                            Foreground="{DynamicResource Gray2Brush}"
-                           Margin="0,8,0,0" />
+                           Margin="0,7,0,0" />
 
-                <Border Background="{DynamicResource GlassSurfaceBrush}"
-                        BorderBrush="{DynamicResource SoftLineBrush}"
-                        BorderThickness="1"
-                        CornerRadius="8"
-                        Padding="14,12"
-                        Margin="0,18,0,0">
-                    <StackPanel Spacing="6">
+                <!-- 启动前检查未通过的项：逐条列出原因与建议 -->
+                <Border Classes="proc-card"
+                        Margin="0,14,0,0"
+                        IsVisible="{Binding Launch.HasFailedChecks}">
+                    <StackPanel Spacing="9">
+                        <TextBlock Text="未通过的检查"
+                                   FontSize="12"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource ErrorBrush}" />
+                        <ItemsControl ItemsSource="{Binding Launch.LaunchFailedChecks}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="game:LaunchCheckItem">
+                                    <StackPanel Spacing="3" Margin="0,1">
+                                        <TextBlock Text="{Binding Title}"
+                                                   FontSize="13"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource TextBrush}" />
+                                        <TextBlock Text="{Binding Detail}"
+                                                   FontSize="12.5"
+                                                   LineHeight="19"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{DynamicResource Gray2Brush}" />
+                                        <TextBlock Text="{Binding Suggestion}"
+                                                   FontSize="12.5"
+                                                   LineHeight="19"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{DynamicResource PrimaryDeepBrush}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <Border Classes="proc-card" Margin="0,10,0,0">
+                    <StackPanel Spacing="5">
                         <TextBlock Text="建议操作"
                                    FontSize="12"
                                    FontWeight="SemiBold"
@@ -138,20 +245,56 @@
                     </StackPanel>
                 </Border>
 
+                <!-- 游戏内崩溃：指向最新一份 crash-report，可直接打开 -->
+                <Border Classes="proc-card"
+                        Margin="0,10,0,0"
+                        IsVisible="{Binding Launch.HasCrashReport}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Text="最新崩溃报告"
+                                       Classes="param-label" />
+                            <TextBlock Text="{Binding Launch.CrashReportName}"
+                                       Classes="param-value"
+                                       FontFamily="Consolas, Cascadia Code, monospace" />
+                        </StackPanel>
+                        <Button Grid.Column="1"
+                                Classes="action-btn"
+                                VerticalAlignment="Center"
+                                Content="打开"
+                                Command="{Binding Launch.OpenCrashReportCommand}" />
+                    </Grid>
+                </Border>
+
                 <TextBlock Text="{Binding Launch.LaunchFailureExitText}"
                            FontSize="12"
                            HorizontalAlignment="Center"
                            Foreground="{DynamicResource Gray3Brush}"
-                           Margin="0,14,0,0" />
+                           Margin="0,12,0,0" />
 
-                <!-- 失败后原始日志固定展示，可选中复制 / 一键复制 -->
+                <!-- 下半部分：可滚动日志 + 复制 / 打开目录入口 -->
+                <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,12,0,6">
+                    <TextBlock Text="原始日志"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource Gray2Brush}"
+                               VerticalAlignment="Center" />
+                    <Button Grid.Column="1"
+                            Classes="action-btn"
+                            Margin="0,0,8,0"
+                            Content="复制日志"
+                            Click="OnCopyLogClick" />
+                    <Button Grid.Column="2"
+                            Classes="action-btn"
+                            Content="打开日志目录"
+                            Command="{Binding Launch.OpenLogFolderCommand}" />
+                </Grid>
+
                 <Border Background="{DynamicResource Gray8Brush}"
                         BorderBrush="{DynamicResource Gray6Brush}"
                         BorderThickness="1"
                         CornerRadius="8"
-                        Padding="12,10"
-                        Margin="0,10,0,0">
-                    <ScrollViewer Height="180" VerticalScrollBarVisibility="Auto">
+                        Padding="12,10">
+                    <ScrollViewer Height="210" VerticalScrollBarVisibility="Auto">
                         <TextBox Text="{Binding Launch.LaunchLogText}"
                                  IsReadOnly="True"
                                  AcceptsReturn="True"
@@ -165,20 +308,23 @@
                     </ScrollViewer>
                 </Border>
 
-                <StackPanel Orientation="Horizontal"
-                            Spacing="10"
-                            HorizontalAlignment="Center"
-                            Margin="0,20,0,0">
-                    <Button Classes="mc-btn"
-                            Content="返回启动页"
+                <WrapPanel Orientation="Horizontal"
+                           HorizontalAlignment="Center"
+                           Margin="0,18,0,0">
+                    <Button Classes="mc-btn primary"
+                            Margin="5,0"
+                            Content="返回修正"
                             Command="{Binding Launch.ReturnToLaunchPageCommand}" />
                     <Button Classes="mc-btn"
+                            Margin="5,0"
                             Content="重新启动"
                             Command="{Binding Launch.RetryLaunchCommand}" />
                     <Button Classes="mc-btn"
-                            Content="复制日志"
-                            Click="OnCopyLogClick" />
-                </StackPanel>
+                            Margin="5,0"
+                            Content="打开崩溃报告"
+                            IsVisible="{Binding Launch.HasCrashReport}"
+                            Command="{Binding Launch.OpenCrashReportCommand}" />
+                </WrapPanel>
             </StackPanel>
         </ScrollViewer>
     </Panel>

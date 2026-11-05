@@ -120,6 +120,64 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         ? $"进程退出码：{code}"
         : "进程尚未启动，未返回退出码";
 
+    // ===== 启动过程页（对齐 PCL-CE 的信息结构）=====
+
+    /// <summary>PCL-CE 的七步流程：检查版本 → 校验资源 → 检查 Java 与内存 → 构建参数 → 启动进程 → 等待窗口 → 完成。</summary>
+    private static readonly string[] LaunchStepTitles =
+    [
+        "检查版本文件",
+        "校验与补全资源",
+        "检查 Java 与内存",
+        "构建启动参数",
+        "启动游戏进程",
+        "等待游戏窗口",
+        "启动完成"
+    ];
+
+    public ObservableCollection<LaunchStepItemViewModel> LaunchSteps { get; } = [];
+
+    /// <summary>当前步骤标题与「第 n 步 / 共 7 步」计数。</summary>
+    [ObservableProperty]
+    private string _launchStepTitle = LaunchStepTitles[0];
+
+    [ObservableProperty]
+    private string _launchStepCounterText = $"第 1 步 / 共 {LaunchStepTitles.Length} 步";
+
+    /// <summary>登录方式：离线账号显示「离线登录 / 用户名」，未选择账号时明确提示。</summary>
+    [ObservableProperty]
+    private string _launchAccountSummary = "未选择账号";
+
+    /// <summary>关键参数摘要（版本名 / 内存 / Java / 游戏目录），用于排错。</summary>
+    [ObservableProperty]
+    private string _launchParamsVersion = "—";
+
+    [ObservableProperty]
+    private string _launchParamsMemory = "—";
+
+    [ObservableProperty]
+    private string _launchParamsJava = "—";
+
+    [ObservableProperty]
+    private string _launchParamsGameDirectory = "—";
+
+    /// <summary>启动前检查未通过的项（失败页逐条展示原因与建议）。</summary>
+    public ObservableCollection<LaunchCheckItem> LaunchFailedChecks { get; } = [];
+
+    public bool HasFailedChecks => LaunchFailedChecks.Count > 0;
+
+    /// <summary>失败页大标题：启动前检查未通过 / 启动失败 / 游戏崩溃。</summary>
+    [ObservableProperty]
+    private string _launchFailureHeader = "启动失败";
+
+    /// <summary>游戏内崩溃时指向的最新一份 crash-report 文件名；无则为 null。</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasCrashReport))]
+    private string? _crashReportName;
+
+    public bool HasCrashReport => !string.IsNullOrWhiteSpace(CrashReportName);
+
+    private int _launchStepIndex;
+
     public bool CanLaunch => !IsLaunching && !IsGameRunning && !IsClosing;
 
     /// <summary>按钮是否可点击：启动中/关闭中禁用，运行中可点击（用于关闭游戏）。</summary>
@@ -613,16 +671,29 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         {
             var config = _services.Config;
             var account = _services.Accounts.SelectedAccount;
-            if (account is null)
+
+            // 先切到独立启动页：账号缺失、版本/资源/Java/内存检查不通过都在这一页给出原因与建议，
+            // 不再用弹窗把玩家挡在启动页外（对齐 PCL-CE 的启动前检查体验）。
+            StartLaunchSession();
+            PrepareLaunchSummary(instance, account);
+
+            var checkOptions = BuildLaunchOptions(instance, account, "", "");
+            LaunchParamsMemory = $"{checkOptions.MemoryMegabytes} MB";
+
+            var preflight = await _services.Launch
+                .RunPreflightAsync(
+                    checkOptions,
+                    account,
+                    step => _services.Dispatcher.Post(() => AdvanceLaunchStep(step)))
+                .ConfigureAwait(true);
+            ApplyPreflightResult(preflight);
+
+            if (!preflight.Passed || account is null)
             {
-                _toast?.Invoke("请先添加账号（正版 / 皮肤站 / 离线）");
-                IsLoginDialogVisible = true;
-                IsLaunching = false;
+                // 检查不通过：停在检查步骤，逐项展示原因与建议，允许返回修正
+                ShowPreflightFailure(preflight, account);
                 return;
             }
-
-            // 账号就绪后再切到独立启动页，避免账号缺失时把登录弹窗压在空白进度页上
-            StartLaunchSession();
 
             // 正版账号：令牌临近过期先静默续期（refresh_token），失败则中止本次启动
             if (account.Type == "msa" && account.IsTokenNearExpiry)
@@ -681,58 +752,8 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                 }
             }
 
-            var instanceSettings = config.FindInstanceSettings(instance.Id);
-            var isolated = instanceSettings?.VersionIsolation ?? true;
-            var options = new LaunchOptions
-            {
-                InstanceId = instance.Id,
-                GameDirectory = config.EffectiveGameDirectory,
-                InstanceDirectory = isolated ? instance.Directory : "",
-                JavaPath = string.IsNullOrWhiteSpace(instanceSettings?.JavaPath)
-                    ? config.JavaPath
-                    : instanceSettings.JavaPath,
-                MemoryMegabytes = instanceSettings is { MemoryMegabytes: > 0 }
-                    ? instanceSettings.MemoryMegabytes
-                    : config.GetEffectiveMemoryMegabytes(),
-                InitialMemoryMegabytes = instanceSettings is { InitialMemoryMegabytes: >= 0 }
-                    ? instanceSettings.InitialMemoryMegabytes
-                    : config.InitialMemoryMegabytes,
-                LockMemory = config.LockMemory,
-                WindowType = instanceSettings is { WindowType: >= 0 }
-                    ? instanceSettings.WindowType
-                    : config.WindowType,
-                WindowWidth = instanceSettings is { WindowWidth: > 0 }
-                    ? instanceSettings.WindowWidth
-                    : config.WindowWidth,
-                WindowHeight = instanceSettings is { WindowHeight: > 0 }
-                    ? instanceSettings.WindowHeight
-                    : config.WindowHeight,
-                ExtraJvmArguments = string.IsNullOrWhiteSpace(instanceSettings?.ExtraJvmArguments)
-                    ? config.ExtraJvmArguments
-                    : instanceSettings.ExtraJvmArguments,
-                ExtraGameArguments = config.ExtraGameArguments,
-                PlayerName = account.Name,
-                PlayerUuid = account.Uuid,
-                AccessToken = account.AccessToken,
-                UserType = account.Type switch
-                {
-                    "msa" => "msa",
-                    "authlib" => "Legacy",
-                    _ => "legacy"
-                },
-                AuthClientId = account.Type == "msa" ? HyclSecrets.MicrosoftOAuthClientId : "",
-                AuthXuid = account.Xuid,
-                AuthlibServer = account.Type == "authlib" ? account.Server : "",
-                AuthlibJarPath = authlibJar ?? "",
-                AuthlibPrefetched = authlibPrefetched ?? "",
-                WindowTitle = config.WindowTitle,
-                TypeInfo = config.TypeInfo,
-                LauncherVisibility = config.LauncherVisibility,
-                ProcessPriority = config.ProcessPriority,
-                PreferredIpStack = config.PreferredIpStack,
-                PreLaunchCommand = config.PreLaunchCommand,
-                PreLaunchCommandWait = config.PreLaunchCommandWait
-            };
+            AdvanceLaunchStep(4);
+            var options = BuildLaunchOptions(instance, account, authlibJar, authlibPrefetched);
 
             var session = await _services.Launch
                 .LaunchAsync(
@@ -750,6 +771,12 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                             if (IsLaunching)
                             {
                                 LaunchStageText = stage;
+                                var step = StepForLaunchStage(stage);
+                                if (step > 0)
+                                {
+                                    AdvanceLaunchStep(step);
+                                }
+
                                 SetLaunchProgress(ProgressForStage(stage));
                             }
                         });
@@ -773,6 +800,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                         if (IsLaunching)
                         {
                             LaunchStageText = stage;
+                            AdvanceLaunchStep(6);
                             SetLaunchProgress(ProgressForMonitorStage(stage));
                         }
                     });
@@ -793,10 +821,11 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
 
                     // 进程在窗口出现前退出：按退出码 + 日志特征给出失败页，绝不显示空白页
                     AppendLaunchLog($"[失败] {result.Message}");
+                    FailLaunchStep();
                     ShowLaunchFailure(LaunchFailureAnalyzer.Analyze(
                         result.ExitCode,
                         SnapshotLaunchLog(),
-                        result.Message));
+                        result.Message), "启动失败");
                 }
                 else
                 {
@@ -814,6 +843,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
 
             SetLaunchProgress(1d);
             LaunchStageText = "游戏窗口已出现";
+            CompleteAllLaunchSteps();
             await Task.Delay(600).ConfigureAwait(true);
             LaunchCount++;
             IsLaunching = false;
@@ -844,7 +874,8 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             _services.Logger.Error("启动游戏失败", ex);
             // 启动前就失败时进程没有输出，把异常原因写进日志，失败页不会只有空日志
             AppendLaunchLog($"[失败] {ex.Message}");
-            ShowLaunchFailure(LaunchFailureAnalyzer.Analyze(null, SnapshotLaunchLog(), ex.Message));
+            FailLaunchStep();
+            ShowLaunchFailure(LaunchFailureAnalyzer.Analyze(null, SnapshotLaunchLog(), ex.Message), "启动失败");
         }
         catch (Exception ex)
         {
@@ -853,16 +884,17 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             SetLaunchProgress(0d);
             _services.Logger.Error("启动游戏失败", ex);
             AppendLaunchLog($"[失败] 启动失败：{ex.Message}");
+            FailLaunchStep();
             ShowLaunchFailure(LaunchFailureAnalyzer.Analyze(
                 null,
                 SnapshotLaunchLog(),
-                $"启动失败：{ex.Message}"));
+                $"启动失败：{ex.Message}"), "启动失败");
         }
     }
 
     // ------------------------- 独立启动页：日志 / 计时 / 失败展示 -------------------------
 
-    /// <summary>进入一次新的启动会话：清空日志、重置失败状态并切到启动中页面。</summary>
+    /// <summary>进入一次新的启动会话：清空日志、重置失败状态与步骤列表，并切到启动中页面。</summary>
     private void StartLaunchSession()
     {
         lock (_launchLogGate)
@@ -872,6 +904,13 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
 
         LaunchLogText = "";
         LaunchFailure = null;
+        LaunchFailureHeader = "启动失败";
+        LaunchFailedChecks.Clear();
+        OnPropertyChanged(nameof(HasFailedChecks));
+        CrashReportName = null;
+        LatestCrashReportPath = null;
+        IsCrashBannerVisible = false;
+        ResetLaunchSteps();
         IsLaunchLogExpanded = false;
         IsLaunchProgressVisible = true;
         StopLaunchTicker();
@@ -899,12 +938,212 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     }
 
     /// <summary>展示结构化的启动失败页，并把完整日志快照固定下来供复制。</summary>
-    private void ShowLaunchFailure(LaunchFailureInfo failure)
+    private void ShowLaunchFailure(LaunchFailureInfo failure, string header = "启动失败")
     {
         StopLaunchTicker();
+        LaunchFailureHeader = header;
         LaunchFailure = failure;
         LaunchLogText = string.Join(Environment.NewLine, SnapshotLaunchLog());
         IsLaunchProgressVisible = true;
+    }
+
+    // ------------------------- 启动过程页：步骤 / 参数摘要 / 检查结果 -------------------------
+
+    private void ResetLaunchSteps()
+    {
+        LaunchSteps.Clear();
+        for (var i = 0; i < LaunchStepTitles.Length; i++)
+        {
+            LaunchSteps.Add(new LaunchStepItemViewModel(i + 1, LaunchStepTitles[i]));
+        }
+
+        _launchStepIndex = 0;
+        LaunchStepTitle = LaunchStepTitles[0];
+        LaunchStepCounterText = $"第 1 步 / 共 {LaunchStepTitles.Length} 步";
+    }
+
+    /// <summary>只前进不后退：重复汇报更早的步骤时保持当前进度，避免步骤条来回跳。</summary>
+    private void AdvanceLaunchStep(int step)
+    {
+        if (step < 1 || step > LaunchSteps.Count || step < _launchStepIndex + 1)
+        {
+            return;
+        }
+
+        for (var i = 0; i < LaunchSteps.Count; i++)
+        {
+            var item = LaunchSteps[i];
+            if (i + 1 < step)
+            {
+                if (item.Status != LaunchStepStatus.Failed)
+                {
+                    item.Status = LaunchStepStatus.Completed;
+                }
+            }
+            else if (i + 1 == step)
+            {
+                item.Status = LaunchStepStatus.Active;
+            }
+        }
+
+        _launchStepIndex = step - 1;
+        LaunchStepTitle = LaunchSteps[step - 1].Title;
+        LaunchStepCounterText = $"第 {step} 步 / 共 {LaunchSteps.Count} 步";
+    }
+
+    private void FailLaunchStep()
+    {
+        if (_launchStepIndex >= 0 && _launchStepIndex < LaunchSteps.Count)
+        {
+            LaunchSteps[_launchStepIndex].Status = LaunchStepStatus.Failed;
+        }
+    }
+
+    private void CompleteAllLaunchSteps()
+    {
+        foreach (var item in LaunchSteps)
+        {
+            item.Status = LaunchStepStatus.Completed;
+        }
+
+        _launchStepIndex = LaunchSteps.Count - 1;
+        LaunchStepTitle = LaunchSteps[^1].Title;
+        LaunchStepCounterText = $"第 {LaunchSteps.Count} 步 / 共 {LaunchSteps.Count} 步";
+    }
+
+    /// <summary>由启动阶段文案映射到步骤序号；0 表示该文案不改变步骤（内部重复检查）。</summary>
+    private static int StepForLaunchStage(string stage) => stage switch
+    {
+        "正在准备启动参数…" => 4,
+        "正在启动游戏…" => 5,
+        _ => 0
+    };
+
+    private static int StepForCheckKey(string key) => key switch
+    {
+        "assets" or "libraries" => 2,
+        "java" or "memory" => 3,
+        _ => 1
+    };
+
+    /// <summary>进入启动页时先填好账号与静态参数；Java 在检查完成后填入真实值。</summary>
+    private void PrepareLaunchSummary(MinecraftInstance instance, PlayerAccount? account)
+    {
+        LaunchAccountSummary = account is null
+            ? "未选择账号"
+            : $"{LoginTypeLabel(account)} / {account.Name}";
+        var versionName = string.IsNullOrWhiteSpace(instance.Name) ? instance.Id : instance.Name;
+        LaunchParamsVersion = string.Equals(versionName, instance.GameVersion, StringComparison.OrdinalIgnoreCase)
+            ? versionName
+            : $"{versionName}（{instance.GameVersion}）";
+        LaunchParamsJava = "启动前检查后填入";
+        LaunchParamsGameDirectory = _services.Config.EffectiveGameDirectory;
+    }
+
+    private static string LoginTypeLabel(PlayerAccount account) => account.Type switch
+    {
+        "msa" => "正版登录",
+        "authlib" => string.IsNullOrWhiteSpace(account.ServerName) ? "皮肤站登录" : $"皮肤站登录 · {account.ServerName}",
+        _ => "离线登录"
+    };
+
+    private void ApplyPreflightResult(LaunchPreflightResult result)
+    {
+        LaunchParamsJava = result.JavaSummary ?? "未检测到可用 Java";
+    }
+
+    /// <summary>检查未通过：停在失败的那一步，逐项列出原因与建议，允许回到启动页修正。</summary>
+    private void ShowPreflightFailure(LaunchPreflightResult result, PlayerAccount? account)
+    {
+        LaunchFailedChecks.Clear();
+        foreach (var item in result.FailedItems)
+        {
+            LaunchFailedChecks.Add(item);
+        }
+
+        // 账号为空的兜底：理论上检查项里已经包含「登录账号」
+        if (LaunchFailedChecks.Count == 0 && account is null)
+        {
+            LaunchFailedChecks.Add(new LaunchCheckItem(
+                "account",
+                "登录账号",
+                "未选择账号。",
+                "在启动页「添加账号」选择一个正版 / 皮肤站 / 离线账号后再启动。",
+                LaunchCheckStatus.Failed));
+        }
+
+        OnPropertyChanged(nameof(HasFailedChecks));
+        var first = LaunchFailedChecks[0];
+        AdvanceLaunchStep(StepForCheckKey(first.Key));
+        FailLaunchStep();
+        IsLaunching = false;
+        LaunchStageText = "";
+        _toast?.Invoke($"启动前检查未通过：{first.Title}");
+        ShowLaunchFailure(
+            new LaunchFailureInfo(first.Title, first.Detail, first.Suggestion, null),
+            "启动前检查未通过");
+    }
+
+    /// <summary>启动选项统一在这里组装，检查阶段与真实启动共用同一份取值逻辑。</summary>
+    private LaunchOptions BuildLaunchOptions(
+        MinecraftInstance instance,
+        PlayerAccount? account,
+        string? authlibJar,
+        string? authlibPrefetched)
+    {
+        var config = _services.Config;
+        var instanceSettings = config.FindInstanceSettings(instance.Id);
+        var isolated = instanceSettings?.VersionIsolation ?? true;
+        return new LaunchOptions
+        {
+            InstanceId = instance.Id,
+            GameDirectory = config.EffectiveGameDirectory,
+            InstanceDirectory = isolated ? instance.Directory : "",
+            JavaPath = string.IsNullOrWhiteSpace(instanceSettings?.JavaPath)
+                ? config.JavaPath
+                : instanceSettings.JavaPath,
+            MemoryMegabytes = instanceSettings is { MemoryMegabytes: > 0 }
+                ? instanceSettings.MemoryMegabytes
+                : config.GetEffectiveMemoryMegabytes(),
+            InitialMemoryMegabytes = instanceSettings is { InitialMemoryMegabytes: >= 0 }
+                ? instanceSettings.InitialMemoryMegabytes
+                : config.InitialMemoryMegabytes,
+            LockMemory = config.LockMemory,
+            WindowType = instanceSettings is { WindowType: >= 0 }
+                ? instanceSettings.WindowType
+                : config.WindowType,
+            WindowWidth = instanceSettings is { WindowWidth: > 0 }
+                ? instanceSettings.WindowWidth
+                : config.WindowWidth,
+            WindowHeight = instanceSettings is { WindowHeight: > 0 }
+                ? instanceSettings.WindowHeight
+                : config.WindowHeight,
+            ExtraJvmArguments = string.IsNullOrWhiteSpace(instanceSettings?.ExtraJvmArguments)
+                ? config.ExtraJvmArguments
+                : instanceSettings.ExtraJvmArguments,
+            ExtraGameArguments = config.ExtraGameArguments,
+            PlayerName = account?.Name ?? "",
+            PlayerUuid = account?.Uuid ?? "",
+            AccessToken = account?.AccessToken ?? "",
+            UserType = account?.Type switch
+            {
+                "msa" => "msa",
+                "authlib" => "Legacy",
+                _ => "legacy"
+            },
+            AuthClientId = account?.Type == "msa" ? HyclSecrets.MicrosoftOAuthClientId : "",
+            AuthXuid = account?.Xuid ?? "",
+            AuthlibServer = account?.Type == "authlib" ? account.Server : "",
+            AuthlibJarPath = authlibJar ?? "",
+            AuthlibPrefetched = authlibPrefetched ?? "",
+            WindowTitle = config.WindowTitle,
+            TypeInfo = config.TypeInfo,
+            LauncherVisibility = config.LauncherVisibility,
+            ProcessPriority = config.ProcessPriority,
+            PreferredIpStack = config.PreferredIpStack,
+            PreLaunchCommand = config.PreLaunchCommand,
+            PreLaunchCommandWait = config.PreLaunchCommandWait
+        };
     }
 
     private void AppendLaunchLog(string line)
@@ -1094,14 +1333,22 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                 SetLaunchProgress(0d);
                 if (exitCode != 0)
                 {
-                    _toast?.Invoke(crashReportPath is null
-                        ? $"游戏异常退出（退出码 {exitCode}），可在「工具 → 日志」查看输出"
-                        : $"游戏异常退出（退出码 {exitCode}），已为你定位最新崩溃报告");
+                    // 崩溃 = 游戏进程非零退出（此时窗口已出现过）：进入失败页展示结论 + 可滚动日志，
+                    // 并指向最新一份 crash-report（PCL-CE 的崩溃后体验）。
+                    var failure = LaunchFailureAnalyzer
+                        .Analyze(exitCode, SnapshotLaunchLog(), null)
+                        with { CrashedInGame = true, CrashReportPath = crashReportPath };
+                    AppendLaunchLog($"[崩溃] 游戏进程异常退出，退出码 {exitCode}");
+                    CrashReportName = crashReportPath is null ? null : Path.GetFileName(crashReportPath);
                     if (crashReportPath is not null)
                     {
                         LatestCrashReportPath = crashReportPath;
-                        IsCrashBannerVisible = true;
                     }
+
+                    ShowLaunchFailure(failure, "游戏崩溃 · 已在游戏中崩溃");
+                    _toast?.Invoke(crashReportPath is null
+                        ? $"游戏异常退出（退出码 {exitCode}），可在「工具 → 日志」查看输出"
+                        : $"游戏异常退出（退出码 {exitCode}），已为你定位最新崩溃报告");
                 }
                 else
                 {
@@ -1315,6 +1562,18 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
 
     [RelayCommand]
     private void DismissCrashBanner() => IsCrashBannerVisible = false;
+
+    /// <summary>失败页「打开日志目录」：定位启动器本次运行写入的日志文件夹。</summary>
+    [RelayCommand]
+    private void OpenLogFolder()
+    {
+        if (_services.System.OpenFolder(_services.Paths.LogDirectory))
+        {
+            return;
+        }
+
+        _toast?.Invoke("无法打开日志目录");
+    }
 
     /// <summary>0 正版 / 1 皮肤站（预留）/ 2 离线。</summary>
     [ObservableProperty]
@@ -1781,3 +2040,52 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
 
 /// <summary>快捷方式条目。</summary>
 public sealed record QuickLinkViewModel(string Title, string Subtitle, string IconKey);
+
+/// <summary>启动过程页单步状态。</summary>
+public enum LaunchStepStatus
+{
+    Pending,
+    Active,
+    Completed,
+    Failed
+}
+
+/// <summary>启动过程页的一步：序号、标题、状态标记。</summary>
+public sealed partial class LaunchStepItemViewModel : ObservableObject
+{
+    public LaunchStepItemViewModel(int number, string title)
+    {
+        Number = number;
+        Title = title;
+    }
+
+    public int Number { get; }
+
+    public string Title { get; }
+
+    public string NumberText => Number.ToString();
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Marker))]
+    [NotifyPropertyChangedFor(nameof(IsPending))]
+    [NotifyPropertyChangedFor(nameof(IsActive))]
+    [NotifyPropertyChangedFor(nameof(IsCompleted))]
+    [NotifyPropertyChangedFor(nameof(IsFailed))]
+    private LaunchStepStatus _status = LaunchStepStatus.Pending;
+
+    public string Marker => Status switch
+    {
+        LaunchStepStatus.Active => "▶",
+        LaunchStepStatus.Completed => "✓",
+        LaunchStepStatus.Failed => "✕",
+        _ => "○"
+    };
+
+    public bool IsPending => Status == LaunchStepStatus.Pending;
+
+    public bool IsActive => Status == LaunchStepStatus.Active;
+
+    public bool IsCompleted => Status == LaunchStepStatus.Completed;
+
+    public bool IsFailed => Status == LaunchStepStatus.Failed;
+}

@@ -217,25 +217,27 @@
     <Style Selector="Button.accent-btn.launching:disabled">
         <Setter Property="Opacity" Value="1" />
     </Style>
-    <!-- 运行中：浅红底 + 深红文字，与启动态的蓝色区分 -->
+    <!-- 运行中：实心警示红 + 白字，与启动态的蓝色明确区分；
+         阴影同步换成红色，避免蓝底阴影在红色上残留偏蓝的残影 -->
     <Style Selector="Button.accent-btn.running /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource ErrorSoftBrush}" />
+        <Setter Property="Background" Value="{DynamicResource DangerSolidBrush}" />
+        <Setter Property="BoxShadow" Value="0 8 20 0 #33D14A44" />
     </Style>
     <Style Selector="Button.accent-btn.running:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource ErrorSoftBrush}" />
+        <Setter Property="Background" Value="{DynamicResource DangerSolidHoverBrush}" />
     </Style>
     <Style Selector="Button.accent-btn.running:pressed /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource ErrorSoftBrush}" />
+        <Setter Property="Background" Value="{DynamicResource DangerSolidPressedBrush}" />
     </Style>
     <Style Selector="Button.accent-btn.running TextBlock.launch-title">
-        <Setter Property="Foreground" Value="{DynamicResource ErrorDarkBrush}" />
+        <Setter Property="Foreground" Value="#FFFFFFFF" />
     </Style>
     <Style Selector="Button.accent-btn.running TextBlock.launch-sub">
-        <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
-        <Setter Property="Opacity" Value="1" />
+        <Setter Property="Foreground" Value="#FFFFFFFF" />
+        <Setter Property="Opacity" Value="0.9" />
     </Style>
     <Style Selector="Button.accent-btn.running c|HyclIcon">
-        <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
+        <Setter Property="Foreground" Value="#FFFFFFFF" />
     </Style>
 
     <Style Selector="Button.accent-btn TextBlock.launch-title">
@@ -249,12 +251,15 @@
         <Setter Property="Foreground" Value="#FFFFFFFF" />
     </Style>
 
-    <!-- 游戏运行中：右下角固定悬浮的胶囊停止按钮（警示色，仅悬停变底色） -->
+    <!-- 游戏运行中：右下角固定悬浮的圆形停止按钮（48 DIP，仅图标，悬停只变底色） -->
     <Style Selector="Button.stop-fab">
-        <Setter Property="Height" Value="44" />
-        <Setter Property="Padding" Value="18,0" />
-        <Setter Property="CornerRadius" Value="22" />
-        <Setter Property="Background" Value="{DynamicResource ErrorBrush}" />
+        <Setter Property="Width" Value="48" />
+        <Setter Property="Height" Value="48" />
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="CornerRadius" Value="24" />
+        <Setter Property="Background" Value="{DynamicResource DangerSolidBrush}" />
         <Setter Property="Foreground" Value="#FFFFFFFF" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
@@ -270,10 +275,15 @@
         <Setter Property="BoxShadow" Value="0 6 18 0 #4DE5484D" />
     </Style>
     <Style Selector="Button.stop-fab:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource ErrorDarkBrush}" />
+        <Setter Property="Background" Value="{DynamicResource DangerSolidHoverBrush}" />
     </Style>
     <Style Selector="Button.stop-fab:pressed /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource ErrorDarkBrush}" />
+        <Setter Property="Background" Value="{DynamicResource DangerSolidPressedBrush}" />
+    </Style>
+    <!-- Fluent 按钮在 hover/pressed 时会向内容下发前景色，这里把图标描边钉死为纯白，
+         保证悬停只变底色、图标不变色 -->
+    <Style Selector="Button.stop-fab c|HyclIcon /template/ Path">
+        <Setter Property="Stroke" Value="#FFFFFFFF" />
     </Style>
     <Style Selector="Button.stop-fab:disabled">
         <Setter Property="Opacity" Value="0.55" />
@@ -326,18 +336,22 @@
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
 
-    <!-- 危险按钮 -->
+    <!-- 危险按钮：与运行中的启动按钮同一套实心警示红 -->
     <Style Selector="Button.mc-btn.danger">
-        <Setter Property="Background" Value="#73FFFFFF" />
-        <Setter Property="BorderBrush" Value="{DynamicResource ErrorBrush}" />
-        <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
+        <Setter Property="Background" Value="{DynamicResource DangerSolidBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DangerSolidBrush}" />
+        <Setter Property="Foreground" Value="#FFFFFFFF" />
     </Style>
     <Style Selector="Button.mc-btn.danger:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource ErrorSoftBrush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource ErrorDarkBrush}" />
+        <Setter Property="Background" Value="{DynamicResource DangerSolidHoverBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DangerSolidHoverBrush}" />
     </Style>
     <Style Selector="Button.mc-btn.danger:pointerover">
-        <Setter Property="Foreground" Value="{DynamicResource ErrorDarkBrush}" />
+        <Setter Property="Foreground" Value="#FFFFFFFF" />
+    </Style>
+    <Style Selector="Button.mc-btn.danger:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource DangerSolidPressedBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DangerSolidPressedBrush}" />
     </Style>
 
     <!-- ============================================================
@@ -1325,5 +1339,61 @@
     <Style Selector="Border.toast TextBlock">
         <Setter Property="Foreground" Value="White" />
         <Setter Property="FontSize" Value="12" />
+    </Style>
+
+    <!-- ============================================================
+         启动过程页（对齐 PCL-CE）：步骤清单 / 账号与参数摘要 / 失败检查项
+         ============================================================ -->
+
+    <Style Selector="Border.proc-card">
+        <Setter Property="Background" Value="{DynamicResource GlassSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource SoftLineBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="9" />
+        <Setter Property="Padding" Value="16,12" />
+    </Style>
+
+    <Style Selector="TextBlock.step-marker">
+        <Setter Property="Width" Value="18" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{DynamicResource Gray4Brush}" />
+    </Style>
+    <Style Selector="TextBlock.step-marker.done">
+        <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" />
+    </Style>
+    <Style Selector="TextBlock.step-marker.active">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}" />
+    </Style>
+    <Style Selector="TextBlock.step-marker.failed">
+        <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
+    </Style>
+
+    <Style Selector="TextBlock.step-title">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+    </Style>
+    <Style Selector="TextBlock.step-title.done">
+        <Setter Property="Foreground" Value="{DynamicResource Gray3Brush}" />
+    </Style>
+    <Style Selector="TextBlock.step-title.active">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="TextBlock.step-title.failed">
+        <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="TextBlock.step-title.pending">
+        <Setter Property="Foreground" Value="{DynamicResource Gray4Brush}" />
+    </Style>
+
+    <Style Selector="TextBlock.param-label">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{DynamicResource Gray3Brush}" />
+    </Style>
+    <Style Selector="TextBlock.param-value">
+        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
 </Styles>

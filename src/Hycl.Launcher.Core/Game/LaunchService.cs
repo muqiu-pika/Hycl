@@ -306,6 +306,17 @@ public sealed class LaunchService
         return _cachedJava;
     }
 
+    /// <summary>
+    /// 启动前检查（对应 PCL-CE 启动前的检查阶段）：版本文件 / 资源与依赖库 / Java 与内存 / 账号 / 游戏目录。
+    /// 返回所有检查项；不通过时由启动过程页展示，禁止继续进入「启动进程」。
+    /// </summary>
+    public Task<LaunchPreflightResult> RunPreflightAsync(
+        LaunchOptions options,
+        PlayerAccount? account,
+        Action<int>? onStep = null,
+        CancellationToken cancellationToken = default) =>
+        LaunchPreflight.RunAsync(options, account, _resolver, _javaDetector, onStep, cancellationToken);
+
     public async Task<GameSession> LaunchAsync(
         LaunchOptions options,
         Action<string>? onOutput = null,
