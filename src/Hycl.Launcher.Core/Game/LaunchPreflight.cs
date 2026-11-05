@@ -49,6 +49,9 @@ public static class LaunchPreflight
 {
     private const int MinMemoryMegabytes = 512;
 
+    /// <summary>启动前补全依赖库时的并发数（与安装器默认一致）。</summary>
+    private const int RepairThreads = 16;
+
     /// <summary>检查顺序与启动过程页的前三步一致（1 版本文件，2 资源与依赖库，3 Java 与内存）。</summary>
     public static async Task<LaunchPreflightResult> RunAsync(
         LaunchOptions options,
@@ -56,7 +59,8 @@ public static class LaunchPreflight
         VersionResolver resolver,
         JavaDetector javaDetector,
         Action<int>? onStep = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        VersionInstaller? installer = null)
     {
         var items = new List<LaunchCheckItem>();
         var gameDirectory = Path.GetFullPath(options.GameDirectory);
@@ -76,7 +80,8 @@ public static class LaunchPreflight
         }
 
         onStep?.Invoke(2);
-        items.Add(CheckResources(resolved, gameDirectory, options.WindowType));
+        items.Add(await CheckResourcesAsync(resolved, gameDirectory, options.WindowType, installer, cancellationToken)
+            .ConfigureAwait(false));
 
         onStep?.Invoke(3);
         var requiredJava = resolved.Info.JavaVersion?.MajorVersion
@@ -128,19 +133,17 @@ public static class LaunchPreflight
         return Passed("version", "版本文件完整性", $"已找到 {resolved.InstanceId} 的版本 json 与客户端 jar。");
     }
 
-    private static LaunchCheckItem CheckResources(ResolvedVersion resolved, string gameDirectory, int windowType)
+    private static async Task<LaunchCheckItem> CheckResourcesAsync(
+        ResolvedVersion resolved,
+        string gameDirectory,
+        int windowType,
+        VersionInstaller? installer,
+        CancellationToken cancellationToken)
     {
         var info = resolved.Info;
         var assetsIndexId = info.AssetIndex?.Id ?? info.Assets;
-        if (!string.IsNullOrWhiteSpace(assetsIndexId)
-            && !File.Exists(Path.Combine(gameDirectory, "assets", "indexes", assetsIndexId + ".json")))
-        {
-            return Failed(
-                "assets",
-                "资源文件索引",
-                $"缺少资源索引 assets/indexes/{assetsIndexId}.json。",
-                "在「下载」页对该版本执行「补全资源」；离线导入的版本需要补齐 assets。");
-        }
+        var assetsIndexMissing = !string.IsNullOrWhiteSpace(assetsIndexId)
+                                 && !File.Exists(Path.Combine(gameDirectory, "assets", "indexes", assetsIndexId + ".json"));
 
         // 依赖库逐个确认存在：缺库在启动时会直接抛异常，这里提前拦下
         var environment = RuleEnvironment.Current(windowType == 3);
@@ -160,18 +163,67 @@ public static class LaunchPreflight
 
         var librariesDirectory = Path.Combine(gameDirectory, "libraries");
         var missing = libraries
-            .Where(x => !File.Exists(Path.Combine(
-                librariesDirectory,
-                x.RelativePath.Replace('/', Path.DirectorySeparatorChar))))
-            .Select(x => x.RelativePath)
-            .ToArray();
-        if (missing.Length > 0)
+            .Where(x => !File.Exists(Path.Combine(librariesDirectory, x.RelativePath.Replace('/', Path.DirectorySeparatorChar))))
+            .ToList();
+
+        // 缺库/缺索引时自动补全（对应 PCL-CE 启动阶段 DlClientFix），成功则放行
+        if (installer is not null && (missing.Count > 0 || assetsIndexMissing))
+        {
+            try
+            {
+                var repairedCount = missing.Count;
+                var stillMissing = await installer
+                    .RepairLaunchAssetsAsync(info, environment, gameDirectory, RepairThreads, progress: null, cancellationToken)
+                    .ConfigureAwait(false);
+                if (stillMissing == 0)
+                {
+                    var assetsIndexNowOk = string.IsNullOrWhiteSpace(assetsIndexId)
+                                           || File.Exists(Path.Combine(gameDirectory, "assets", "indexes", assetsIndexId + ".json"));
+                    if (assetsIndexNowOk)
+                    {
+                        var note = assetsIndexMissing
+                            ? $"已自动补全 {repairedCount} 个依赖库与资源索引。"
+                            : $"已自动补全 {repairedCount} 个缺失依赖库。";
+                        return Passed("libraries", "依赖库完整性", note);
+                    }
+                }
+                else
+                {
+                    missing = libraries
+                        .Where(x => !File.Exists(Path.Combine(librariesDirectory, x.RelativePath.Replace('/', Path.DirectorySeparatorChar))))
+                        .ToList();
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is DownloadException or HttpRequestException or IOException)
+            {
+                _ = ex;
+                // 补全失败时落到下方的常规失败提示，附上仍缺失的数量
+                missing = libraries
+                    .Where(x => !File.Exists(Path.Combine(librariesDirectory, x.RelativePath.Replace('/', Path.DirectorySeparatorChar))))
+                    .ToList();
+            }
+        }
+
+        if (missing.Count > 0)
         {
             return Failed(
                 "libraries",
                 "依赖库完整性",
-                $"缺少 {missing.Length} 个依赖库，例如 {missing[0]}。",
-                "在「下载」页对该版本执行补全/重新安装，安装完成后再启动。");
+                $"缺少 {missing.Count} 个依赖库，例如 {missing[0].RelativePath}。",
+                "自动补全失败（网络或源不可用）。请检查网络后重试，或在「下载」页对该版本执行补全/重新安装。");
+        }
+
+        if (assetsIndexMissing && !string.IsNullOrWhiteSpace(assetsIndexId))
+        {
+            return Failed(
+                "assets",
+                "资源文件索引",
+                $"缺少资源索引 assets/indexes/{assetsIndexId}.json。",
+                "自动补全索引失败。请检查网络后重试，或在「下载」页对该版本执行「补全资源」。");
         }
 
         return Passed(

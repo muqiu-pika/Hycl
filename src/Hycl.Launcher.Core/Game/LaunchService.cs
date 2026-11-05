@@ -292,15 +292,21 @@ public sealed class LaunchService
     private readonly VersionResolver _resolver;
     private readonly JavaDetector _javaDetector;
     private readonly LauncherLogger _logger;
+    private readonly VersionInstaller? _installer;
 
     private IReadOnlyList<JavaInstallation>? _cachedJava;
     private DateTimeOffset _javaCacheTime = DateTimeOffset.MinValue;
 
-    public LaunchService(VersionResolver resolver, JavaDetector javaDetector, LauncherLogger logger)
+    public LaunchService(
+        VersionResolver resolver,
+        JavaDetector javaDetector,
+        LauncherLogger logger,
+        VersionInstaller? installer = null)
     {
         _resolver = resolver;
         _javaDetector = javaDetector;
         _logger = logger;
+        _installer = installer;
     }
 
     public async Task<IReadOnlyList<JavaInstallation>> GetJavaInstallationsAsync(
@@ -345,7 +351,7 @@ public sealed class LaunchService
         PlayerAccount? account,
         Action<int>? onStep = null,
         CancellationToken cancellationToken = default) =>
-        LaunchPreflight.RunAsync(options, account, _resolver, _javaDetector, onStep, cancellationToken);
+        LaunchPreflight.RunAsync(options, account, _resolver, _javaDetector, onStep, cancellationToken, _installer);
 
     public async Task<GameSession> LaunchAsync(
         LaunchOptions options,

@@ -603,6 +603,60 @@ public sealed partial class VersionInstaller
         return vanillaJsonPath;
     }
 
+    /// <summary>
+    /// 启动前修复（对应 PCL-CE 启动阶段的 DlClientFix）：补齐缺失的依赖库与资源索引文件。
+    /// 返回修复后仍缺失的依赖库数量；0 表示可以继续启动。
+    /// </summary>
+    public async Task<int> RepairLaunchAssetsAsync(
+        VersionInfo info,
+        RuleEnvironment environment,
+        string gameDirectory,
+        int threads,
+        IProgress<InstallProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        var reporter = new ProgressReporter(progress);
+        var librariesDirectory = Path.Combine(gameDirectory, "libraries");
+
+        var libraries = LibraryResolver.CollectLibraries(info, environment, DownloadPolicy.Default);
+        var missing = libraries
+            .Where(x => !File.Exists(Path.Combine(librariesDirectory, x.RelativePath.Replace('/', Path.DirectorySeparatorChar))))
+            .ToList();
+
+        if (missing.Count > 0)
+        {
+            _logger.Info($"启动前补全：发现 {missing.Count} 个缺失依赖库，开始自动下载");
+            reporter.Stage("补全依赖库", missing.Count);
+            await DownloadLibrariesAsync(missing, gameDirectory, threads, reporter, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        // 资源索引缺失时单独补索引文件（资源对象由游戏首次启动时自行下载）
+        var assetsIndexId = info.AssetIndex?.Id ?? info.Assets;
+        if (!string.IsNullOrWhiteSpace(assetsIndexId) && info.AssetIndex is { } assetIndex
+            && !File.Exists(Path.Combine(gameDirectory, "assets", "indexes", assetsIndexId + ".json")))
+        {
+            _logger.Info($"启动前补全：缺失资源索引 {assetsIndexId}.json，开始自动下载");
+            reporter.Stage("补全资源索引");
+            var indexPath = Path.Combine(gameDirectory, "assets", "indexes", assetsIndexId + ".json");
+            Directory.CreateDirectory(Path.GetDirectoryName(indexPath)!);
+            await _client
+                .DownloadFileAsync(
+                    DownloadSources.GetLauncherOrMetaUrls(assetIndex.Url, DownloadPolicy.Default),
+                    indexPath,
+                    assetIndex.Size > 0 ? assetIndex.Size : null,
+                    assetIndex.Sha1,
+                    null,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        var stillMissing = libraries
+            .Count(x => !File.Exists(Path.Combine(librariesDirectory, x.RelativePath.Replace('/', Path.DirectorySeparatorChar))));
+        _logger.Info($"启动前补全完成：仍缺失 {stillMissing} 个依赖库");
+        return stillMissing;
+    }
+
     /// <summary>并行下载库文件（已存在且大小匹配的自动跳过）。</summary>
     private async Task DownloadLibrariesAsync(
         IReadOnlyList<LibraryFile> libraries,

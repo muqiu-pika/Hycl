@@ -126,7 +126,7 @@ public sealed class LauncherServices
         var modrinth = new Game.Mods.ModrinthProvider(downloadClient, logger);
         var loaderInstall = new Game.LoaderInstallService(installer, loaderProviders, modrinth, logger);
         var instances = new InstanceManager(logger, versionResolver);
-        var launch = new LaunchService(versionResolver, javaDetector, logger);
+        var launch = new LaunchService(versionResolver, javaDetector, logger, installer);
         var system = new SystemService(logger);
         var microsoftAuth = new Auth.MicrosoftAuthService(logger);
         var authlibAuth = new Auth.AuthlibAuthService(logger);
