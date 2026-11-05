@@ -102,7 +102,7 @@
                                                        FontSize="12.5"
                                                        Foreground="{DynamicResource TextBrush}"
                                                        TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{Binding Description}"
+                                            <TextBlock Text="{Binding ListSubText}"
                                                        FontSize="10.5"
                                                        Foreground="{DynamicResource Gray2Brush}"
                                                        TextTrimming="CharacterEllipsis" />
@@ -205,6 +205,10 @@
                                                Classes="srow-value"
                                                Text="{Binding SelectedPath}"
                                                TextWrapping="Wrap" />
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="启动次数" />
+                                    <TextBlock Grid.Column="1" Classes="srow-value" Text="{Binding SelectedLaunchCountText}" />
                                 </Grid>
                                 <Grid Classes="setting-row" ColumnDefinitions="170,*">
                                     <TextBlock Classes="srow-label" Text="最后修改" />

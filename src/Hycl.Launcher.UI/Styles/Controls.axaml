@@ -21,11 +21,11 @@
         <Setter Property="CornerRadius" Value="6" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="Background" Value="{DynamicResource GlassSurfaceBrush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource Primary5Brush}" />
+        <!-- 全局按钮规范：无底色 + 深蓝描边 + 深蓝文字/图标（不再使用实心蓝底） -->
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <!-- PCL 风格：按钮文字用主题蓝而非深灰，与边框同色系 -->
-        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="Cursor" Value="Hand" />
@@ -41,52 +41,45 @@
     </Style>
     <Style Selector="Button.mc-btn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
-    </Style>
-    <Style Selector="Button.mc-btn:pointerover">
+        <!-- Fluent 主题会在 hover 态把 ContentPresenter 的 BorderBrush 刷成透明、Foreground 刷成黑色，
+             这里两者都钉回深蓝，保证边框与文字颜色不随悬停改变 -->
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
         <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
     <Style Selector="Button.mc-btn:pressed /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource Primary7Brush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource Primary5Brush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+    </Style>
+    <!-- hover / pressed 只改底色：文字、图标与边框颜色保持默认值 -->
+    <Style Selector="Button.mc-btn:pointerover">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
     <Style Selector="Button.mc-btn:pressed">
         <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
     <Style Selector="Button.mc-btn:disabled">
-        <Setter Property="Opacity" Value="0.45" />
-    </Style>
-
-    <!-- 主按钮：主色渐变，避免一整块纯色显得沉闷 -->
-    <Style Selector="Button.mc-btn.primary">
-        <Setter Property="Background" Value="{DynamicResource PrimaryGradientBrush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
-        <Setter Property="Foreground" Value="White" />
-    </Style>
-    <!-- 次主按钮（PCL 风格）：浅底描边蓝字，替代页面里大片常蓝实底 -->
-    <Style Selector="Button.mc-btn.primary-soft">
-        <Setter Property="Background" Value="{DynamicResource GlassSurfaceBrush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource Primary5Brush}" />
-        <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
-    </Style>
-    <Style Selector="Button.mc-btn.primary-soft:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
-    </Style>
-    <Style Selector="Button.mc-btn.primary-soft:pointerover">
+        <Setter Property="Opacity" Value="0.5" />
         <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
-    <Style Selector="Button.mc-btn.primary-soft:pressed /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource Primary7Brush}" />
-    </Style>
-    <Style Selector="Button.mc-btn.primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource PrimaryLightBrush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
-    </Style>
-    <Style Selector="Button.mc-btn.primary:pressed /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource PrimaryDeepBrush}" />
+    <!-- 禁用态只降不透明度：锁回无底色 + 深蓝边框，避免被 Fluent 刷成灰底 -->
+    <Style Selector="Button.mc-btn:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+    </Style>
+
+    <!-- 主按钮类保留（页面仍在用），但样式与普通按钮完全一致：不做任何主次强化 -->
+    <Style Selector="Button.mc-btn.primary">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+    </Style>
+    <Style Selector="Button.mc-btn.primary-soft">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
 
     <!-- ============================================================
@@ -101,10 +94,10 @@
         <Setter Property="CornerRadius" Value="6" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="Background" Value="{DynamicResource GlassSurfaceBrush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource Primary5Brush}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="Cursor" Value="Hand" />
@@ -118,26 +111,30 @@
     </Style>
     <Style Selector="Button.action-btn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
-        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
     <Style Selector="Button.action-btn:pressed /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource Primary7Brush}" />
-        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
     <!-- hover / pressed 只改底色：显式锁回文字色，避免被主题的按钮态覆盖 -->
     <Style Selector="Button.action-btn:pointerover">
-        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
     <Style Selector="Button.action-btn:pressed">
-        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
     <Style Selector="Button.action-btn:disabled">
-        <Setter Property="Opacity" Value="0.45" />
-        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
+        <Setter Property="Opacity" Value="0.5" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
 
     <Style Selector="Button.action-btn:disabled /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
 
     <!-- 蓝色线条按钮：主题色细描边 + 主题色文字/图标 -->
@@ -146,9 +143,9 @@
         <Setter Property="Padding" Value="14,6" />
         <Setter Property="CornerRadius" Value="6" />
         <Setter Property="Background" Value="Transparent" />
-        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
@@ -157,12 +154,27 @@
     </Style>
     <Style Selector="Button.line-btn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource BlockButtonHoverBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
     <Style Selector="Button.line-btn:pressed /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource BlockButtonPressedBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+    </Style>
+    <Style Selector="Button.line-btn:pointerover">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+    </Style>
+    <Style Selector="Button.line-btn:pressed">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
     <Style Selector="Button.line-btn:disabled">
         <Setter Property="Opacity" Value="0.5" />
+    </Style>
+    <Style Selector="Button.line-btn:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
 
     <!-- ============================================================
@@ -177,81 +189,71 @@
         <Setter Property="CornerRadius" Value="8" />
         <Setter Property="FontSize" Value="17" />
         <Setter Property="FontWeight" Value="Bold" />
-        <Setter Property="Background" Value="{DynamicResource PrimaryGradientBrush}" />
-        <Setter Property="BorderThickness" Value="0" />
-        <Setter Property="Foreground" Value="#FFFFFFFF" />
+        <!-- 全局规范：默认无底色 + 深蓝外框；不再使用实心蓝 -->
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="RenderTransformOrigin" Value="50%,50%" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="Cursor" Value="Hand" />
-    </Style>
-    <Style Selector="Button.accent-btn /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="BoxShadow" Value="0 8 20 0 #331370F3" />
         <Setter Property="Transitions">
             <Transitions>
-                <BrushTransition Property="Background" Duration="0:0:0.55" />
+                <BrushTransition Property="Background" Duration="0:0:0.12" />
+                <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.18" />
             </Transitions>
         </Setter>
     </Style>
+    <Style Selector="Button.accent-btn /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <!-- 悬停：只出现浅蓝底，文字/图标/边框不变 -->
     <Style Selector="Button.accent-btn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource PrimaryLightBrush}" />
-        <Setter Property="Foreground" Value="#FFFFFFFF" />
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
     <Style Selector="Button.accent-btn:pressed /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource PrimaryDeepBrush}" />
-        <Setter Property="Foreground" Value="#FFFFFFFF" />
+        <Setter Property="Background" Value="{DynamicResource Primary7Brush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+    </Style>
+    <!-- 按下：轻微缩小，松开回弹 -->
+    <Style Selector="Button.accent-btn:pressed">
+        <Setter Property="RenderTransform" Value="scale(0.97)" />
     </Style>
     <Style Selector="Button.accent-btn:pointerover">
-        <Setter Property="Foreground" Value="#FFFFFFFF" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
     <Style Selector="Button.accent-btn:pressed">
-        <Setter Property="Foreground" Value="#FFFFFFFF" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
     <Style Selector="Button.accent-btn:disabled">
-        <Setter Property="Opacity" Value="0.45" />
-        <Setter Property="Foreground" Value="#FFFFFFFF" />
+        <Setter Property="Opacity" Value="0.5" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
-    <!-- 启动中：保持不透明，转为更深的实心蓝，明确“正在进行”而不是失效 -->
-    <Style Selector="Button.accent-btn.launching /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource PrimaryDeepBrush}" />
+    <Style Selector="Button.accent-btn:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
+    <!-- 启动中仍展示进度条，仅轻微降透明度 -->
     <Style Selector="Button.accent-btn.launching:disabled">
-        <Setter Property="Opacity" Value="1" />
+        <Setter Property="Opacity" Value="0.86" />
     </Style>
-    <!-- 运行中：实心警示红 + 白字，与启动态的蓝色明确区分；
-         阴影同步换成红色，避免蓝底阴影在红色上残留偏蓝的残影 -->
-    <Style Selector="Button.accent-btn.running /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource DangerSolidBrush}" />
-        <Setter Property="BoxShadow" Value="0 8 20 0 #33D14A44" />
-    </Style>
-    <Style Selector="Button.accent-btn.running:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource DangerSolidHoverBrush}" />
-    </Style>
-    <Style Selector="Button.accent-btn.running:pressed /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource DangerSolidPressedBrush}" />
-    </Style>
-    <Style Selector="Button.accent-btn.running TextBlock.launch-title">
-        <Setter Property="Foreground" Value="#FFFFFFFF" />
-    </Style>
-    <Style Selector="Button.accent-btn.running TextBlock.launch-sub">
-        <Setter Property="Foreground" Value="#FFFFFFFF" />
-        <Setter Property="Opacity" Value="0.9" />
-    </Style>
-    <Style Selector="Button.accent-btn.running c|HyclIcon">
-        <Setter Property="Foreground" Value="#FFFFFFFF" />
-    </Style>
-
     <Style Selector="Button.accent-btn TextBlock.launch-title">
-        <Setter Property="Foreground" Value="#FFFFFFFF" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
+    <!-- 版本号：灰色小字，弱化显示 -->
     <Style Selector="Button.accent-btn TextBlock.launch-sub">
-        <Setter Property="Foreground" Value="#FFFFFFFF" />
-        <Setter Property="Opacity" Value="0.82" />
+        <Setter Property="Foreground" Value="{DynamicResource Gray2Brush}" />
     </Style>
     <Style Selector="Button.accent-btn c|HyclIcon">
-        <Setter Property="Foreground" Value="#FFFFFFFF" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
 
-    <!-- 游戏运行中：右下角固定悬浮的圆形停止按钮（48 DIP，仅图标，悬停只变底色） -->
+    <!-- 游戏运行中：右下角固定悬浮的圆形关闭按钮（48 DIP，仅图标）
+         与下载进度按钮同一套：蓝底 + 白图标；悬停只轻微放大，不改任何颜色 -->
     <Style Selector="Button.stop-fab">
         <Setter Property="Width" Value="48" />
         <Setter Property="Height" Value="48" />
@@ -259,29 +261,36 @@
         <Setter Property="MinHeight" Value="0" />
         <Setter Property="Padding" Value="0" />
         <Setter Property="CornerRadius" Value="24" />
-        <Setter Property="Background" Value="{DynamicResource DangerSolidBrush}" />
+        <Setter Property="Background" Value="{DynamicResource PrimaryGradientBrush}" />
         <Setter Property="Foreground" Value="#FFFFFFFF" />
         <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="RenderTransformOrigin" Value="50%,50%" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Transitions">
             <Transitions>
-                <BrushTransition Property="Background" Duration="0:0:0.12" />
+                <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.14" />
             </Transitions>
         </Setter>
     </Style>
-    <Style Selector="Button.stop-fab /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="BoxShadow" Value="0 6 18 0 #4DE5484D" />
+    <Style Selector="Button.stop-fab:pointerover">
+        <Setter Property="RenderTransform" Value="scale(1.06)" />
     </Style>
+    <Style Selector="Button.stop-fab:pressed">
+        <Setter Property="RenderTransform" Value="scale(0.96)" />
+    </Style>
+    <!-- 悬停/按下只缩放：显式锁回蓝底，避免被全局 hover 规则改成浅蓝 -->
     <Style Selector="Button.stop-fab:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource DangerSolidHoverBrush}" />
+        <Setter Property="Background" Value="{DynamicResource PrimaryGradientBrush}" />
+        <Setter Property="Foreground" Value="#FFFFFFFF" />
     </Style>
     <Style Selector="Button.stop-fab:pressed /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource DangerSolidPressedBrush}" />
+        <Setter Property="Background" Value="{DynamicResource PrimaryGradientBrush}" />
+        <Setter Property="Foreground" Value="#FFFFFFFF" />
     </Style>
     <!-- Fluent 按钮在 hover/pressed 时会向内容下发前景色，这里把图标描边钉死为纯白，
-         保证悬停只变底色、图标不变色 -->
+         保证悬停只放大、图标不变色 -->
     <Style Selector="Button.stop-fab c|HyclIcon /template/ Path">
         <Setter Property="Stroke" Value="#FFFFFFFF" />
     </Style>
@@ -336,22 +345,36 @@
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
 
-    <!-- 危险按钮：与运行中的启动按钮同一套实心警示红 -->
+    <!-- 危险按钮：红色描边 + 红色文字/图标 + 默认无底色；悬停只出现淡红底，边框保持 -->
     <Style Selector="Button.mc-btn.danger">
-        <Setter Property="Background" Value="{DynamicResource DangerSolidBrush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource DangerSolidBrush}" />
-        <Setter Property="Foreground" Value="#FFFFFFFF" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource ErrorBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
     </Style>
     <Style Selector="Button.mc-btn.danger:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource DangerSolidHoverBrush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource DangerSolidHoverBrush}" />
+        <Setter Property="Background" Value="{DynamicResource ErrorSoftBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource ErrorBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
     </Style>
     <Style Selector="Button.mc-btn.danger:pointerover">
-        <Setter Property="Foreground" Value="#FFFFFFFF" />
+        <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
     </Style>
     <Style Selector="Button.mc-btn.danger:pressed /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource DangerSolidPressedBrush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource DangerSolidPressedBrush}" />
+        <Setter Property="Background" Value="{DynamicResource DangerSoftPressedBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource ErrorBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
+    </Style>
+    <Style Selector="Button.mc-btn.danger:pressed">
+        <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
+    </Style>
+    <Style Selector="Button.mc-btn.danger:disabled">
+        <Setter Property="Opacity" Value="0.5" />
+        <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
+    </Style>
+    <Style Selector="Button.mc-btn.danger:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource ErrorBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
     </Style>
 
     <!-- ============================================================
@@ -618,11 +641,14 @@
     <Style Selector="Button.dl-fab:pressed">
         <Setter Property="RenderTransform" Value="scale(0.96)" />
     </Style>
+    <!-- 悬停/按下只缩放：显式锁回渐变底色与白图标，避免被全局 hover 规则改成浅蓝 -->
     <Style Selector="Button.dl-fab:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource PrimaryLightBrush}" />
+        <Setter Property="Background" Value="{DynamicResource PrimaryGradientBrush}" />
+        <Setter Property="Foreground" Value="#FFFFFFFF" />
     </Style>
     <Style Selector="Button.dl-fab:pressed /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{DynamicResource Primary5Brush}" />
+        <Setter Property="Background" Value="{DynamicResource PrimaryGradientBrush}" />
+        <Setter Property="Foreground" Value="#FFFFFFFF" />
     </Style>
 
     <!-- 游戏崩溃横幅 -->
@@ -639,15 +665,19 @@
     <Style Selector="Button.skin-option">
         <Setter Property="Padding" Value="14,10" />
         <Setter Property="CornerRadius" Value="8" />
-        <Setter Property="Background" Value="{DynamicResource GlassSurfaceBrush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource Primary6Brush}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
         <Setter Property="Cursor" Value="Hand" />
     </Style>
     <Style Selector="Button.skin-option:pointerover /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+    </Style>
+    <Style Selector="Button.skin-option:pointerover">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
 
     <!-- ============================================================
@@ -748,7 +778,6 @@
     </Style>
     <Style Selector="Button.combo-trigger:pointerover /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource Primary7Brush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource Primary5Brush}" />
     </Style>
     <!-- 展开态（open 类由控件代码驱动）：边框转主色，须声明在 :pointerover 之后确保覆盖 -->
     <Style Selector=".mc-combo.open /template/ ContentPresenter#PART_ContentPresenter">
@@ -884,19 +913,23 @@
         <Setter Property="MinHeight" Value="0" />
         <Setter Property="Padding" Value="0" />
         <Setter Property="CornerRadius" Value="6" />
-        <Setter Property="Background" Value="{DynamicResource WhiteGlassBrush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource Gray5Brush}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="Cursor" Value="Hand" />
     </Style>
     <Style Selector="Button.pa-btn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource BlockButtonHoverBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
     <Style Selector="Button.pa-btn:pressed /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource BlockButtonPressedBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
 
     <Style Selector="Button.profile-row">
@@ -914,6 +947,7 @@
     </Style>
     <Style Selector="Button.profile-row:pointerover /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
     </Style>
     <Style Selector="Button.profile-row.active /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource Primary6Brush}" />
@@ -925,7 +959,8 @@
         <Setter Property="Height" Value="34" />
         <Setter Property="CornerRadius" Value="8" />
         <Setter Property="Background" Value="{DynamicResource Gray8Brush}" />
-        <Setter Property="ClipToBounds" Value="True" />
+        <!-- 不裁切子元素：头像按完整正方形绘制，避免圆角把头部边缘切掉 -->
+        <Setter Property="ClipToBounds" Value="False" />
     </Style>
 
     <Style Selector="Ellipse.type-dot">
@@ -944,7 +979,7 @@
         <Setter Property="CornerRadius" Value="6" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderThickness" Value="0" />
-        <Setter Property="Foreground" Value="{DynamicResource Gray2Brush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
         <Setter Property="FontSize" Value="12" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="HorizontalAlignment" Value="Left" />
@@ -954,9 +989,6 @@
     </Style>
     <Style Selector="Button.back-btn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
-        <Setter Property="BorderBrush" Value="Transparent" />
-    </Style>
-    <Style Selector="Button.back-btn:pointerover">
         <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
     </Style>
 
@@ -966,7 +998,7 @@
         <Setter Property="HorizontalAlignment" Value="Stretch" />
         <Setter Property="Padding" Value="0" />
         <Setter Property="Background" Value="Transparent" />
-        <Setter Property="Foreground" Value="{DynamicResource Gray2Brush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
         <Setter Property="FontSize" Value="12" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
@@ -978,7 +1010,7 @@
                 <Panel>
                     <Border x:Name="bg" Background="{TemplateBinding Background}" CornerRadius="8" />
                     <Rectangle x:Name="dash"
-                               Stroke="{DynamicResource Gray5Brush}"
+                               Stroke="{DynamicResource PrimaryDeepBrush}"
                                StrokeThickness="1"
                                StrokeDashArray="4,3"
                                RadiusX="8"
@@ -1117,7 +1149,7 @@
         <Setter Property="HorizontalAlignment" Value="Stretch" />
     </Style>
     <Style Selector="Border.tool-btn TextBlock">
-        <Setter Property="Foreground" Value="{DynamicResource BlockButtonTextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="HorizontalAlignment" Value="Center" />

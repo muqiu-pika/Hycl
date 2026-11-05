@@ -8,7 +8,7 @@ namespace Hycl.Launcher.Core.Models;
 /// </summary>
 public partial class PlayerProfileViewModel : ObservableObject
 {
-    public PlayerProfileViewModel(string id, string name, string accountType, string skinKey, bool isMicrosoft = false, bool isActive = false, string accountUuid = "", string skinPath = "")
+    public PlayerProfileViewModel(string id, string name, string accountType, string skinKey, bool isMicrosoft = false, bool isActive = false, string accountUuid = "", string skinPath = "", bool isOffline = false)
     {
         Id = id;
         Name = name;
@@ -18,6 +18,7 @@ public partial class PlayerProfileViewModel : ObservableObject
         IsActive = isActive;
         AccountUuid = accountUuid;
         SkinPath = skinPath;
+        IsOffline = isOffline;
     }
 
     public string Id { get; }
@@ -33,6 +34,9 @@ public partial class PlayerProfileViewModel : ObservableObject
     public string SkinPath { get; }
 
     public bool IsMicrosoft { get; }
+
+    /// <summary>离线档案（可重命名）。</summary>
+    public bool IsOffline { get; }
 
     /// <summary>对应账号的 UUID（档案删除等操作按此定位）。</summary>
     public string AccountUuid { get; }

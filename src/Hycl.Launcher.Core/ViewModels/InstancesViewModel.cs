@@ -67,6 +67,8 @@ public sealed partial class InstancesViewModel : ObservableObject
 
     public string SelectedTypeLabel => SelectedInstance is null ? "" : InstanceDisplay.TypeLabel(SelectedInstance);
 
+    public string SelectedLaunchCountText => SelectedInstance?.LaunchCountText ?? "0 次";
+
     public string SelectedLastWrite => SelectedInstance is null ? "" : InstanceDisplay.LastWriteText(SelectedInstance);
 
     public bool CanManage => SelectedInstance is not null;
@@ -170,6 +172,7 @@ public sealed partial class InstancesViewModel : ObservableObject
             Instances.Clear();
             foreach (var instance in ApplyOrder(instances))
             {
+                instance.LaunchCount = _services.Config.GetLaunchCount(instance.Id);
                 Instances.Add(instance);
             }
 
@@ -312,6 +315,7 @@ public sealed partial class InstancesViewModel : ObservableObject
         }
 
         _services.Config.RemoveInstanceSettings(target.Id);
+        _services.Config.RemoveLaunchCount(target.Id);
         _services.Config.InstanceOrder.Remove(target.Id);
         StatusMessage = $"已删除 {target.Name}";
         if (_services.Config.SelectedVersion.Equals(target.Id, StringComparison.OrdinalIgnoreCase))
@@ -557,6 +561,13 @@ public sealed partial class InstancesViewModel : ObservableObject
             {
                 _services.Config.SelectedVersion = newId;
             }
+
+            _services.Config.MoveLaunchCount(sourceId, newId);
+        }
+        else
+        {
+            // 复制出的新实例从 0 开始计数
+            _services.Config.RemoveLaunchCount(newId);
         }
 
         IsNameDialogVisible = false;
@@ -672,6 +683,7 @@ public sealed partial class InstancesViewModel : ObservableObject
         OnPropertyChanged(nameof(SelectedHasBitmapIcon));
         OnPropertyChanged(nameof(SelectedUsesFallbackIcon));
         OnPropertyChanged(nameof(SelectedTypeLabel));
+        OnPropertyChanged(nameof(SelectedLaunchCountText));
         OnPropertyChanged(nameof(SelectedLastWrite));
         OnPropertyChanged(nameof(CanManage));
         OnPropertyChanged(nameof(IsSelectedCurrent));

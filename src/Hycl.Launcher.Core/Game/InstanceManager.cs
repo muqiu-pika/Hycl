@@ -29,6 +29,17 @@ public sealed partial class MinecraftInstance : ObservableObject
     [ObservableProperty]
     private bool _isCurrent;
 
+    /// <summary>该实例的累计启动次数（由启动页在检测到游戏窗口后写入并持久化）。</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(LaunchCountText))]
+    [NotifyPropertyChangedFor(nameof(ListSubText))]
+    private int _launchCount;
+
+    public string LaunchCountText => $"{LaunchCount} 次";
+
+    /// <summary>版本管理列表的副标题：版本信息 + 启动次数。</summary>
+    public string ListSubText => $"{Description} · 启动 {LaunchCount} 次";
+
     public bool IsModded => Loader != "原版" || !Id.Equals(GameVersion, StringComparison.OrdinalIgnoreCase);
 
     public string Description => IsModded ? $"{Loader} · {GameVersion}" : GameVersion;

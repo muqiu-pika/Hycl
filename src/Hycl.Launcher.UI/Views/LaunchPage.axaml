@@ -92,13 +92,11 @@
                         </StackPanel>
                         </StackPanel>
 
-                        <!-- 启动按钮固定在玩家栏底部（主操作：实心主色渐变，双层文字） -->
+                        <!-- 启动按钮固定在玩家栏底部（无底色 + 深蓝外框，双层文字） -->
                         <Button Grid.Row="1"
                                 x:Name="LaunchButton"
                                 Classes="accent-btn"
                                 Classes.launching="{Binding IsLaunching}"
-                                Classes.running="{Binding IsGameRunning}"
-                                Classes.closing="{Binding IsClosing}"
                                 HorizontalAlignment="Stretch"
                                 VerticalAlignment="Bottom"
                                 Margin="0,16,0,0"
@@ -121,7 +119,7 @@
                                     </StackPanel>
                                     <TextBlock Text="{Binding LaunchSubText}"
                                                Classes="launch-sub"
-                                               FontSize="11"
+                                               FontSize="12.5"
                                                HorizontalAlignment="Center"
                                                TextTrimming="CharacterEllipsis"
                                                Margin="0,3,0,0" />
@@ -186,6 +184,13 @@
                                                             IsVisible="{Binding IsActive}"
                                                             VerticalAlignment="Center" />
                                                 <Button Classes="pa-btn"
+                                                        ToolTip.Tip="重命名该档案"
+                                                        IsVisible="{Binding IsOffline}"
+                                                        Command="{Binding $parent[UserControl].((vm:LaunchPageViewModel)DataContext).StartRenameProfileCommand}"
+                                                        CommandParameter="{Binding}">
+                                                    <c:HyclIcon Kind="pencil" Width="13" Height="13" />
+                                                </Button>
+                                                <Button Classes="pa-btn"
                                                         ToolTip.Tip="删除该档案"
                                                         IsVisible="{Binding !IsActive}"
                                                         Command="{Binding $parent[UserControl].((vm:LaunchPageViewModel)DataContext).DeleteProfileCommand}"
@@ -222,7 +227,7 @@
                                          Height="28"
                                          VerticalAlignment="Center" />
                             <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
-                                <TextBlock Text="Minecraft"
+                                <TextBlock Text="{Binding LoaderName}"
                                            FontSize="11"
                                            Foreground="{DynamicResource Gray3Brush}" />
                                 <TextBlock Text="{Binding CurrentVersion}"
@@ -255,7 +260,7 @@
                             <c:HyclIcon Kind="power"
                                         Width="24"
                                         Height="24"
-                                        Foreground="{DynamicResource Gray3Brush}"
+                                        Foreground="{DynamicResource LaunchCountBrush}"
                                         VerticalAlignment="Center" />
                             <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
                                 <TextBlock Text="启动次数"
@@ -483,6 +488,60 @@
             </Border>
         </Panel>
 
+        <!-- 重命名离线档案 -->
+        <Panel IsVisible="{Binding IsRenameProfileVisible}"
+               Background="{DynamicResource DialogScrimBrush}"
+               ZIndex="3">
+            <Border Classes="dialog-card"
+                    Width="430"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="9">
+                        <c:HyclIcon Kind="pencil"
+                                    Width="19"
+                                    Height="19"
+                                    Foreground="{DynamicResource PrimaryBrush}"
+                                    VerticalAlignment="Center" />
+                        <TextBlock Text="重命名档案"
+                                   Classes="dialog-title"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+
+                    <TextBlock Classes="dialog-body"
+                               Margin="0,12,0,0"
+                               Text="仅支持离线档案。名称不能与已有离线档案重名（不区分大小写），改名不会影响实例或其他数据。"
+                               TextWrapping="Wrap" />
+
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10" Margin="0,14,0,0">
+                        <TextBlock Text="玩家名"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource Gray2Brush}"
+                                   FontSize="12.5" />
+                        <TextBox Grid.Column="1"
+                                 Text="{Binding RenameProfileText, Mode=TwoWay}"
+                                 PlaceholderText="字母 / 数字 / 下划线，3~16 个字符"
+                                 MaxLength="16" />
+                    </Grid>
+
+                    <TextBlock Text="{Binding RenameProfileError}"
+                               IsVisible="{Binding RenameProfileError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                               FontSize="11.5"
+                               TextWrapping="Wrap"
+                               Foreground="{DynamicResource ErrorBrush}"
+                               Margin="0,8,0,0" />
+
+                    <StackPanel Orientation="Horizontal"
+                                Spacing="10"
+                                HorizontalAlignment="Right"
+                                Margin="0,18,0,0">
+                        <Button Classes="mc-btn" MinWidth="88" Content="取消" Command="{Binding CancelRenameProfileCommand}" />
+                        <Button Classes="mc-btn" MinWidth="88" Content="保存" Command="{Binding ConfirmRenameProfileCommand}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Panel>
+
         <!-- 添加账号弹窗：正版（设备码）/ 皮肤站（预留）/ 离线 -->
         <Panel IsVisible="{Binding IsLoginDialogVisible}"
                Background="{DynamicResource DialogScrimBrush}"
@@ -696,7 +755,7 @@
                 IsVisible="{Binding IsGameRunning}"
                 HorizontalAlignment="Right"
                 VerticalAlignment="Bottom"
-                Margin="0,0,22,22"
+                Margin="0,0,16,76"
                 ToolTip.Tip="关闭游戏"
                 Command="{Binding RequestCloseGameCommand}">
             <c:HyclIcon Kind="power"

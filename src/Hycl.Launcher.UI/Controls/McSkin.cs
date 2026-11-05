@@ -137,23 +137,30 @@ public class McSkin : Control
 
         if (Mode == McSkinMode.Head)
         {
-            var bounds = new Rect(0, 0, 8 * scale, 8 * scale);
-            using (context.PushClip(new RoundedRect(bounds, 4)))
-            {
-                DrawPart(context, "head", scale);
-                DrawPart(context, "headOverlay", scale);
-            }
-
+            // 头像：取头部正面的 8×8 纹理并按正方形等比缩放到控件可用区域，
+            // 不做任何裁切；控件宽高不一致时以较短边为准居中。
+            var side = Math.Max(1d, Math.Min(Bounds.Width, Bounds.Height));
+            var bounds = new Rect(
+                (Bounds.Width - side) / 2,
+                (Bounds.Height - side) / 2,
+                side,
+                side);
+            DrawPart(context, "head", scale, bounds);
+            DrawPart(context, "headOverlay", scale, bounds);
             return;
         }
 
         foreach (var key in BodyPartOrder)
         {
-            DrawPart(context, key, scale);
+            DrawPart(context, key, scale, null);
         }
     }
 
-    private void DrawPart(DrawingContext context, string key, int scale)
+    /// <summary>
+    /// 绘制贴图的一个部件。<paramref name="headBounds"/> 非空时（头像模式）忽略像素放置表，
+    /// 直接把部件铺满该正方形。
+    /// </summary>
+    private void DrawPart(DrawingContext context, string key, int scale, Rect? headBounds)
     {
         if (_bitmap is null)
         {
@@ -161,12 +168,19 @@ public class McSkin : Control
         }
 
         var texture = Texture[key];
+        // 高清皮肤（128×128 等）按与 64×64 的比例换算 UV，避免只取到左上角一小块（表现为头像被裁切）
+        var uv = _bitmap.PixelSize.Width / 64.0;
+        if (uv <= 0)
+        {
+            uv = 1d;
+        }
+
         var isOverlay = key.EndsWith("Overlay", StringComparison.Ordinal);
         var placementKey = isOverlay ? key[..^"Overlay".Length] : key;
         var placement = Placement[placementKey];
 
-        var source = new Rect(texture.X, texture.Y, texture.W, texture.H);
-        var destination = new Rect(
+        var source = new Rect(texture.X * uv, texture.Y * uv, texture.W * uv, texture.H * uv);
+        var destination = headBounds ?? new Rect(
             placement.X * scale,
             placement.Y * scale,
             texture.W * scale,

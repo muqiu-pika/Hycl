@@ -17,7 +17,8 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
 {
     private readonly LauncherServices _services;
     private readonly Action<string>? _toast;
-    private GameSession? _session;
+    /// <summary>当前仍在运行（或正在启动）的游戏会话；支持同一实例多次启动（多开）。</summary>
+    private readonly List<GameSession> _sessions = new();
     private MinecraftInstance? _selectedInstance;
     private bool _suppressInstanceSelection;
     private CancellationTokenSource? _refreshCts;
@@ -178,9 +179,9 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
 
     private int _launchStepIndex;
 
-    public bool CanLaunch => !IsLaunching && !IsGameRunning && !IsClosing;
+    public bool CanLaunch => !IsLaunching && !IsClosing;
 
-    /// <summary>按钮是否可点击：启动中/关闭中禁用，运行中可点击（用于关闭游戏）。</summary>
+    /// <summary>按钮是否可点击：启动中/关闭中禁用；游戏运行中仍可再次启动（多开）。</summary>
     public bool PrimaryEnabled => !IsLaunching && !IsClosing;
 
     /// <summary>已安装实例列表（仅内部维护，启动页按当前选中实例展示）。</summary>
@@ -225,21 +226,15 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         ? "正在关闭…"
         : IsLaunching
             ? "正在启动…"
-            : IsGameRunning
-                ? "关闭游戏"
-                : "启动游戏";
+            : "启动游戏";
 
-    /// <summary>按钮图标键：运行中显示电源图标，其余显示播放图标。</summary>
-    public string LaunchIconKey => !IsLaunching && !IsClosing && IsGameRunning ? "power" : "play";
+    /// <summary>按钮图标键：始终为播放图标（运行中也可再次启动，关闭游戏由右下角悬浮按钮承担）。</summary>
+    public string LaunchIconKey => "play";
 
-    /// <summary>按钮副标题：启动中显示阶段提示，运行中提示可关闭，其余显示版本信息。</summary>
-    public string LaunchSubText => IsLaunching
-        ? LaunchStageText
-        : IsGameRunning
-            ? "游戏运行中 · 点击关闭"
-            : VersionSummary;
+    /// <summary>按钮副标题：启动中显示阶段提示，其余显示版本信息（灰色小字）。</summary>
+    public string LaunchSubText => IsLaunching ? LaunchStageText : VersionSummary;
 
-    /// <summary>本次运行内累计启动次数（对应 PCL-CE 的“启动次数”信息项）。</summary>
+    /// <summary>该实例的累计启动次数（持久化在配置的 instanceLaunchCounts 字段）。</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(LaunchCountText))]
     private int _launchCount;
@@ -439,6 +434,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             LoaderIconKey = "vanilla";
             LoaderColor = "#3E9B4F";
             LoaderName = "Vanilla";
+            LaunchCount = 0;
             return;
         }
 
@@ -451,6 +447,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         LoaderIconKey = LoaderIcon(target.Loader);
         LoaderColor = LoaderColorOf(target.Loader);
         LoaderName = LoaderNameOf(target.Loader);
+        LaunchCount = _services.Config.GetLaunchCount(target.Id);
     }
 
     /// <summary>玩家卡显示名：无账号时给友好占位。</summary>
@@ -476,7 +473,8 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                 account.IsMicrosoft,
                 isActive: index == selectedIndex,
                 accountUuid: account.Uuid,
-                skinPath: account.SkinPath));
+                skinPath: account.SkinPath,
+                isOffline: account.Type == "offline"));
         }
 
         ActiveProfile = Profiles.FirstOrDefault(x => x.IsActive) ?? Profiles.FirstOrDefault();
@@ -522,6 +520,103 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             BuildProfiles();
             _toast?.Invoke($"已删除档案：{profile.Name}");
         }
+    }
+
+    /// <summary>档案重命名弹窗是否显示。</summary>
+    [ObservableProperty]
+    private bool _isRenameProfileVisible;
+
+    /// <summary>重命名输入框内容。</summary>
+    [ObservableProperty]
+    private string _renameProfileText = "";
+
+    /// <summary>重命名校验错误（非空时原名称保持不变）。</summary>
+    [ObservableProperty]
+    private string _renameProfileError = "";
+
+    private string _renameProfileUuid = "";
+
+    /// <summary>打开离线档案重命名弹窗。</summary>
+    [RelayCommand]
+    private void StartRenameProfile(PlayerProfileViewModel? profile)
+    {
+        if (profile is null || !profile.IsOffline || string.IsNullOrEmpty(profile.AccountUuid))
+        {
+            return;
+        }
+
+        _renameProfileUuid = profile.AccountUuid;
+        RenameProfileText = profile.Name;
+        RenameProfileError = "";
+        IsRenameProfileVisible = true;
+    }
+
+    [RelayCommand]
+    private void CancelRenameProfile()
+    {
+        IsRenameProfileVisible = false;
+        RenameProfileError = "";
+    }
+
+    /// <summary>
+    /// 确认重命名离线档案：名称不能为空、字符集与离线账号校验一致（字母/数字/下划线，3~16），
+    /// 且不能与其他离线档案重名（大小写不敏感）。成功后写回账号与选中状态并持久化。
+    /// </summary>
+    [RelayCommand]
+    private async Task ConfirmRenameProfileAsync()
+    {
+        var name = RenameProfileText.Trim();
+        var account = _services.Accounts.Accounts
+            .FirstOrDefault(x => x.Type == "offline"
+                                 && x.Uuid.Equals(_renameProfileUuid, StringComparison.OrdinalIgnoreCase));
+        if (account is null)
+        {
+            RenameProfileError = "该档案已不存在，请刷新后重试";
+            return;
+        }
+
+        if (name.Length == 0)
+        {
+            RenameProfileError = "名称不能为空";
+            return;
+        }
+
+        if (!System.Text.RegularExpressions.Regex.IsMatch(name, "^[A-Za-z0-9_]{3,16}$"))
+        {
+            RenameProfileError = "离线名只能包含字母、数字与下划线，长度 3~16";
+            return;
+        }
+
+        var conflict = _services.Accounts.Accounts.Any(x =>
+            x.Type == "offline"
+            && !x.Uuid.Equals(_renameProfileUuid, StringComparison.OrdinalIgnoreCase)
+            && x.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (conflict)
+        {
+            RenameProfileError = "该名称已被使用";
+            return;
+        }
+
+        var wasSelected = _services.Accounts.SelectedAccount is { } selected
+                          && selected.Uuid.Equals(_renameProfileUuid, StringComparison.OrdinalIgnoreCase);
+        account.Name = name;
+        account.Uuid = OfflineUuid.Create(name);
+        _renameProfileUuid = account.Uuid;
+        if (wasSelected)
+        {
+            _services.Config.UserName = name;
+        }
+
+        await _services.Accounts.SaveAsync().ConfigureAwait(true);
+        if (wasSelected)
+        {
+            await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
+        }
+
+        BuildProfiles();
+        IsRenameProfileVisible = false;
+        RenameProfileError = "";
+        _toast?.Invoke($"档案已重命名为：{name}");
     }
 
     /// <summary>皮肤下载到缓存并回填 SkinPath；失败静默（皮肤非关键数据）。返回是否成功。</summary>
@@ -616,7 +711,11 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         _ => "#3E9B4F"
     };
 
-    private static string LoaderNameOf(string loader) => loader == "原版" ? "Vanilla" : loader;
+    private static string LoaderNameOf(string? loader)
+    {
+        var value = string.IsNullOrWhiteSpace(loader) ? "" : loader.Trim();
+        return value is "" or "原版" ? "Vanilla" : value;
+    }
 
     partial void OnActiveProfileChanged(PlayerProfileViewModel? value)
     {
@@ -644,13 +743,6 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     [RelayCommand]
     private async Task LaunchAsync()
     {
-        // 运行中点击同一个按钮 => 打开「关闭游戏」确认弹窗
-        if (IsGameRunning)
-        {
-            IsCloseGameConfirmVisible = true;
-            return;
-        }
-
         if (!CanLaunch)
         {
             return;
@@ -782,7 +874,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                         });
                     })
                 .ConfigureAwait(true);
-            _session = session;
+            _sessions.Add(session);
 
             // 进程创建不等于启动成功：继续等待游戏窗口真正可见。
             // 退出看护不在这里启动——否则窗口检测失败/退出的两条分支会与看护互相覆盖状态
@@ -813,11 +905,8 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                 _services.Logger.Warn(result.Message);
                 if (result.ProcessExited || session.HasExited)
                 {
-                    IsGameRunning = false;
-                    if (ReferenceEquals(_session, session))
-                    {
-                        _session = null;
-                    }
+                    _sessions.Remove(session);
+                    IsGameRunning = _sessions.Count > 0;
 
                     // 进程在窗口出现前退出：按退出码 + 日志特征给出失败页，绝不显示空白页
                     AppendLaunchLog($"[失败] {result.Message}");
@@ -845,7 +934,9 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             LaunchStageText = "游戏窗口已出现";
             CompleteAllLaunchSteps();
             await Task.Delay(600).ConfigureAwait(true);
-            LaunchCount++;
+            // 仅“检测到游戏窗口”算一次成功启动；写入配置并立即持久化（重启不清零）
+            LaunchCount = _services.Config.IncrementLaunchCount(instance.Id);
+            await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
             IsLaunching = false;
             LaunchStageText = "";
             IsGameRunning = true;
@@ -869,7 +960,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         catch (LaunchException ex)
         {
             IsLaunching = false;
-            IsGameRunning = false;
+            IsGameRunning = _sessions.Count > 0;
             SetLaunchProgress(0d);
             _services.Logger.Error("启动游戏失败", ex);
             // 启动前就失败时进程没有输出，把异常原因写进日志，失败页不会只有空日志
@@ -880,7 +971,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         catch (Exception ex)
         {
             IsLaunching = false;
-            IsGameRunning = false;
+            IsGameRunning = _sessions.Count > 0;
             SetLaunchProgress(0d);
             _services.Logger.Error("启动游戏失败", ex);
             AppendLaunchLog($"[失败] 启动失败：{ex.Message}");
@@ -1260,33 +1351,37 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     private async Task ConfirmCloseGameAsync()
     {
         IsCloseGameConfirmVisible = false;
-        var session = _session;
-        if (!IsGameRunning || session is null)
+        if (!IsGameRunning || _sessions.Count == 0)
         {
             return;
         }
 
+        var closingSessions = _sessions.ToArray();
         IsClosing = true;
         try
         {
-            await session.StopGracefullyAsync(line => _services.Logger.Info(line)).ConfigureAwait(true);
-        }
-        catch (Exception ex)
-        {
-            _services.Logger.Error("关闭游戏失败", ex);
-            _toast?.Invoke($"关闭游戏失败：{ex.Message}");
+            foreach (var session in closingSessions)
+            {
+                try
+                {
+                    await session.StopGracefullyAsync(line => _services.Logger.Info(line)).ConfigureAwait(true);
+                }
+                catch (Exception ex)
+                {
+                    _services.Logger.Error("关闭游戏失败", ex);
+                    _toast?.Invoke($"关闭游戏失败：{ex.Message}");
+                }
+
+                if (session.HasExited)
+                {
+                    _sessions.Remove(session);
+                }
+            }
         }
         finally
         {
             IsClosing = false;
-            if (session.HasExited)
-            {
-                IsGameRunning = false;
-                if (ReferenceEquals(_session, session))
-                {
-                    _session = null;
-                }
-            }
+            IsGameRunning = _sessions.Count > 0;
         }
     }
 
@@ -1321,14 +1416,14 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
 
             _services.Dispatcher.Post(() =>
             {
-                if (ReferenceEquals(_session, session))
+                _sessions.Remove(session);
+                IsLaunching = false;
+                IsGameRunning = _sessions.Count > 0;
+                if (!IsGameRunning)
                 {
-                    _session = null;
+                    IsClosing = false;
                 }
 
-                IsLaunching = false;
-                IsGameRunning = false;
-                IsClosing = false;
                 LaunchStageText = "";
                 SetLaunchProgress(0d);
                 if (exitCode != 0)
@@ -1362,9 +1457,14 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             _services.Logger.Warn($"等待游戏退出时出错：{ex.Message}");
             _services.Dispatcher.Post(() =>
             {
+                _sessions.Remove(session);
                 IsLaunching = false;
-                IsGameRunning = false;
-                IsClosing = false;
+                IsGameRunning = _sessions.Count > 0;
+                if (!IsGameRunning)
+                {
+                    IsClosing = false;
+                }
+
                 LaunchStageText = "";
                 SetLaunchProgress(0d);
             });

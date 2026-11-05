@@ -70,6 +70,12 @@ public sealed class LauncherConfig
     /// <summary>版本管理列表的手动排序（实例 ID 顺序；未列入的按默认规则排在后面）。</summary>
     public List<string> InstanceOrder { get; set; } = new();
 
+    /// <summary>
+    /// 每个实例的累计启动次数，键为 versions 下的实例目录名（不区分大小写）。
+    /// 只在检测到游戏窗口后累加，并随配置持久化（重启启动器不清零）。
+    /// </summary>
+    public Dictionary<string, int> InstanceLaunchCounts { get; set; } = new();
+
     /// <summary>社区资源列表忽略 Quilt（对应 PCL-CE ToolDownloadIgnoreQuilt）。</summary>
     public bool CompIgnoreQuilt { get; set; } = true;
 
@@ -191,6 +197,22 @@ public sealed class LauncherConfig
 
             InstanceSettings = normalized;
         }
+
+        if (InstanceLaunchCounts.Count > 0)
+        {
+            var normalizedCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pair in InstanceLaunchCounts)
+            {
+                if (string.IsNullOrWhiteSpace(pair.Key) || pair.Value <= 0)
+                {
+                    continue;
+                }
+
+                normalizedCounts[pair.Key] = pair.Value;
+            }
+
+            InstanceLaunchCounts = normalizedCounts;
+        }
     }
 
     /// <summary>读取实例覆盖设置；不存在时创建空设置（空值表示跟随全局）。</summary>
@@ -212,6 +234,32 @@ public sealed class LauncherConfig
 
     /// <summary>删除实例覆盖设置（删除/重命名实例时调用）。</summary>
     public void RemoveInstanceSettings(string instanceId) => InstanceSettings.Remove(instanceId);
+
+    /// <summary>读取某实例的累计启动次数（未记录时为 0）。</summary>
+    public int GetLaunchCount(string instanceId) =>
+        InstanceLaunchCounts.TryGetValue(instanceId, out var count) && count > 0 ? count : 0;
+
+    /// <summary>启动成功（检测到游戏窗口）后累加该实例的启动次数。</summary>
+    public int IncrementLaunchCount(string instanceId)
+    {
+        var count = GetLaunchCount(instanceId) + 1;
+        InstanceLaunchCounts[instanceId] = count;
+        return count;
+    }
+
+    /// <summary>删除实例时同步移除其启动次数，避免同名新实例继承旧计数。</summary>
+    public void RemoveLaunchCount(string instanceId) => InstanceLaunchCounts.Remove(instanceId);
+
+    /// <summary>实例重命名时迁移启动次数（保留累计值）。</summary>
+    public void MoveLaunchCount(string fromId, string toId)
+    {
+        var count = GetLaunchCount(fromId);
+        InstanceLaunchCounts.Remove(fromId);
+        if (count > 0)
+        {
+            InstanceLaunchCounts[toId] = count;
+        }
+    }
 
     /// <summary>实际分配给游戏的堆内存（MB）。</summary>
     public int GetEffectiveMemoryMegabytes()

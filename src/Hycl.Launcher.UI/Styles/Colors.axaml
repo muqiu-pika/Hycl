@@ -38,8 +38,11 @@
             <SolidColorBrush x:Key="DangerSolidBrush" Color="#E5484D" />
             <SolidColorBrush x:Key="DangerSolidHoverBrush" Color="#D63A40" />
             <SolidColorBrush x:Key="DangerSolidPressedBrush" Color="#C32F35" />
-            <!-- 关闭游戏（警示态）浅红底与危险按钮悬停底 -->
+            <!-- 关闭游戏（警示态）浅红底与危险按钮悬停底；Pressed 为再深一档的淡红 -->
             <SolidColorBrush x:Key="ErrorSoftBrush" Color="#FDECEC" />
+            <SolidColorBrush x:Key="DangerSoftPressedBrush" Color="#FBDCDC" />
+            <!-- 启动次数图标：绿色（与同行其他图标区分） -->
+            <SolidColorBrush x:Key="LaunchCountBrush" Color="#2E9E5B" />
             <!-- 弹窗遮罩 -->
             <SolidColorBrush x:Key="DialogScrimBrush" Color="#660B1B2E" />
 
@@ -125,6 +128,9 @@
             <SolidColorBrush x:Key="DangerSolidHoverBrush" Color="#BF3E38" />
             <SolidColorBrush x:Key="DangerSolidPressedBrush" Color="#AC342F" />
             <SolidColorBrush x:Key="ErrorSoftBrush" Color="#3A2325" />
+            <SolidColorBrush x:Key="DangerSoftPressedBrush" Color="#4A2A2D" />
+            <!-- 启动次数图标：绿色（与同行其他图标区分） -->
+            <SolidColorBrush x:Key="LaunchCountBrush" Color="#6FCF7A" />
             <SolidColorBrush x:Key="DialogScrimBrush" Color="#B3000000" />
 
             <SolidColorBrush x:Key="CardBrush" Color="#232933" Opacity="0.94" />
