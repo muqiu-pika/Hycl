@@ -33,8 +33,9 @@ public sealed class CompInstallService
     }
 
     /// <summary>
-    /// 资源类型在内容根目录下的落盘子目录（对应 PCL-CE _GetSubFolder）：
-    /// 数据包直接落到版本根目录（空子目录，与 PCL-CE 一致），世界落到 saves。
+    /// 资源类型在内容根目录下的落盘子目录：
+    /// 数据包落到 datapacks（游戏读取数据包的位置，隔离时对该实例全部存档生效，否则对全部实例存档生效），
+    /// 世界落到 saves。
     /// </summary>
     public static string GetSubFolder(CompResourceType type)
         => type switch
@@ -42,7 +43,7 @@ public sealed class CompInstallService
             CompResourceType.Mod => "mods",
             CompResourceType.ResourcePack => "resourcepacks",
             CompResourceType.Shader => "shaderpacks",
-            CompResourceType.DataPack => "",
+            CompResourceType.DataPack => "datapacks",
             CompResourceType.World => "saves",
             _ => ""
         };
@@ -82,7 +83,7 @@ public sealed class CompInstallService
             throw new CompException($"目标实例不存在：{instanceId}");
         }
 
-        // 隔离时落实例目录，否则落游戏根目录：数据包 → 版本根目录，世界 → saves
+        // 隔离时落实例目录，否则落游戏根目录：数据包 → datapacks，世界 → saves
         var contentRoot = InstanceManager.GetContentRoot(gameDirectory, instanceId, versionIsolation);
         var subFolder = GetSubFolder(file.Type);
         var targetDirectory = string.IsNullOrEmpty(subFolder)

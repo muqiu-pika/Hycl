@@ -446,7 +446,9 @@ public partial class CompSectionViewModel : ObservableObject
 
     public string SaveDialogBody => IsModpackSave
         ? "整合包会安装到游戏目录的版本文件夹中，请输入实例名称。"
-        : "文件将下载到下面的目录；目录不存在时会自动创建。";
+        : _pendingFile?.File.Type == CompResourceType.DataPack
+            ? "数据包会保存到 datapacks 目录（隔离时在该实例内，对实例全部存档生效；未隔离时在游戏目录，对全部实例存档生效）。单个存档使用时可再放入 saves/<世界>/datapacks。"
+            : "文件将下载到下面的目录；目录不存在时会自动创建。";
 
 
     /// <summary>执行搜索（对应 PCL-CE CompProjectsGet；默认综合排序合并双源按相关度+下载量排序）。</summary>
@@ -793,6 +795,7 @@ public partial class CompSectionViewModel : ObservableObject
         _installingItem = null;
         SaveFileName = item.File.FileName;
         SaveHint = "";
+        OnPropertyChanged(nameof(SaveDialogBody));
         if (item.File.Type == CompResourceType.ModPack)
         {
             IsModpackSave = true;

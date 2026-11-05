@@ -50,7 +50,7 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
             new(services, Install, CompResourceType.Mod, "模组", "forge", "搜索 Modrinth / CurseForge 模组，安装到实例 mods 目录", toast),
             new(services, Install, CompResourceType.ResourcePack, "资源包", "cobblestone", "搜索并安装资源包（原版可用，无需加载器）", toast),
             new(services, Install, CompResourceType.Shader, "光影", "gold-block", "搜索 Iris / OptiFine 光影包，安装到 shaderpacks 目录", toast),
-            new(services, Install, CompResourceType.DataPack, "数据包", "bookmark", "搜索并安装数据包，隔离时装入实例版本根目录，否则装入游戏根目录", toast),
+            new(services, Install, CompResourceType.DataPack, "数据包", "bookmark", "搜索并安装数据包，隔离时存入实例 datapacks，否则存入游戏目录 datapacks（对该范围全部存档生效）", toast),
             new(services, Install, CompResourceType.World, "世界", "grass-block", "搜索并安装世界存档，自动解压到 saves 目录", toast)
         };
         foreach (var section in CompSections)

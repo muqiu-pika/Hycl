@@ -20,6 +20,9 @@ public class BlockIcon : TemplatedControl
         ["command-block"] = "CommandBlock",
         ["gold-block"] = "GoldBlock",
         ["cobblestone"] = "CobbleStone",
+        // 社区资源导航（对应 PCL-CE 的 Blocks 位图）：收藏夹 = 红石灯（点亮/星标），数据包 = 红石块。
+        ["star"] = "RedstoneLampOn",
+        ["bookmark"] = "RedstoneBlock",
         // 加载器（对应 PCL-CE 的 PageDownloadInstall 图标映射）。
         ["forge"] = "Anvil",
         ["neoforge"] = "NeoForge",
