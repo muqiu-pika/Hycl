@@ -1183,9 +1183,17 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                     authlibJar = await _services.AuthlibAuth
                         .EnsureAuthlibInjectorJarAsync(_services.Paths.CacheDirectory, _services.DownloadClient)
                         .ConfigureAwait(true);
-                    authlibPrefetched = await _services.AuthlibAuth
-                        .GetPrefetchedAsync(account.Server)
-                        .ConfigureAwait(true);
+                    try
+                    {
+                        // 预取只是加速项，拿不到不影响 javaagent 注入
+                        authlibPrefetched = await _services.AuthlibAuth
+                            .GetPrefetchedAsync(account.Server)
+                            .ConfigureAwait(true);
+                    }
+                    catch (Exception ex)
+                    {
+                        _services.Logger.Warn($"皮肤站预取数据获取失败（不影响注入）：{ex.Message}");
+                    }
                 }
                 catch (Exception ex)
                 {

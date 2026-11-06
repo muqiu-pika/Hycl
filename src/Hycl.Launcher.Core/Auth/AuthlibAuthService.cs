@@ -280,9 +280,18 @@ public sealed class AuthlibAuthService
 
     // ---------- authlib-injector 注入支持 ----------
 
+    // PCL-CE 的做法：latest.json 中取 download_url（旧接口曾用 url），
+    // 官方源失败时用 BMCLAPI 的 /mirrors/authlib-injector 镜像；
+    // 元数据完全不可用时仍按固定规则拼出 jar 地址，避免直接拦住启动。
+    private const string AuthlibOfficialRoot = "https://authlib-injector.yushi.moe/artifact";
+    private const string AuthlibMirrorRoot = "https://bmclapi2.bangbang93.com/mirrors/authlib-injector/artifact";
+    private const string AuthlibFallbackVersion = "1.2.8";
+    private const int AuthlibFallbackBuild = 56;
+    private const string AuthlibFallbackSha256 = "9c7f4343e6c82034958ffb48c14a2cb0c85928be7283103ce17da00c6d5a7b10";
+
     /// <summary>
     /// 确保 authlib-injector.jar 就绪并返回路径：读取 latest.json（官方源 + BMCLAPI 镜像），
-    /// 与缓存版本不一致时重新下载。
+    /// 元数据不可用时回退到固定版本规则；与缓存版本不一致时重新下载。
     /// </summary>
     public async Task<string> EnsureAuthlibInjectorJarAsync(
         string cacheDirectory,
@@ -290,30 +299,64 @@ public sealed class AuthlibAuthService
         CancellationToken cancellationToken = default)
     {
         Directory.CreateDirectory(cacheDirectory);
-        const string latestUrl = "https://authlib-injector.yushi.moe/artifact/latest.json";
-        var mirrorUrl = "https://bmclapi2.bangbang93.com/mirror/authlib-injector/artifact/latest.json";
 
-        string latest;
+        var version = AuthlibFallbackVersion;
+        var build = AuthlibFallbackBuild;
+        var sha256 = AuthlibFallbackSha256;
+        var artifactUrl = "";
+        var metadataError = "";
+
         try
         {
-            latest = await client.GetStringAsync([latestUrl, mirrorUrl], cancellationToken).ConfigureAwait(false);
+            var latest = await client.GetStringAsync(
+                [$"{AuthlibOfficialRoot}/latest.json", $"{AuthlibMirrorRoot}/latest.json"],
+                cancellationToken).ConfigureAwait(false);
+            using var document = JsonDocument.Parse(latest);
+            var root = document.RootElement;
+            version = root.TryGetProperty("version", out var versionElement) ? versionElement.GetString() ?? "" : "";
+            build = root.TryGetProperty("build_number", out var buildElement) && buildElement.TryGetInt32(out var parsedBuild)
+                ? parsedBuild
+                : 0;
+            artifactUrl = root.TryGetProperty("download_url", out var downloadElement)
+                ? downloadElement.GetString() ?? ""
+                : "";
+            if (string.IsNullOrWhiteSpace(artifactUrl))
+            {
+                // 旧版 latest.json 字段名为 url
+                artifactUrl = root.TryGetProperty("url", out var urlElement) ? urlElement.GetString() ?? "" : "";
+            }
+
+            sha256 = root.TryGetProperty("checksums", out var checksums)
+                      && checksums.TryGetProperty("sha256", out var shaElement)
+                ? shaElement.GetString() ?? ""
+                : "";
         }
-        catch (DownloadException ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            throw new AuthlibException("下载 authlib-injector 元数据失败，请检查网络后重试", ex);
+            metadataError = ex.Message;
+            _logger.Warn($"authlib-injector 元数据获取失败（官方源与 BMCLAPI 镜像均不可用）：{ex.Message}");
         }
 
-        using var document = JsonDocument.Parse(latest);
-        var version = document.RootElement.TryGetProperty("version", out var v) ? v.GetString() ?? "" : "";
-        var artifactUrl = document.RootElement.TryGetProperty("url", out var u) ? u.GetString() ?? "" : "";
-        var sha256 = document.RootElement.TryGetProperty("checksums", out var c)
-                     && c.TryGetProperty("sha256", out var s)
-            ? s.GetString()
-            : null;
-        if (string.IsNullOrWhiteSpace(artifactUrl))
+        if (string.IsNullOrWhiteSpace(version)
+            || version.Length > 50
+            || version.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
         {
-            throw new AuthlibException("authlib-injector 元数据缺少下载地址");
+            version = AuthlibFallbackVersion;
         }
+
+        if (build <= 0)
+        {
+            build = AuthlibFallbackBuild;
+        }
+
+        if (string.IsNullOrWhiteSpace(sha256))
+        {
+            sha256 = AuthlibFallbackSha256;
+        }
+
+        var officialJar = NormalizeArtifactUrl(artifactUrl, build, version, useMirror: false);
+        var mirrorJar = NormalizeArtifactUrl(artifactUrl, build, version, useMirror: true);
+        _logger.Info($"authlib-injector 目标版本 {version}（build {build}），候选地址：{officialJar} | {mirrorJar}");
 
         var jarPath = Path.Combine(cacheDirectory, $"authlib-injector-{version}.jar");
         var versionMarker = jarPath + ".version";
@@ -324,20 +367,57 @@ public sealed class AuthlibAuthService
             return jarPath;
         }
 
-        // 官方源优先，BMCLAPI 镜像兜底（同路径换主机）
-        var urls = new List<string> { artifactUrl };
-        if (artifactUrl.Contains("authlib-injector.yushi.moe", StringComparison.OrdinalIgnoreCase))
+        try
         {
-            urls.Add(artifactUrl.Replace(
-                "https://authlib-injector.yushi.moe",
-                "https://bmclapi2.bangbang93.com/mirror/authlib-injector",
-                StringComparison.OrdinalIgnoreCase));
+            await client
+                .DownloadFileAsync([officialJar, mirrorJar], jarPath, null, sha256, null, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is DownloadException or HttpRequestException or IOException or UnauthorizedAccessException)
+        {
+            var metadataNote = metadataError.Length == 0
+                ? ""
+                : $"（元数据获取失败：{metadataError}，已改用固定版本 {AuthlibFallbackVersion}）";
+            throw new AuthlibException(
+                $"authlib-injector jar 下载失败{metadataNote}：已尝试官方源 {officialJar} 与 BMCLAPI 镜像 {mirrorJar}；{ex.Message}",
+                ex);
         }
 
-        await client.DownloadFileAsync(urls, jarPath, null, sha256, null, cancellationToken).ConfigureAwait(false);
         await File.WriteAllTextAsync(versionMarker, version, cancellationToken).ConfigureAwait(false);
         _logger.Info($"authlib-injector 已就绪：{jarPath}");
         return jarPath;
+    }
+
+    /// <summary>
+    /// 规整 jar 下载地址：优先用元数据里的 download_url；缺失时按版本/build 拼固定规则，
+    /// 并把 BMCLAPI 镜像与官方源各出一份。
+    /// </summary>
+    private static string NormalizeArtifactUrl(string artifactUrl, int build, string version, bool useMirror)
+    {
+        var url = artifactUrl;
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            url = $"{AuthlibOfficialRoot}/{build}/authlib-injector-{version}.jar";
+        }
+
+        if (url.Contains("bmclapi2.bangbang93.com/mirrors/authlib-injector", StringComparison.OrdinalIgnoreCase))
+        {
+            url = url.Replace(
+                "https://bmclapi2.bangbang93.com/mirrors/authlib-injector",
+                "https://authlib-injector.yushi.moe",
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        return useMirror
+            ? url.Replace(
+                "https://authlib-injector.yushi.moe",
+                "https://bmclapi2.bangbang93.com/mirrors/authlib-injector",
+                StringComparison.OrdinalIgnoreCase)
+            : url;
     }
 
     /// <summary>抓取皮肤站根响应并 Base64（-Dauthlibinjector.yggdrasil.prefetched）。</summary>
