@@ -231,7 +231,7 @@
                                 </Border>
 
                                 <Panel>
-                                    <!-- 卡片常显：每个加载器右侧独立展示状态字（正在下载配置中/可下载/与 X 冲突），对应 PCL-CE -->
+                                    <!-- 卡片常显：每个加载器右侧独立展示状态字（获取配置中/可下载/暂无对应资源/配置获取失败，请刷新重试/与 X 冲突），对应 PCL-CE -->
                                     <StackPanel Spacing="8">
                                         <TextBlock Classes="dl-empty"
                                                    IsVisible="{Binding Wizard.LoaderError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
@@ -475,13 +475,35 @@
                                             <c:McLoading Width="60"
                                                          Height="50"
                                                          IconSize="26"
+                                                         Text="获取配置中"
                                                          IsVisible="{Binding Wizard.ActiveLoaderCard.IsLoading}"
                                                          HorizontalAlignment="Center" />
+                                            <!-- 网络失败（超时/连接被拒/HTTP 错误/解析失败）：提示 + 可刷新重试 -->
+                                            <StackPanel Margin="4,6"
+                                                        Spacing="7"
+                                                        HorizontalAlignment="Center"
+                                                        IsVisible="{Binding Wizard.ActiveLoaderCard.ShowRetryButton}">
+                                                <TextBlock FontSize="12"
+                                                           TextWrapping="Wrap"
+                                                           HorizontalAlignment="Center"
+                                                           Foreground="{DynamicResource ErrorBrush}"
+                                                           Text="配置获取失败，请刷新重试" />
+                                                <Button Classes="mc-btn"
+                                                        MinHeight="0"
+                                                        Padding="10,4"
+                                                        FontSize="12"
+                                                        Content="刷新重试"
+                                                        HorizontalAlignment="Center"
+                                                        Command="{Binding Wizard.RetryLoaderCardCommand}"
+                                                        CommandParameter="{Binding Wizard.ActiveLoaderCard}" />
+                                            </StackPanel>
+                                            <!-- 请求成功但没有对应资源（不是网络失败） -->
                                             <TextBlock FontSize="12"
-                                                       Margin="4,2"
-                                                       Foreground="{DynamicResource ErrorBrush}"
-                                                       Text="{Binding Wizard.ActiveLoaderCard.ErrorText}"
-                                                       IsVisible="{Binding Wizard.ActiveLoaderCard.ErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                                       Margin="4,8"
+                                                       HorizontalAlignment="Center"
+                                                       Foreground="{DynamicResource Gray2Brush}"
+                                                       Text="暂无对应资源"
+                                                       IsVisible="{Binding Wizard.ActiveLoaderCard.ShowEmptyState}" />
                                             <ItemsControl ItemsSource="{Binding Wizard.ActiveLoaderCard.Items}">
                                                 <ItemsControl.ItemTemplate>
                                                     <DataTemplate x:DataType="vm:VersionItemViewModel">

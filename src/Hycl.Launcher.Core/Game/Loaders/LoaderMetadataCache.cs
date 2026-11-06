@@ -64,8 +64,20 @@ public sealed class LoaderMetadataCache
     public void Clear() => _entries.Clear();
 }
 
+/// <summary>
+/// 源明确声明"该 Minecraft 版本没有可用资源"：不是网络失败，
+/// 上层据此展示"暂无对应资源"而不是"配置获取失败"。
+/// </summary>
+public sealed class LoaderUnsupportedException : LoaderMetadataException
+{
+    public LoaderUnsupportedException(string message)
+        : base(message)
+    {
+    }
+}
+
 /// <summary>加载器元数据获取失败（含负缓存重抛）。</summary>
-public sealed class LoaderMetadataException : Exception
+public class LoaderMetadataException : Exception
 {
     public LoaderMetadataException(string message)
         : base(message)

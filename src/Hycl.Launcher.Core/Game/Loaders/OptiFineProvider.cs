@@ -397,7 +397,7 @@ public sealed class LabyModProvider(
             .ToList();
         if (supported.Count == 0)
         {
-            throw new LoaderMetadataException($"LabyMod 不支持 Minecraft {minecraftVersion}");
+            throw new LoaderUnsupportedException($"LabyMod 不支持 Minecraft {minecraftVersion}");
         }
 
         return supported.Select(entry => new LoaderVersionEntry

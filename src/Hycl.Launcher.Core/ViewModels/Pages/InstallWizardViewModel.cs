@@ -119,6 +119,8 @@ public partial class LoaderCardViewModel : ObservableObject
     private bool _isExpanded = true;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowEmptyState))]
+    [NotifyPropertyChangedFor(nameof(ShowRetryButton))]
     private bool _isLoading;
 
     [ObservableProperty]
@@ -131,16 +133,46 @@ public partial class LoaderCardViewModel : ObservableObject
     [ObservableProperty]
     private bool _isAvailable = true;
 
-    /// <summary>列表加载总超时：超时后给出错误提示，避免不支持的版本长时间转圈。</summary>
+    /// <summary>列表加载总超时：超时按网络失败处理，避免不支持的版本长时间转圈。</summary>
     private static readonly TimeSpan LoadTimeout = TimeSpan.FromSeconds(20);
 
-    /// <summary>卡片右侧状态字（对应 PCL-CE GetLoaderError 的展示位）：加载中灰字、就绪/冲突黑字。</summary>
-    [ObservableProperty]
-    private string _statusText = "正在下载配置中";
+    /// <summary>状态字：加载中。</summary>
+    public const string StatusLoadingText = "获取配置中";
 
-    /// <summary>状态字是否使用深色（可下载/与 X 冲突为黑，正在下载配置中为灰）。</summary>
+    /// <summary>状态字：获取成功且有内容。</summary>
+    public const string StatusReadyText = "可下载";
+
+    /// <summary>状态字：请求成功但没有对应资源（不是网络失败）。</summary>
+    public const string StatusEmptyText = "暂无对应资源";
+
+    /// <summary>状态字：网络失败（超时/连接失败/HTTP 错误/解析失败）。</summary>
+    public const string StatusFailedText = "配置获取失败，请刷新重试";
+
+    /// <summary>卡片右侧状态字（对应 PCL-CE GetLoaderError 的展示位）：加载中灰字、就绪/空结果/失败黑字。</summary>
+    [ObservableProperty]
+    private string _statusText = StatusLoadingText;
+
+    /// <summary>状态字是否使用深色（可下载/暂无对应资源/获取失败为黑，获取配置中为灰）。</summary>
     [ObservableProperty]
     private bool _isStatusDark;
+
+    /// <summary>上一次获取成功但没有任何条目：用于展示"暂无对应资源"。</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowEmptyState))]
+    [NotifyPropertyChangedFor(nameof(ShowRetryButton))]
+    private bool _isEmpty;
+
+    /// <summary>上一次获取因网络原因失败：卡片与子页面据此给出"配置获取失败，请刷新重试"。</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowEmptyState))]
+    [NotifyPropertyChangedFor(nameof(ShowRetryButton))]
+    private bool _isFailed;
+
+    /// <summary>子页面空状态：加载完成且没有对应资源。</summary>
+    public bool ShowEmptyState => IsEmpty && !IsLoading && !IsFailed;
+
+    /// <summary>子页面失败状态：展示"刷新重试"按钮。</summary>
+    public bool ShowRetryButton => IsFailed && !IsLoading;
 
     /// <summary>与其他已选主加载器冲突：状态字显示"与 X 冲突"并禁止进入版本选择。</summary>
     [ObservableProperty]
@@ -157,13 +189,45 @@ public partial class LoaderCardViewModel : ObservableObject
     }
 
     /// <summary>标记为加载中（灰字）。</summary>
-    public void MarkLoading() => SetStatus("正在下载配置中", false);
+    public void MarkLoading()
+    {
+        IsFailed = false;
+        IsEmpty = false;
+        SetStatus(StatusLoadingText, false);
+    }
 
     /// <summary>标记为可下载（黑字）。</summary>
-    public void MarkReady() => SetStatus("可下载", true);
+    public void MarkReady()
+    {
+        IsFailed = false;
+        IsEmpty = false;
+        SetStatus(StatusReadyText, true);
+    }
 
-    /// <summary>标记为获取失败（黑字，点开卡片可重试）。</summary>
-    public void MarkFailed() => SetStatus("获取失败", true);
+    /// <summary>标记为"请求成功但没有对应资源"（黑字，不是网络失败）。</summary>
+    public void MarkEmpty()
+    {
+        IsFailed = false;
+        IsEmpty = true;
+        SetStatus(StatusEmptyText, true);
+    }
+
+    /// <summary>标记为网络失败（黑字，子页面提供"刷新重试"）。</summary>
+    public void MarkFailed()
+    {
+        IsFailed = true;
+        IsEmpty = false;
+        SetStatus(StatusFailedText, true);
+    }
+
+    /// <summary>重试前清空上一次的条目与状态，让 <see cref="EnsureLoadedAsync"/> 重新发起请求。</summary>
+    public void PrepareReload()
+    {
+        _loaded = false;
+        Items.Clear();
+        ErrorText = "";
+        MarkLoading();
+    }
 
     public async Task EnsureLoadedAsync()
     {
@@ -193,18 +257,31 @@ public partial class LoaderCardViewModel : ObservableObject
             }
 
             _loaded = true;
-            if (!IsConflicted)
+            if (items.Count == 0)
+            {
+                // 请求成功但没有任何条目：空结果，不是网络失败
+                MarkEmpty();
+            }
+            else if (!IsConflicted)
             {
                 MarkReady();
             }
+        }
+        catch (Hycl.Launcher.Core.Game.Loaders.LoaderUnsupportedException)
+        {
+            // 源明确声明不支持该版本：属于"没有对应资源"，同样不是网络失败
+            _loaded = true;
+            Items.Clear();
+            MarkEmpty();
         }
         catch (OperationCanceledException) when (Token.IsCancellationRequested)
         {
             // 页面离开/切换版本导致取消：不写错误，重新进入后可再次加载
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            ErrorText = ex.Message;
+            // 超时 / 连接被拒 / HTTP 错误 / 解析失败：统一按网络失败处理
+            ErrorText = StatusFailedText;
             MarkFailed();
         }
         finally
@@ -677,6 +754,7 @@ public partial class InstallWizardViewModel : ObservableObject
         Func<DownloadPolicy, Task<IReadOnlyList<LoaderVersionEntry>>> loader)
     {
         Exception? error = null;
+        var unsupported = false;
         try
         {
             await GetOrLoadLoaderEntriesAsync(mcId, kind, () => loader(DownloadPolicy.FromConfig(_services.Config)))
@@ -687,13 +765,19 @@ public partial class InstallWizardViewModel : ObservableObject
             // 会话已取消：静默退出，不点亮失败状态
             return;
         }
+        catch (LoaderUnsupportedException ex)
+        {
+            // 源声明不支持该版本：按空结果处理，不显示"获取失败"
+            unsupported = true;
+            _services.Logger.Warn($"预热 {kind} 版本列表：{ex.Message}");
+        }
         catch (Exception ex)
         {
             error = ex;
             _services.Logger.Error($"预热 {kind} 版本列表失败", ex);
         }
 
-        // 预热完成即点亮卡片右侧状态字（可下载/获取失败）；会话已切换则忽略本次结果
+        // 预热完成即点亮卡片右侧状态字（可下载/暂无对应资源/获取失败）；会话已切换则忽略本次结果
         if (token.IsCancellationRequested || mcId != SelectedMcId)
         {
             return;
@@ -709,6 +793,10 @@ public partial class InstallWizardViewModel : ObservableObject
         if (error is not null)
         {
             card.MarkFailed();
+        }
+        else if (unsupported)
+        {
+            card.MarkEmpty();
         }
         else
         {
@@ -1014,7 +1102,8 @@ public partial class InstallWizardViewModel : ObservableObject
 
     /// <summary>
     /// 按当前选择刷新主加载器卡片右侧状态字（对应 PCL-CE LoadXXGetError 的展示）：
-    /// 冲突 → "与 X 冲突"（黑），已选 → 空，已加载 → "可下载"（黑），失败保留"获取失败"，其余 → "正在下载配置中"（灰）。
+    /// 冲突 → "与 X 冲突"（黑），已选 → 空，获取成功 → "可下载"（黑），
+    /// 空结果 → "暂无对应资源"（黑），网络失败 → "配置获取失败，请刷新重试"（黑），其余 → "获取配置中"（灰）。
     /// </summary>
     private void RefreshCardStatuses()
     {
@@ -1040,14 +1129,69 @@ public partial class InstallWizardViewModel : ObservableObject
             // 已选中的卡在中间列展示所选版本，右侧留空
             card.SetStatus("", true);
         }
-        else if (card.IsLoaded || _loaderEntryCache.ContainsKey((SelectedMcId, card.Kind)))
+        else if (card.IsFailed)
         {
-            // 预热只填充数据缓存（卡片 Items 在点开时才构建），同样视为就绪
-            card.MarkReady();
+            card.MarkFailed();
+        }
+        else if (card.IsEmpty)
+        {
+            card.MarkEmpty();
+        }
+        else if (card.IsLoaded)
+        {
+            if (card.Items.Count > 0)
+            {
+                card.MarkReady();
+            }
+            else
+            {
+                card.MarkEmpty();
+            }
+        }
+        else if (_loaderEntryCache.TryGetValue((SelectedMcId, card.Kind), out var cachedEntries))
+        {
+            // 预热只填充数据缓存（卡片 Items 在点开时才构建）；按缓存条数区分"可下载"与"暂无对应资源"
+            if (cachedEntries.Count > 0)
+            {
+                card.MarkReady();
+            }
+            else
+            {
+                card.MarkEmpty();
+            }
         }
         else if (card.ErrorText.Length == 0)
         {
             card.MarkLoading();
+        }
+    }
+
+    /// <summary>
+    /// 子页面「刷新重试」：清掉本卡的列表缓存与加载器元数据负缓存后重新请求，
+    /// 避免 30 秒负缓存让重试看似无效。
+    /// </summary>
+    [RelayCommand]
+    private async Task RetryLoaderCardAsync(LoaderCardViewModel? card)
+    {
+        if (card is null || card.IsLoading || card.IsConflicted)
+        {
+            return;
+        }
+
+        var mcId = SelectedMcId;
+        _services.LoaderProviders.Cache.Clear();
+        _loaderEntryCache.Remove((mcId, card.Kind));
+        _loaderEntryInFlight.Remove((mcId, card.Kind));
+        card.PrepareReload();
+        await card.EnsureLoadedAsync().ConfigureAwait(true);
+        if (mcId != SelectedMcId)
+        {
+            return;
+        }
+
+        if (LoaderCards.Contains(card))
+        {
+            RefreshCardStatus(card);
         }
     }
 
@@ -1275,5 +1419,25 @@ public partial class InstallWizardViewModel : ObservableObject
         _loaderCacheEpoch++;
         _loaderEntryCache.Clear();
         _loaderEntryInFlight.Clear();
+        // 用户主动刷新时一并清掉加载器元数据缓存（含 30 秒负缓存），否则失败卡片点刷新仍会瞬间复用旧失败结果
+        _services.LoaderProviders.Cache.Clear();
+        if (_selectedMc is null)
+        {
+            return;
+        }
+
+        var failedCards = LoaderCards.Concat(CompanionCards).Where(card => card.IsFailed).ToList();
+        if (failedCards.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var card in failedCards)
+        {
+            card.PrepareReload();
+        }
+
+        // 重新预热失败过的卡片：仍然失败会再次落到"配置获取失败，请刷新重试"
+        WarmLoaderEntries();
     }
 }

@@ -32,7 +32,7 @@ public sealed class FabricLikeProvider(
         var gameExists = meta.Game?.Any(x => x.Version.Equals(minecraftVersion, StringComparison.OrdinalIgnoreCase)) == true;
         if (!gameExists)
         {
-            throw new LoaderMetadataException($"{Kind} 不支持 Minecraft {minecraftVersion}");
+            throw new LoaderUnsupportedException($"{Kind} 不支持 Minecraft {minecraftVersion}");
         }
 
         return meta.Loader!
