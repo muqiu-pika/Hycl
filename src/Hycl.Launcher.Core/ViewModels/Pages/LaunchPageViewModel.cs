@@ -36,10 +36,29 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         _services = services;
         _toast = toast;
         Profiles = new ObservableCollection<PlayerProfileViewModel>();
+        Profiles.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasProfiles));
+            OnPropertyChanged(nameof(ShowPlayerCard));
+            OnPropertyChanged(nameof(ShowProfilesCard));
+            OnPropertyChanged(nameof(ShowEmptyProfiles));
+        };
         BuildProfiles();
     }
 
     public ObservableCollection<PlayerProfileViewModel> Profiles { get; }
+
+    /// <summary>没有任何档案：左栏只保留「添加档案」按钮（需求 D-2）。</summary>
+    public bool HasProfiles => Profiles.Count > 0;
+
+    /// <summary>玩家卡（含头像/操作行/启动按钮）只在有档案时出现。</summary>
+    public bool ShowPlayerCard => IsPlayerPanel && HasProfiles;
+
+    /// <summary>档案列表卡只在有档案且处于切换档案模式时出现。</summary>
+    public bool ShowProfilesCard => !IsPlayerPanel && HasProfiles;
+
+    /// <summary>空档案状态：无论当前在哪个面板，都只显示添加入口。</summary>
+    public bool ShowEmptyProfiles => !HasProfiles;
 
     [ObservableProperty]
     private PlayerProfileViewModel? _activeProfile;
@@ -711,7 +730,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         };
     }
 
-    /// <summary>档案删除（档案面板的小删除按钮）。</summary>
+    /// <summary>档案删除（档案面板的小删除按钮，当前档案也可删除）。</summary>
     [RelayCommand]
     private async Task DeleteProfileAsync(PlayerProfileViewModel? profile)
     {
@@ -720,12 +739,27 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             return;
         }
 
-        if (_services.Accounts.RemoveById(profile.AccountUuid))
+        if (!_services.Accounts.RemoveById(profile.AccountUuid))
         {
-            await _services.Accounts.SaveAsync().ConfigureAwait(true);
-            BuildProfiles();
-            _toast?.Invoke($"已删除档案：{profile.Name}");
+            return;
         }
+
+        // 删掉的正是当前档案：按需求自动跳到列表第一个（没有剩余档案时由空状态接管）
+        if (profile.IsActive && _services.Accounts.Accounts.Count > 0)
+        {
+            _services.Accounts.Select(0);
+        }
+
+        await _services.Accounts.SaveAsync().ConfigureAwait(true);
+        BuildProfiles();
+        if (Profiles.Count == 0)
+        {
+            // 删到一个不剩：自动回首页（玩家面板），配合空状态只剩「添加档案」
+            IsPlayerPanel = true;
+            LeftPanelTitle = "玩家";
+        }
+
+        _toast?.Invoke($"已删除档案：{profile.Name}");
     }
 
     /// <summary>档案重命名弹窗是否显示。</summary>
@@ -1021,6 +1055,12 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     {
         var value = string.IsNullOrWhiteSpace(loader) ? "" : loader.Trim();
         return value is "" or "原版" ? "Vanilla" : value;
+    }
+
+    partial void OnIsPlayerPanelChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowPlayerCard));
+        OnPropertyChanged(nameof(ShowProfilesCard));
     }
 
     partial void OnActiveProfileChanged(PlayerProfileViewModel? value)
@@ -2431,6 +2471,11 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                 return;
             case "版本列表":
                 _ = ManageInstanceAsync();
+                return;
+            case "导入整合包":
+                // 导入入口在版本管理页（与 PCL-CE 的实例列表入口一致）
+                NavigateRequested?.Invoke(this, "instances");
+                _toast?.Invoke("已打开版本管理，请点击「导入整合包」选择本地文件或文件夹");
                 return;
         }
 

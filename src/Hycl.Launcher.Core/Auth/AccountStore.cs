@@ -241,6 +241,12 @@ public sealed class AccountStore
         }
 
         Accounts.RemoveAt(index);
+        // 删除的是当前档之前的档时，选中项跟着左移，避免自动切换到相邻的另一个档
+        if (index < SelectedIndex)
+        {
+            SelectedIndex--;
+        }
+
         SelectedIndex = Math.Clamp(SelectedIndex, 0, Math.Max(0, Accounts.Count - 1));
     }
 

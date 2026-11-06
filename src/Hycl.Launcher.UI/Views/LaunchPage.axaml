@@ -19,8 +19,8 @@
                  卡片内边距 14/16 + 标题 16 + 正文间距 10 = 56 → 内容下限 403，取 404 留 1px 余量
                  低于该高度时由外层 ScrollViewer 纵向滚动，卡片不再压缩内容 -->
             <Grid Margin="18,18,15,18" MinHeight="404">
-                <!-- 玩家卡 -->
-                <c:McCard Title="玩家" IsVisible="{Binding IsPlayerPanel}">
+                <!-- 玩家卡（无档案时整卡隐藏，改用下方空状态卡） -->
+                <c:McCard Title="玩家" IsVisible="{Binding ShowPlayerCard}">
                     <Grid RowDefinitions="*,Auto">
                         <!-- 玩家信息在剩余空间内垂直居中，底部固定启动按钮 -->
                         <StackPanel VerticalAlignment="Center">
@@ -171,8 +171,8 @@
                     </Grid>
                 </c:McCard>
 
-                <!-- 档案卡（点击「切换档案」后替换玩家卡） -->
-                <c:McCard Title="档案" IsVisible="{Binding !IsPlayerPanel}">
+                <!-- 档案卡（点击「切换档案」后替换玩家卡；无档案时隐藏） -->
+                <c:McCard Title="档案" IsVisible="{Binding ShowProfilesCard}">
                     <StackPanel>
                         <Button Classes="back-btn" Command="{Binding CloseProfilesCommand}">
                             <StackPanel Orientation="Horizontal" Spacing="3">
@@ -217,7 +217,11 @@
                                                                Foreground="{DynamicResource Gray3Brush}"
                                                                Margin="0,1,0,0" />
                                                 </StackPanel>
-                                                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                                <!-- 操作按钮按现有按钮间距（8）排布，小窗口下靠名称列的省略号让位 -->
+                                                <StackPanel Grid.Column="2"
+                                                            Orientation="Horizontal"
+                                                            Spacing="8"
+                                                            VerticalAlignment="Center">
                                                     <c:HyclIcon Kind="check"
                                                                 Width="16"
                                                                 Height="16"
@@ -233,7 +237,6 @@
                                                     </Button>
                                                     <Button Classes="pa-btn"
                                                             ToolTip.Tip="删除该档案"
-                                                            IsVisible="{Binding !IsActive}"
                                                             Command="{Binding $parent[UserControl].((vm:LaunchPageViewModel)DataContext).DeleteProfileCommand}"
                                                             CommandParameter="{Binding}">
                                                         <c:HyclIcon Kind="close" Width="13" Height="13" />
@@ -253,6 +256,18 @@
                             </StackPanel>
                         </Button>
                     </StackPanel>
+                </c:McCard>
+
+                <!-- 空档案状态：一个档案都没有时，左栏只显示「添加档案」按钮（D-2） -->
+                <c:McCard Title="玩家" IsVisible="{Binding ShowEmptyProfiles}">
+                    <Button Classes="new-profile"
+                            VerticalAlignment="Center"
+                            Command="{Binding OpenLoginDialogCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                            <c:HyclIcon Kind="user-plus" Width="15" Height="15" />
+                            <TextBlock Text="添加档案" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
                 </c:McCard>
             </Grid>
 
