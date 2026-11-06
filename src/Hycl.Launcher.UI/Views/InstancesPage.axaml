@@ -49,6 +49,21 @@
                                 Content="刷新"
                                 Command="{Binding RefreshCommand}" />
                     </Grid>
+                    <!-- 导入整合包：文件（zip/mrpack）与已解压文件夹两种入口 -->
+                    <Button Classes="mc-btn primary"
+                            HorizontalAlignment="Stretch"
+                            Padding="8,5"
+                            MinHeight="0"
+                            FontSize="11.5"
+                            Content="导入整合包"
+                            Command="{Binding ImportModpackCommand}" />
+                    <Button Classes="mc-btn"
+                            HorizontalAlignment="Stretch"
+                            Padding="8,4"
+                            MinHeight="0"
+                            FontSize="11"
+                            Content="从文件夹导入"
+                            Command="{Binding ImportModpackFolderCommand}" />
                 </StackPanel>
 
                 <ScrollViewer Name="InstanceScroll"
@@ -128,6 +143,17 @@
                                    TextWrapping="Wrap"
                                    Foreground="{DynamicResource Gray2Brush}"
                                    Text="尚未安装版本。请到「下载」页安装游戏，安装完成后会自动出现在这里。" />
+
+                        <!-- 导入进度：长任务期间给出阶段文字与百分比，避免看起来卡死 -->
+                        <StackPanel IsVisible="{Binding IsImporting}" Margin="6,12,6,0" Spacing="5">
+                            <ProgressBar Minimum="0" Maximum="100"
+                                         Value="{Binding ImportPercentage}"
+                                         Height="6" />
+                            <TextBlock Text="{Binding ImportStageText}"
+                                       FontSize="11"
+                                       Foreground="{DynamicResource Gray2Brush}"
+                                       TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
             </Grid>

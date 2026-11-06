@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Hycl.Launcher.Core.Download;
 using Hycl.Launcher.Core.Services;
@@ -254,23 +255,15 @@ public sealed class CompInstallService
                 .ConfigureAwait(false);
             reporter.FileCompleted(file.Size);
 
-            var modpackType = DetectModpackType(packPath);
-            var gameVersion = modpackType switch
-            {
-                "modrinth" => await InstallModrinthPackAsync(
-                        packPath, gameDirectory, instanceName, reporter, policy, threads, cancellationToken, downloadAssets)
-                    .ConfigureAwait(false),
-                "curseforge" => await InstallCurseForgePackAsync(
-                        packPath, gameDirectory, instanceName, reporter, policy, threads, cancellationToken, downloadAssets)
-                    .ConfigureAwait(false),
-                _ => throw new CompException(
-                    "暂不支持该整合包格式：当前支持 Modrinth（.mrpack）与 CurseForge（manifest.json）；" +
-                    "MultiMC/HMCL 等格式可解压后将 overrides 导入 versions 目录手动使用。")
-            };
+            var inspection = InspectModpack(packPath);
+            var gameVersion = await InstallModpackArchiveAsync(
+                    packPath, inspection, gameDirectory, instanceName, reporter,
+                    policy, threads, cancellationToken, downloadAssets)
+                .ConfigureAwait(false);
 
             TryDeleteFile(packPath);
             reporter.Stage("安装完成");
-            _logger.Info($"整合包安装完成：{instanceName}（{modpackType}，MC {gameVersion}）");
+            _logger.Info($"整合包安装完成：{instanceName}（{inspection.Kind}，MC {gameVersion}）");
             return instanceName;
         }
         catch
@@ -295,30 +288,321 @@ public sealed class CompInstallService
         }
     }
 
-    /// <summary>识别整合包类型（对应 PCL-CE _DetectModpackType 的常用分支）。</summary>
-    private static string DetectModpackType(string packPath)
+    /// <summary>
+    /// 整合包识别结果（对应 PCL-CE ModpackType）。
+    /// <see cref="BaseFolder"/> 是清单在压缩包内所在目录（含末尾 /，根目录为空），
+    /// 用于兼容"压缩包里还套一层文件夹"的常见打包方式。
+    /// </summary>
+    public sealed record ModpackInspection(string Kind, string FormatName, string? SuggestedName, string BaseFolder)
     {
-        using var archive = ZipFile.OpenRead(packPath);
-        bool HasEntry(string name)
-            => archive.GetEntry(name) is not null
-               || archive.Entries.Any(e => e.FullName.EndsWith("/" + name, StringComparison.OrdinalIgnoreCase));
-        if (HasEntry("modrinth.index.json"))
+        /// <summary>当前实现能直接安装的格式。</summary>
+        public bool IsSupported => Kind is "modrinth" or "curseforge";
+    }
+
+    /// <summary>
+    /// 识别本地整合包（压缩包或已解压文件夹）。
+    /// 支持判断 PCL-CE 的六种格式，但只有 Modrinth / CurseForge 有安装实现。
+    /// </summary>
+    public static ModpackInspection InspectModpack(string sourcePath)
+    {
+        if (Directory.Exists(sourcePath))
         {
+            var folderName = Path.GetFileName(sourcePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            var rootKind = InspectFolderManifest(sourcePath, out var rootName, out var hasAddons);
+            return rootKind switch
+            {
+                "modrinth" => new ModpackInspection("modrinth", "Modrinth（modrinth.index.json）", rootName ?? folderName, ""),
+                "manifest" => hasAddons
+                    ? new ModpackInspection("mcbbs", "MCBBS（manifest.json + addons）", rootName ?? folderName, "")
+                    : new ModpackInspection("curseforge", "CurseForge（manifest.json）", rootName ?? folderName, ""),
+                "hmcl" => new ModpackInspection("hmcl", "HMCL（modpack.json）", rootName ?? folderName, ""),
+                "mmc" => new ModpackInspection("mmc", "MultiMC（mmc-pack.json）", rootName ?? folderName, ""),
+                "mcbbs" => new ModpackInspection("mcbbs", "MCBBS（mcbbs.packmeta）", rootName ?? folderName, ""),
+                _ => throw new CompException(
+                    "该文件夹中没有可识别的整合包清单（modrinth.index.json / manifest.json 等），请确认选择的是已解压的整合包根目录。")
+            };
+        }
+
+        if (!File.Exists(sourcePath))
+        {
+            throw new CompException($"整合包文件不存在：{sourcePath}");
+        }
+
+        if (Path.GetExtension(sourcePath).Equals(".rar", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new CompException("暂不支持 RAR 格式，请先解压再用文件夹导入（PCL-CE 也需额外组件才能解压 RAR）。");
+        }
+
+        ZipArchive archive;
+        try
+        {
+            archive = ZipFile.OpenRead(sourcePath);
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException)
+        {
+            throw new CompException("无法识别该整合包文件：既不是有效的 ZIP，也不是可识别的整合包格式。" + ex.Message);
+        }
+
+        using (archive)
+        {
+            var fileName = Path.GetFileNameWithoutExtension(sourcePath);
+            var entry = FindManifestEntry(archive, out var manifestName);
+            if (entry is null)
+            {
+                return new ModpackInspection("unknown", "未识别的压缩包", fileName, "");
+            }
+
+            var baseFolder = entry.FullName[..(entry.FullName.Length - entry.Name.Length)];
+            var suggested = ReadJsonName(archive, entry) ?? fileName;
+            var hasAddons = false;
+            if (manifestName == "manifest.json")
+            {
+                hasAddons = ReadManifestHasAddons(archive, entry);
+            }
+
+            var (kind, formatName) = manifestName switch
+            {
+                "modrinth.index.json" => ("modrinth", "Modrinth（modrinth.index.json）"),
+                "manifest.json" => hasAddons
+                    ? ("mcbbs", "MCBBS（manifest.json + addons）")
+                    : ("curseforge", "CurseForge（manifest.json）"),
+                "modpack.json" => ("hmcl", "HMCL（modpack.json）"),
+                "mmc-pack.json" => ("mmc", "MultiMC（mmc-pack.json）"),
+                "mcbbs.packmeta" => ("mcbbs", "MCBBS（mcbbs.packmeta）"),
+                "modpack.zip" or "modpack.mrpack" => ("launcher-pack", "启动器整合包（嵌套 modpack.zip）"),
+                _ => ("unknown", "未识别的压缩包")
+            };
+            return new ModpackInspection(kind, formatName, suggested, baseFolder);
+        }
+    }
+
+    /// <summary>不支持的格式给出统一提示，列出当前实现与 PCL-CE 的差距。</summary>
+    private static string UnsupportedModpackMessage(ModpackInspection inspection)
+        => inspection.IsSupported
+            ? ""
+            : $"暂不支持该整合包格式：{inspection.FormatName}。" +
+              "当前实现了 Modrinth（.mrpack / modrinth.index.json）与 CurseForge（manifest.json）；" +
+              "HMCL / MultiMC / MCBBS / 启动器打包（嵌套 modpack.zip）尚无解析实现，" +
+              "可解压后导入其中已展开的 overrides 目录。";
+
+    /// <summary>从已解压的文件夹识别清单（只认根目录，和直接解压的整合包一致）。</summary>
+    private static string InspectFolderManifest(string folder, out string? suggestedName, out bool hasAddons)
+    {
+        suggestedName = null;
+        hasAddons = false;
+        string? ReadName(string file)
+        {
+            try
+            {
+                return JsonNode.Parse(File.ReadAllText(Path.Combine(folder, file)))?["name"]?.GetValue<string>();
+            }
+            catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException)
+            {
+                return null;
+            }
+        }
+
+        if (File.Exists(Path.Combine(folder, "modrinth.index.json")))
+        {
+            suggestedName = ReadName("modrinth.index.json");
             return "modrinth";
         }
 
-        if (HasEntry("manifest.json"))
+        if (File.Exists(Path.Combine(folder, "manifest.json")))
         {
-            return "curseforge";
+            suggestedName = ReadName("manifest.json");
+            hasAddons = File.Exists(Path.Combine(folder, "manifest.json"))
+                        && ReadManifestHasAddons(Path.Combine(folder, "manifest.json"));
+            return "manifest";
         }
 
-        if (HasEntry("mcbbs.packmeta") || HasEntry("mmc-pack.json") || HasEntry("modpack.json"))
+        if (File.Exists(Path.Combine(folder, "modpack.json")))
         {
-            return "unsupported-mmc";
+            suggestedName = ReadName("modpack.json");
+            return "hmcl";
+        }
+
+        if (File.Exists(Path.Combine(folder, "mmc-pack.json")))
+        {
+            return "mmc";
+        }
+
+        if (File.Exists(Path.Combine(folder, "mcbbs.packmeta")))
+        {
+            return "mcbbs";
         }
 
         return "unknown";
     }
+
+    /// <summary>在压缩包里找优先级最高的清单条目（同格式多层目录时取层数最浅的）。</summary>
+    private static ZipArchiveEntry? FindManifestEntry(ZipArchive archive, out string manifestName)
+    {
+        string[] candidates =
+        [
+            "modrinth.index.json", "manifest.json", "modpack.json",
+            "mmc-pack.json", "mcbbs.packmeta", "modpack.zip", "modpack.mrpack"
+        ];
+        foreach (var candidate in candidates)
+        {
+            var found = archive.Entries
+                .Where(e => e.Name.Equals(candidate, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(e => e.FullName.Count(c => c == '/'))
+                .FirstOrDefault();
+            if (found is not null)
+            {
+                manifestName = candidate;
+                return found;
+            }
+        }
+
+        manifestName = "";
+        return null;
+    }
+
+    private static string? ReadJsonName(ZipArchive archive, ZipArchiveEntry entry)
+    {
+        try
+        {
+            using var stream = entry.Open();
+            var node = JsonNode.Parse(stream);
+            return node?["name"]?.GetValue<string>();
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    private static bool ReadManifestHasAddons(ZipArchive archive, ZipArchiveEntry entry)
+    {
+        try
+        {
+            using var stream = entry.Open();
+            var node = JsonNode.Parse(stream);
+            return node?["addons"] is JsonArray;
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private static bool ReadManifestHasAddons(string path)
+    {
+        try
+        {
+            var node = JsonNode.Parse(File.ReadAllText(path));
+            return node?["addons"] is JsonArray;
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 从本地压缩包/文件夹导入整合包（对应 PCL-CE 的"导入整合包"入口）。
+    /// 已存在同名实例直接拒绝；安装失败会整体回滚本次新建的实例目录。
+    /// </summary>
+    public async Task<string> ImportModpackAsync(
+        string sourcePath,
+        string gameDirectory,
+        string instanceName,
+        DownloadPolicy policy,
+        int threads,
+        IProgress<InstallProgress>? progress = null,
+        CancellationToken cancellationToken = default,
+        bool downloadAssets = true)
+    {
+        var instanceDirectory = Path.Combine(gameDirectory, "versions", instanceName);
+        if (Directory.Exists(instanceDirectory))
+        {
+            throw new CompException($"同名实例已存在：{instanceName}，请换一个名称或先删除旧实例。");
+        }
+
+        var reporter = new CompProgress(progress);
+        string? tempZip = null;
+        try
+        {
+            var packPath = sourcePath;
+            ModpackInspection inspection;
+            if (Directory.Exists(sourcePath))
+            {
+                reporter.Stage("整理文件夹");
+                tempZip = Path.Combine(Path.GetTempPath(), $"hycl-modpack-{Guid.NewGuid():N}.zip");
+                ZipFile.CreateFromDirectory(sourcePath, tempZip, CompressionLevel.Fastest, false);
+                packPath = tempZip;
+                inspection = InspectModpack(packPath);
+            }
+            else
+            {
+                inspection = InspectModpack(packPath);
+            }
+
+            if (!inspection.IsSupported)
+            {
+                throw new CompException(UnsupportedModpackMessage(inspection));
+            }
+
+            reporter.Stage("创建实例");
+            Directory.CreateDirectory(instanceDirectory);
+            var gameVersion = await InstallModpackArchiveAsync(
+                    packPath, inspection, gameDirectory, instanceName, reporter,
+                    policy, threads, cancellationToken, downloadAssets)
+                .ConfigureAwait(false);
+
+            reporter.Stage("安装完成");
+            _logger.Info($"整合包导入完成：{instanceName}（{inspection.Kind}，MC {gameVersion}，来源 {sourcePath}）");
+            return instanceName;
+        }
+        catch
+        {
+            // 导入只新建实例：失败/取消都整体回滚，不留半成品
+            try
+            {
+                if (Directory.Exists(instanceDirectory))
+                {
+                    Directory.Delete(instanceDirectory, true);
+                    _logger.Warn($"整合包导入未完成，已回滚实例目录：{instanceDirectory}");
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.Error("回滚导入实例目录失败", ex);
+            }
+
+            throw;
+        }
+        finally
+        {
+            if (tempZip is not null)
+            {
+                TryDeleteFile(tempZip);
+            }
+        }
+    }
+
+    private Task<string> InstallModpackArchiveAsync(
+        string packPath,
+        ModpackInspection inspection,
+        string gameDirectory,
+        string instanceName,
+        CompProgress reporter,
+        DownloadPolicy policy,
+        int threads,
+        CancellationToken cancellationToken,
+        bool downloadAssets)
+        => inspection.Kind switch
+        {
+            "modrinth" => InstallModrinthPackAsync(
+                packPath, inspection.BaseFolder, gameDirectory, instanceName, reporter,
+                policy, threads, cancellationToken, downloadAssets),
+            "curseforge" => InstallCurseForgePackAsync(
+                packPath, inspection.BaseFolder, gameDirectory, instanceName, reporter,
+                policy, threads, cancellationToken, downloadAssets),
+            _ => throw new CompException(UnsupportedModpackMessage(inspection))
+        };
 
     // ---------- Modrinth .mrpack ----------
 
@@ -328,6 +612,7 @@ public sealed class CompInstallService
     /// </summary>
     private async Task<string> InstallModrinthPackAsync(
         string packPath,
+        string baseFolder,
         string gameDirectory,
         string instanceName,
         CompProgress reporter,
@@ -337,7 +622,7 @@ public sealed class CompInstallService
         bool downloadAssets)
     {
         using var archive = ZipFile.OpenRead(packPath);
-        var indexEntry = archive.GetEntry("modrinth.index.json")
+        var indexEntry = archive.GetEntry(baseFolder + "modrinth.index.json")
                          ?? throw new CompException("整合包缺少 modrinth.index.json");
         string indexText;
         await using (var stream = indexEntry.Open())
@@ -364,7 +649,11 @@ public sealed class CompInstallService
 
         // 1) 提取 overrides / client-overrides
         reporter.Stage("解压整合包内容");
-        ExtractOverrides(archive, new[] { "overrides", "client-overrides" }, instanceDirectory, cancellationToken);
+        ExtractOverrides(
+            archive,
+            new[] { baseFolder + "overrides", baseFolder + "client-overrides" },
+            instanceDirectory,
+            cancellationToken);
 
         // 2) 下载 files[]（env.client=unsupported 跳过，optional 一并安装）
         var files = index["files"] as JsonArray ?? [];
@@ -430,6 +719,7 @@ public sealed class CompInstallService
     /// </summary>
     private async Task<string> InstallCurseForgePackAsync(
         string packPath,
+        string baseFolder,
         string gameDirectory,
         string instanceName,
         CompProgress reporter,
@@ -439,7 +729,7 @@ public sealed class CompInstallService
         bool downloadAssets)
     {
         using var archive = ZipFile.OpenRead(packPath);
-        var manifestEntry = archive.GetEntry("manifest.json")
+        var manifestEntry = archive.GetEntry(baseFolder + "manifest.json")
                             ?? throw new CompException("整合包缺少 manifest.json");
         string manifestText;
         await using (var stream = manifestEntry.Open())
@@ -452,7 +742,7 @@ public sealed class CompInstallService
                        ?? throw new CompException("manifest.json 解析失败");
         var gameVersion = manifest["minecraft"]?["version"]?.ToString()
                           ?? throw new CompException("整合包缺少 minecraft 版本声明");
-        var overridesFolder = manifest["overrides"]?.ToString() ?? "overrides";
+        var overridesFolder = baseFolder + (manifest["overrides"]?.ToString() ?? "overrides");
         string? forgeVersion = null;
         string? neoForgeVersion = null;
         string? fabricVersion = null;
@@ -640,6 +930,41 @@ public sealed class CompInstallService
         };
         reporter.Stage(loaderKind == "vanilla" ? "安装原版" : $"安装 {loaderKind}");
         await _loaderInstall.InstallAsync(plan, reporter, cancellationToken).ConfigureAwait(false);
+
+        // 原版安装只会写 versions/<gameVersion>，不会用 TargetName。
+        // 整合包实例名与游戏版本不同时补一个 inheritsFrom 的版本 JSON，否则实例不会出现在版本列表。
+        if (loaderKind == "vanilla"
+            && !string.Equals(instanceName, gameVersion, StringComparison.OrdinalIgnoreCase))
+        {
+            await WriteVanillaInheritJsonAsync(gameDirectory, instanceName, gameVersion, cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private static async Task WriteVanillaInheritJsonAsync(
+        string gameDirectory,
+        string instanceName,
+        string gameVersion,
+        CancellationToken cancellationToken)
+    {
+        var instanceDirectory = Path.Combine(gameDirectory, "versions", instanceName);
+        var jsonPath = Path.Combine(instanceDirectory, instanceName + ".json");
+        if (File.Exists(jsonPath))
+        {
+            return;
+        }
+
+        Directory.CreateDirectory(instanceDirectory);
+        var now = DateTimeOffset.Now.ToString("yyyy-MM-dd'T'HH:mm:sszzz");
+        var json = new JsonObject
+        {
+            ["id"] = instanceName,
+            ["inheritsFrom"] = gameVersion,
+            ["type"] = "release",
+            ["time"] = now,
+            ["releaseTime"] = now
+        };
+        await File.WriteAllTextAsync(jsonPath, json.ToJsonString(), cancellationToken).ConfigureAwait(false);
     }
 
     private static void TryDeleteFile(string path)

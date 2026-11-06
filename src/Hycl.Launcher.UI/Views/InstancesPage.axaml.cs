@@ -26,6 +26,7 @@ public partial class InstancesPage : UserControl
         }
 
         viewModel.FolderPicker = PickFolderAsync;
+        viewModel.ModpackFilePicker = PickModpackFileAsync;
         viewModel.JavaFilePicker = PickJavaFileAsync;
         viewModel.ListResetRequested -= OnListResetRequested;
         viewModel.ListResetRequested += OnListResetRequested;
@@ -87,6 +88,43 @@ public partial class InstancesPage : UserControl
             SuggestedStartLocation = startFolder
         });
         return folders.Count > 0 ? folders[0].TryGetLocalPath() : null;
+    }
+
+    /// <summary>选择本地整合包文件（.zip / .mrpack / .rar，识别失败会给出提示）。</summary>
+    private async Task<string?> PickModpackFileAsync(string? startDirectory)
+    {
+        var top = TopLevel.GetTopLevel(this);
+        if (top?.StorageProvider is null)
+        {
+            return null;
+        }
+
+        IStorageFolder? startFolder = null;
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(startDirectory) && Directory.Exists(startDirectory))
+            {
+                startFolder = await top.StorageProvider.TryGetFolderFromPathAsync(new Uri(startDirectory));
+            }
+        }
+        catch (ArgumentException)
+        {
+            // 起始目录无效时退回系统默认位置
+        }
+
+        var modpackType = new FilePickerFileType("整合包")
+        {
+            Patterns = ["*.zip", "*.mrpack", "*.rar"]
+        };
+        var allFilesType = new FilePickerFileType("所有文件") { Patterns = ["*"] };
+        var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "导入整合包",
+            AllowMultiple = false,
+            SuggestedStartLocation = startFolder,
+            FileTypeFilter = [modpackType, allFilesType]
+        });
+        return files.Count > 0 ? files[0].TryGetLocalPath() : null;
     }
 
     /// <summary>选择 Java 可执行文件（javaw.exe / java），与保存时的 File.Exists 校验语义一致。</summary>

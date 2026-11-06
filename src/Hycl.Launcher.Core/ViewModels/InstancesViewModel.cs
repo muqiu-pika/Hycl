@@ -2,7 +2,9 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Hycl.Launcher.Core.Config;
+using Hycl.Launcher.Core.Download;
 using Hycl.Launcher.Core.Game;
+using Hycl.Launcher.Core.Game.Comp;
 
 namespace Hycl.Launcher.Core.ViewModels;
 
@@ -49,6 +51,24 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
 
     /// <summary>由 UI 层注入的文件夹选择器（取消返回 null）。</summary>
     public Func<string?, Task<string?>>? FolderPicker { get; set; }
+
+    /// <summary>由 UI 层注入的整合包文件选择器（.zip / .mrpack / .rar，取消返回 null）。</summary>
+    public Func<string?, Task<string?>>? ModpackFilePicker { get; set; }
+
+    /// <summary>导入整合包的进度（0-100）。</summary>
+    [ObservableProperty]
+    private double _importPercentage;
+
+    /// <summary>导入整合包当前阶段文字。</summary>
+    [ObservableProperty]
+    private string _importStageText = "";
+
+    [ObservableProperty]
+    private bool _isImporting;
+
+    private string? _pendingImportPath;
+
+    private bool _isImportDialog;
 
     /// <summary>Java 可执行文件选择器：返回 javaw.exe / java 的完整文件路径（由 UI 层注入）。</summary>
     public Func<string?, Task<string?>>? JavaFilePicker { get; set; }
@@ -660,6 +680,162 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         }
     }
 
+    // ------------------------- 导入整合包 -------------------------
+
+    /// <summary>从本地压缩包导入整合包（对应 PCL-CE 整合包导入入口）。</summary>
+    [RelayCommand]
+    private async Task ImportModpackAsync()
+    {
+        if (ModpackFilePicker is null)
+        {
+            StatusMessage = "当前环境无法打开文件选择器";
+            return;
+        }
+
+        string? path;
+        try
+        {
+            _services.Logger.Info("导入整合包：打开文件选择器");
+            path = await ModpackFilePicker(_services.Config.EffectiveGameDirectory).ConfigureAwait(true);
+            _services.Logger.Info($"导入整合包：选择结果 {path ?? "<取消>"}");
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"无法打开文件选择器：{ex.Message}";
+            _services.Logger.Error("导入整合包：文件选择器失败", ex);
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            BeginImport(path);
+        }
+    }
+
+    /// <summary>从已解压的文件夹导入整合包（PCL-CE 没有该入口，这里补齐文件夹形式）。</summary>
+    [RelayCommand]
+    private async Task ImportModpackFolderAsync()
+    {
+        if (FolderPicker is null)
+        {
+            StatusMessage = "当前环境无法打开文件夹选择器";
+            return;
+        }
+
+        string? path;
+        try
+        {
+            path = await FolderPicker(_services.Config.EffectiveGameDirectory).ConfigureAwait(true);
+            _services.Logger.Info($"导入整合包：选择文件夹 {path ?? "<取消>"}");
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"无法打开文件夹选择器：{ex.Message}";
+            _services.Logger.Error("导入整合包：文件夹选择器失败", ex);
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            BeginImport(path);
+        }
+    }
+
+    /// <summary>先识别格式，再走命名对话框；不支持的格式当场说明原因，不进入命名步骤。</summary>
+    private void BeginImport(string path)
+    {
+        CompInstallService.ModpackInspection inspection;
+        try
+        {
+            inspection = CompInstallService.InspectModpack(path);
+        }
+        catch (Exception ex) when (ex is CompException or IOException or UnauthorizedAccessException)
+        {
+            StatusMessage = $"无法导入：{ex.Message}";
+            return;
+        }
+
+        if (!inspection.IsSupported)
+        {
+            StatusMessage = $"无法导入：{inspection.FormatName} 暂未实现，当前支持 Modrinth / CurseForge";
+            return;
+        }
+
+        _pendingImportPath = path;
+        _isImportDialog = true;
+        _isRenameDialog = false;
+        NameDialogTitle = "导入整合包";
+        NameDialogText = SanitizeInstanceName(inspection.SuggestedName, Path.GetFileNameWithoutExtension(path));
+        NameDialogHint = $"格式：{inspection.FormatName}。确认后新建实例，并按清单下载所需文件。";
+        IsNameDialogVisible = true;
+    }
+
+    /// <summary>整合包名称可能带空格/非法字符，过滤为合法的 versions 目录名。</summary>
+    private static string SanitizeInstanceName(string? suggested, string fallback)
+    {
+        var name = string.IsNullOrWhiteSpace(suggested) ? fallback : suggested;
+        foreach (var invalid in Path.GetInvalidFileNameChars())
+        {
+            name = name.Replace(invalid, ' ');
+        }
+
+        name = name.Trim();
+        return InstanceManager.IsValidInstanceId(name) ? name : "导入整合包";
+    }
+
+    private async Task ConfirmImportAsync(string name)
+    {
+        var path = _pendingImportPath;
+        _isImportDialog = false;
+        _pendingImportPath = null;
+        if (path is null)
+        {
+            IsNameDialogVisible = false;
+            return;
+        }
+
+        IsNameDialogVisible = false;
+        NameDialogHint = "";
+        IsImporting = true;
+        ImportPercentage = 0;
+        ImportStageText = "准备导入…";
+        try
+        {
+            await _services.CompInstall.ImportModpackAsync(
+                    path,
+                    _services.Config.EffectiveGameDirectory,
+                    name,
+                    DownloadPolicy.FromConfig(_services.Config),
+                    _services.Config.DownloadThreads,
+                    new Progress<InstallProgress>(value =>
+                    {
+                        ImportPercentage = value.Percentage * 100;
+                        ImportStageText = string.IsNullOrEmpty(value.CurrentItem)
+                            ? value.Stage
+                            : $"{value.Stage} · {value.CurrentItem}";
+                    }),
+                    CancellationToken.None)
+                .ConfigureAwait(true);
+
+            await RefreshAsync().ConfigureAwait(true);
+            SelectedInstance = Instances.FirstOrDefault(x => x.Id.Equals(name, StringComparison.OrdinalIgnoreCase));
+            StatusMessage = $"已导入整合包：{name}";
+            DetailResetRequested?.Invoke(this, EventArgs.Empty);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"导入失败：{ex.Message}";
+            _services.Logger.Error("导入整合包失败", ex);
+            await RefreshAsync().ConfigureAwait(true);
+        }
+        finally
+        {
+            IsImporting = false;
+            ImportPercentage = 0;
+            ImportStageText = "";
+        }
+    }
+
     // ------------------------- 复制 / 重命名 -------------------------
 
     [RelayCommand]
@@ -697,20 +873,35 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
     {
         IsNameDialogVisible = false;
         NameDialogHint = "";
+        _isImportDialog = false;
+        _pendingImportPath = null;
     }
 
     [RelayCommand]
     private async Task ConfirmNameDialogAsync()
     {
-        if (SelectedInstance is null)
-        {
-            return;
-        }
-
         var newId = NameDialogText.Trim();
         if (!InstanceManager.IsValidInstanceId(newId))
         {
             NameDialogHint = "实例名称不能为空，且不能包含 / \\ : * ? \" < > | .. 等字符";
+            return;
+        }
+
+        if (_isImportDialog)
+        {
+            if (Instances.Any(x => x.Id.Equals(newId, StringComparison.OrdinalIgnoreCase))
+                || Directory.Exists(Path.Combine(_services.Config.EffectiveGameDirectory, "versions", newId)))
+            {
+                NameDialogHint = "同名实例已存在，请换一个名称";
+                return;
+            }
+
+            await ConfirmImportAsync(newId).ConfigureAwait(true);
+            return;
+        }
+
+        if (SelectedInstance is null)
+        {
             return;
         }
 
