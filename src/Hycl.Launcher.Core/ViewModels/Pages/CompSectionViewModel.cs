@@ -350,6 +350,235 @@ public partial class CompSectionViewModel : ObservableObject
 
     public ObservableCollection<CompFileItemViewModel> VersionFiles { get; } = [];
 
+    // ---------- 详情页版本/加载器筛选（对应 PCL-CE PageDownloadCompDetail 的筛选项与 UpdateFilterResult） ----------
+
+    private const string AllDetailVersions = "全部版本";
+    private const string AllDetailLoaders = "全部加载器";
+
+    /// <summary>当前项目拉取到的全部文件；筛选基于它，VersionFiles 只是筛选后的展示子集。</summary>
+    private IReadOnlyList<CompFile> _detailFiles = [];
+
+    /// <summary>文件 Id → 条目 VM；筛选重建列表时复用，保留「下载中」等行内状态。</summary>
+    private readonly Dictionary<string, CompFileItemViewModel> _detailItems = new(StringComparer.Ordinal);
+
+    private bool _detailVersionGrouped;
+    private bool _isBuildingDetailFilters;
+
+    /// <summary>详情页版本筛选项：全部 + 该资源文件出现过的 MC 版本（按版本号降序）。</summary>
+    public ObservableCollection<string> DetailVersionOptions { get; } = [];
+
+    /// <summary>详情页加载器筛选项：仅模组生成，来自该资源文件出现过的加载器。</summary>
+    public ObservableCollection<string> DetailLoaderOptions { get; } = [];
+
+    [ObservableProperty]
+    private string _selectedDetailVersion = AllDetailVersions;
+
+    [ObservableProperty]
+    private string _selectedDetailLoader = AllDetailLoaders;
+
+    [ObservableProperty]
+    private string _detailEmptyText = "";
+
+    /// <summary>版本筛选仅在该资源自身有 2 个及以上版本时展示（PCL-CE 同）。</summary>
+    public bool HasDetailVersionFilter => DetailVersionOptions.Count >= 2;
+
+    /// <summary>加载器筛选仅模组展示，且与版本筛选同时出现（PCL-CE 同）。</summary>
+    public bool HasDetailLoaderFilter => Type == CompResourceType.Mod && HasDetailVersionFilter;
+
+    /// <summary>筛选后没有任何可安装文件（无错误时展示空状态，安装入口随之为空）。</summary>
+    public bool IsDetailEmpty =>
+        SelectedProject is not null
+        && !IsLoadingVersions
+        && VersionFiles.Count == 0
+        && VersionErrorText.Length == 0;
+
+    partial void OnSelectedDetailVersionChanged(string value)
+    {
+        if (!_isBuildingDetailFilters)
+        {
+            ApplyDetailFilter();
+        }
+    }
+
+    partial void OnSelectedDetailLoaderChanged(string value)
+    {
+        if (!_isBuildingDetailFilters)
+        {
+            ApplyDetailFilter();
+        }
+    }
+
+    partial void OnIsLoadingVersionsChanged(bool value) => OnPropertyChanged(nameof(IsDetailEmpty));
+
+    partial void OnVersionErrorTextChanged(string value) => OnPropertyChanged(nameof(IsDetailEmpty));
+
+    /// <summary>
+    /// 从当前资源自身文件的 GameVersions / ModLoaders 生成筛选项（不使用全局版本全集）。
+    /// 版本超过 8 个时按 PCL-CE 的做法折叠大版本（1.21.11 → 1.21），否则使用精确版本。
+    /// </summary>
+    private void BuildDetailFilters()
+    {
+        _isBuildingDetailFilters = true;
+        try
+        {
+            var versions = _detailFiles
+                .SelectMany(file => file.GameVersions)
+                .Select(CompLocalization.GameVersionName)
+                .Where(version => version.Length > 0 && version.Any(char.IsDigit))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(version => version, CompLocalization.VersionComparer)
+                .ToList();
+
+            _detailVersionGrouped = versions.Count >= 9;
+            if (_detailVersionGrouped)
+            {
+                versions = versions
+                    .Select(DetailVersionGroup)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderByDescending(version => version, CompLocalization.VersionComparer)
+                    .ToList();
+            }
+
+            DetailVersionOptions.Clear();
+            DetailVersionOptions.Add(AllDetailVersions);
+            foreach (var version in versions)
+            {
+                DetailVersionOptions.Add(version);
+            }
+
+            DetailLoaderOptions.Clear();
+            if (Type == CompResourceType.Mod)
+            {
+                DetailLoaderOptions.Add(AllDetailLoaders);
+                foreach (var loader in _detailFiles
+                             .SelectMany(file => file.ModLoaders)
+                             .Select(CompLocalization.LoaderName)
+                             .Where(name => name.Length > 0)
+                             .Distinct(StringComparer.OrdinalIgnoreCase)
+                             .OrderBy(name => name, StringComparer.OrdinalIgnoreCase))
+                {
+                    DetailLoaderOptions.Add(loader);
+                }
+            }
+
+            SelectedDetailVersion = AllDetailVersions;
+            SelectedDetailLoader = AllDetailLoaders;
+        }
+        finally
+        {
+            _isBuildingDetailFilters = false;
+        }
+
+        OnPropertyChanged(nameof(HasDetailVersionFilter));
+        OnPropertyChanged(nameof(HasDetailLoaderFilter));
+    }
+
+    /// <summary>按当前版本/加载器筛选重建 VersionFiles；条目 VM 复用，避免打断进行中的下载行状态。</summary>
+    private void ApplyDetailFilter()
+    {
+        if (_detailFiles.Count == 0)
+        {
+            VersionFiles.Clear();
+            DetailEmptyText = "";
+            OnPropertyChanged(nameof(IsDetailEmpty));
+            return;
+        }
+
+        var versionFilter = SelectedDetailVersion == AllDetailVersions ? null : SelectedDetailVersion;
+        var loaderFilter = Type == CompResourceType.Mod && SelectedDetailLoader != AllDetailLoaders
+            ? SelectedDetailLoader
+            : null;
+
+        var matches = _detailFiles
+            .Where(file => MatchesDetailFilter(file, versionFilter, loaderFilter))
+            .ToList();
+
+        VersionFiles.Clear();
+        foreach (var file in matches.Take(60))
+        {
+            if (!_detailItems.TryGetValue(file.Id, out var item))
+            {
+                item = new CompFileItemViewModel(file, this);
+                _detailItems[file.Id] = item;
+            }
+
+            VersionFiles.Add(item);
+        }
+
+        DetailEmptyText = VersionFiles.Count == 0
+            ? versionFilter is null && loaderFilter is null
+                ? "该项目没有可安装的文件"
+                : "当前筛选条件下没有可安装的文件"
+            : "";
+        OnPropertyChanged(nameof(IsDetailEmpty));
+    }
+
+    private bool MatchesDetailFilter(CompFile file, string? versionFilter, string? loaderFilter)
+    {
+        if (versionFilter is not null)
+        {
+            var matched = file.GameVersions.Any(version =>
+            {
+                var name = CompLocalization.GameVersionName(version);
+                return name.Length > 0
+                       && string.Equals(
+                           _detailVersionGrouped ? DetailVersionGroup(name) : name,
+                           versionFilter,
+                           StringComparison.OrdinalIgnoreCase);
+            });
+            if (!matched)
+            {
+                return false;
+            }
+        }
+
+        if (loaderFilter is not null)
+        {
+            return file.ModLoaders
+                .Select(CompLocalization.LoaderName)
+                .Any(name => string.Equals(name, loaderFilter, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return true;
+    }
+
+    /// <summary>折叠为大版本：1.21.11 / 1.21.1 → 1.21；快照等非标准版本保持原样。</summary>
+    private static string DetailVersionGroup(string version)
+    {
+        var parts = version.Split('.');
+        return parts.Length >= 3
+               && parts[0].All(char.IsDigit)
+               && parts[1].All(char.IsDigit)
+               && parts[0].Length > 0
+               && parts[1].Length > 0
+            ? $"{parts[0]}.{parts[1]}"
+            : version;
+    }
+
+    /// <summary>切项目/关闭详情时清空详情筛选状态。</summary>
+    private void ResetDetailFilters()
+    {
+        _isBuildingDetailFilters = true;
+        try
+        {
+            _detailFiles = [];
+            _detailItems.Clear();
+            DetailVersionOptions.Clear();
+            DetailLoaderOptions.Clear();
+            SelectedDetailVersion = AllDetailVersions;
+            SelectedDetailLoader = AllDetailLoaders;
+            DetailEmptyText = "";
+        }
+        finally
+        {
+            _isBuildingDetailFilters = false;
+        }
+
+        OnPropertyChanged(nameof(HasDetailVersionFilter));
+        OnPropertyChanged(nameof(HasDetailLoaderFilter));
+        OnPropertyChanged(nameof(IsDetailEmpty));
+    }
+
     /// <summary>版本筛选选项：静态版本全集 + 本机已安装版本，按版本号降序；不随搜索结果变化。</summary>
     public ObservableCollection<string> GameVersionOptions { get; } = [];
 
@@ -687,6 +916,7 @@ public partial class CompSectionViewModel : ObservableObject
         SelectedProjectGameVersionText = item.GameVersionText;
         SelectedProjectLoaderText = item.LoaderText;
         VersionErrorText = "";
+        ResetDetailFilters();
         VersionFiles.Clear();
         IsLoadingVersions = true;
         var translation = CompLocalization.TranslateDescriptionAsync(_services.DownloadClient, item.Project, token);
@@ -701,16 +931,9 @@ public partial class CompSectionViewModel : ObservableObject
                 return;
             }
 
-            VersionFiles.Clear();
-            foreach (var file in files.Take(60))
-            {
-                VersionFiles.Add(new CompFileItemViewModel(file, this));
-            }
-
-            if (VersionFiles.Count == 0)
-            {
-                VersionErrorText = "该项目没有可下载的文件";
-            }
+            _detailFiles = files;
+            BuildDetailFilters();
+            ApplyDetailFilter();
 
             var translated = await translation.ConfigureAwait(true);
             if (generation == _detailGeneration && ReferenceEquals(SelectedProject, item))
@@ -787,6 +1010,7 @@ public partial class CompSectionViewModel : ObservableObject
         SelectedProjectDownloadText = "";
         SelectedProjectGameVersionText = "";
         SelectedProjectLoaderText = "";
+        ResetDetailFilters();
         VersionFiles.Clear();
         VersionErrorText = "";
     }

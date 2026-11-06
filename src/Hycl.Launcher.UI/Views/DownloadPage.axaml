@@ -952,6 +952,22 @@
                                                    Foreground="{DynamicResource ErrorBrush}"
                                                    Text="{Binding ActiveCompSection.VersionErrorText}"
                                                    IsVisible="{Binding ActiveCompSection.VersionErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+                                        <!-- 详情页筛选：选项来自本资源文件出现过的 MC 版本/加载器（PCL-CE 同） -->
+                                        <WrapPanel IsVisible="{Binding ActiveCompSection.HasDetailVersionFilter}">
+                                            <c:McComboBox MinWidth="124"
+                                                          Margin="0,0,8,4"
+                                                          ToolTip.Tip="按 Minecraft 版本筛选"
+                                                          Items="{Binding ActiveCompSection.DetailVersionOptions}"
+                                                          SelectedItem="{Binding ActiveCompSection.SelectedDetailVersion, Mode=TwoWay}" />
+                                            <c:McComboBox MinWidth="112"
+                                                          Margin="0,0,8,4"
+                                                          ToolTip.Tip="按加载器筛选"
+                                                          IsVisible="{Binding ActiveCompSection.HasDetailLoaderFilter}"
+                                                          Items="{Binding ActiveCompSection.DetailLoaderOptions}"
+                                                          SelectedItem="{Binding ActiveCompSection.SelectedDetailLoader, Mode=TwoWay}" />
+                                        </WrapPanel>
+
                                         <ItemsControl ItemsSource="{Binding ActiveCompSection.VersionFiles}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="vm:CompFileItemViewModel">
@@ -997,6 +1013,13 @@
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
+
+                                        <!-- 筛选后无文件：给出空状态，版本行（安装入口）随之为空 -->
+                                        <TextBlock Classes="dl-empty"
+                                                   Margin="0,4,0,2"
+                                                   HorizontalAlignment="Left"
+                                                   Text="{Binding ActiveCompSection.DetailEmptyText}"
+                                                   IsVisible="{Binding ActiveCompSection.IsDetailEmpty}" />
                                     </StackPanel>
                                 </Border>
                             </StackPanel>
