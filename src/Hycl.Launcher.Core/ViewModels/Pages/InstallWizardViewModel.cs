@@ -916,7 +916,9 @@ public partial class InstallWizardViewModel : ObservableObject
         try
         {
             await card.EnsureLoadedAsync().ConfigureAwait(true);
-            if (generation != _wizardGeneration || !LoaderCards.Contains(card))
+            // 主加载器与附属卡（Fabric API / LiteLoader / OptiFine …）都进入同一个子页面
+            if (generation != _wizardGeneration
+                || (!LoaderCards.Contains(card) && !CompanionCards.Contains(card)))
             {
                 return;
             }
@@ -944,6 +946,14 @@ public partial class InstallWizardViewModel : ObservableObject
     {
         if (item is null || ActiveLoaderCard is null)
         {
+            return;
+        }
+
+        // 附属卡子页面：选择即同步摘要，并返回向导上一步（与主加载器页一致）
+        if (CompanionCards.Contains(ActiveLoaderCard))
+        {
+            SelectCompanionItem(item);
+            ActiveLoaderCard = null;
             return;
         }
 
@@ -1100,6 +1110,19 @@ public partial class InstallWizardViewModel : ObservableObject
         NotifyCompanionHints();
     }
 
+    /// <summary>附属选择页里的「取消选择」：清空该卡选择并返回向导上一步。</summary>
+    [RelayCommand]
+    private void CancelCompanionSelection()
+    {
+        if (ActiveLoaderCard is null || !CompanionCards.Contains(ActiveLoaderCard))
+        {
+            return;
+        }
+
+        ClearCompanionCard(ActiveLoaderCard);
+        ActiveLoaderCard = null;
+    }
+
     /// <summary>
     /// 按兼容矩阵刷新附属卡可用性（移植自 PCL-CE Load*GetError）：
     /// OptiFine 与 NeoForge/LabyMod/Cleanroom 互斥、与 Fabric 需 MC ≤ 1.20.4、与 Forge 需 1.13 之外；
@@ -1127,6 +1150,11 @@ public partial class InstallWizardViewModel : ObservableObject
             if (!card.IsAvailable)
             {
                 ClearCompanionCard(card);
+                // 正在该附属卡的选择页时被规则禁用：直接退回向导，避免看到已失效的入口
+                if (ReferenceEquals(ActiveLoaderCard, card))
+                {
+                    ActiveLoaderCard = null;
+                }
             }
         }
 

@@ -325,7 +325,8 @@
                                                             HorizontalAlignment="Stretch"
                                                             HorizontalContentAlignment="Stretch"
                                                             Cursor="Hand"
-                                                            Command="{Binding ToggleCommand}">
+                                                            Command="{Binding $parent[UserControl].((vm:DownloadPageViewModel)DataContext).Wizard.OpenLoaderCardCommand}"
+                                                            CommandParameter="{Binding}">
                                                         <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
                                                             <c:BlockIcon Kind="{Binding IconKey}"
                                                                          Width="22"
@@ -360,65 +361,23 @@
                                                                         Command="{Binding $parent[UserControl].((vm:DownloadPageViewModel)DataContext).Wizard.ClearCompanionCardCommand}"
                                                                         CommandParameter="{Binding}" />
                                                             </StackPanel>
+                                                            <TextBlock Grid.Column="2"
+                                                                       Text="未选择"
+                                                                       FontSize="12"
+                                                                       VerticalAlignment="Center"
+                                                                       Foreground="{DynamicResource Gray3Brush}"
+                                                                       IsVisible="{Binding !HasSelection}" />
                                                             <c:HyclIcon Grid.Column="3"
                                                                         Width="14"
                                                                         Height="14"
                                                                         VerticalAlignment="Center"
                                                                         Foreground="{DynamicResource Gray2Brush}"
-                                                                        Kind="chevron-down"
-                                                                        IsVisible="{Binding IsExpanded}" />
-                                                            <c:HyclIcon Grid.Column="3"
-                                                                        Width="14"
-                                                                        Height="14"
-                                                                        VerticalAlignment="Center"
-                                                                        Foreground="{DynamicResource Gray2Brush}"
-                                                                        Kind="chevron-right"
-                                                                        IsVisible="{Binding !IsExpanded}" />
+                                                                        Kind="chevron-right" />
                                                         </Grid>
                                                     </Button>
-                                                    <StackPanel IsVisible="{Binding IsExpanded}" Margin="4,8,0,0">
-                                                        <c:McLoading Width="60"
-                                                                     Height="50"
-                                                                     IconSize="26"
-                                                                     IsVisible="{Binding IsLoading}"
-                                                                     HorizontalAlignment="Center" />
-                                                        <TextBlock FontSize="12"
-                                                                   Margin="4,2"
-                                                                   Foreground="{DynamicResource ErrorBrush}"
-                                                                   Text="{Binding ErrorText}"
-                                                                   IsVisible="{Binding ErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                                        <ItemsControl ItemsSource="{Binding Items}">
-                                                            <ItemsControl.ItemTemplate>
-                                                                <DataTemplate x:DataType="vm:VersionItemViewModel">
-                                                                    <Button Classes="ver-row"
-                                                                            Classes.selected="{Binding IsSelected}"
-                                                                            Command="{Binding $parent[UserControl].((vm:DownloadPageViewModel)DataContext).Wizard.SelectCompanionItemCommand}"
-                                                                            CommandParameter="{Binding}">
-                                                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                                                            <StackPanel VerticalAlignment="Center" Spacing="1">
-                                                                                <TextBlock Text="{Binding Title}"
-                                                                                           FontSize="12.5"
-                                                                                           FontWeight="SemiBold"
-                                                                                           Foreground="{DynamicResource TextBrush}" />
-                                                                                <TextBlock Text="{Binding Info}"
-                                                                                           FontSize="11"
-                                                                                           Foreground="{DynamicResource Gray3Brush}" />
-                                                                            </StackPanel>
-                                                                            <c:HyclIcon Grid.Column="1"
-                                                                                        Width="14"
-                                                                                        Height="14"
-                                                                                        VerticalAlignment="Center"
-                                                                                        Foreground="{DynamicResource PrimaryBrush}"
-                                                                                        Kind="check"
-                                                                                        IsVisible="{Binding IsSelected}" />
-                                                                        </Grid>
-                                                                    </Button>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                    </StackPanel>
-                                </StackPanel>
-                            </Border>
+                                                    <!-- 点击整卡进入独立选择页，不再就地展开 -->
+                                                </StackPanel>
+                                            </Border>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
@@ -465,7 +424,7 @@
                                                 Height="13"
                                                 VerticalAlignment="Center"
                                                 Margin="0,1,0,0" />
-                                    <TextBlock Text="返回选择加载器" VerticalAlignment="Center" />
+                                    <TextBlock Text="返回上一步" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Button>
 
@@ -499,6 +458,13 @@
                                                        Text="{Binding Wizard.ActiveLoaderCard.CountText}" />
                                         </Grid>
                                     </Border>
+
+                                    <!-- 附属卡（Fabric API / LiteLoader / OptiFine）选择页的取消入口：清空已选并返回 -->
+                                    <Button Classes="mc-btn danger"
+                                            HorizontalAlignment="Right"
+                                            Content="取消选择"
+                                            IsVisible="{Binding Wizard.ActiveLoaderCard.IsAccessory}"
+                                            Command="{Binding Wizard.CancelCompanionSelectionCommand}" />
 
                                     <Border Background="{DynamicResource GlassSurfaceBrush}"
                                             BorderBrush="{DynamicResource SoftLineBrush}"
