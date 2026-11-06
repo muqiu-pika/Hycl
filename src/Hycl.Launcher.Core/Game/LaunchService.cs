@@ -635,11 +635,13 @@ public sealed class LaunchService
         };
 
         // 皮肤站账号：注入 authlib-injector javaagent（对应 PCL-CE _AddAuthlibInjectorJvmArgs，插在最前）
+        // 经 ArgumentList 逐个传递参数（由 .NET 负责引号转义），这里不能再手写引号，
+        // 否则引号会成为 jar 路径的一部分，导致 Agent_OnLoad 打不开 jar。
         if (!string.IsNullOrWhiteSpace(options.AuthlibServer) && !string.IsNullOrWhiteSpace(options.AuthlibJarPath))
         {
             arguments.Insert(
                 0,
-                $"-javaagent:\"{options.AuthlibJarPath}\"={options.AuthlibServer}");
+                $"-javaagent:{options.AuthlibJarPath}={options.AuthlibServer}");
             arguments.Insert(1, "-Dauthlibinjector.side=client");
             if (!string.IsNullOrWhiteSpace(options.AuthlibPrefetched))
             {
@@ -800,8 +802,8 @@ public sealed class LaunchService
     }
 
     /// <summary>
-    /// 按实际使用的 Java 大版本注入调优参数（对应 PCL-CE 按版本注入 JVM 参数 / OpenPCL 调优表）：
-    /// 8 用 G1 推荐组；17+ 统一 G1 调优；24+ 启用紧凑对象头；7 及以下补 MaxPermSize。
+    /// 按实际使用的 Java 大版本注入调优参数（对应 PCL2/PCL-CE 的 ModLaunch 调优表）：
+    /// 8+ 使用 G1 推荐组；24+ 启用紧凑对象头；7 及以下补 MaxPermSize。
     /// 全部为通用安全项；用户 ExtraJvmArguments 在其之后追加，可覆盖同名开关。
     /// </summary>
     private static IEnumerable<string> BuildJavaVersionTuning(int javaMajorVersion)
@@ -818,11 +820,10 @@ public sealed class LaunchService
             yield break;
         }
 
-        // Java 8 上 G1 细分项仍是实验参数，需要解锁开关；17+ 已是正式参数
-        if (javaMajorVersion < 17)
-        {
-            yield return "-XX:+UnlockExperimentalVMOptions";
-        }
+        // G1NewSizePercent / G1ReservePercent 至今仍是实验参数（Java 25 实测仍要求解锁），
+        // 且解锁开关必须位于其之前；PCL2 同样无条件先加该开关。JDK 24 的
+        // UseCompactObjectHeaders 也是实验参数（25 转正），一并由它覆盖。
+        yield return "-XX:+UnlockExperimentalVMOptions";
 
         // G1 推荐组（OptiFine 官方建议集合，对 MC 帧率稳定性收益明确）
         yield return "-XX:+UseG1GC";
@@ -831,7 +832,7 @@ public sealed class LaunchService
         yield return "-XX:MaxGCPauseMillis=50";
         yield return "-XX:G1HeapRegionSize=32M";
 
-        // JDK 24 起紧凑对象头转正，默认关闭，显式开启可降内存开销
+        // JDK 24 起支持紧凑对象头（默认关闭），显式开启可降内存开销
         if (javaMajorVersion >= 24)
         {
             yield return "-XX:+UseCompactObjectHeaders";
