@@ -422,6 +422,32 @@
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
+
+                                <!-- 附件缺失提示（对应 PCL-CE ShowHint*） -->
+                                <TextBlock Margin="2,8,0,0"
+                                           FontSize="12"
+                                           TextWrapping="Wrap"
+                                           Foreground="{DynamicResource ErrorBrush}"
+                                           Text="未选择安装 Fabric API，这可能导致大多数 Fabric 模组无法启动。"
+                                           IsVisible="{Binding Wizard.ShowFabricApiWarning}" />
+                                <TextBlock Margin="2,8,0,0"
+                                           FontSize="12"
+                                           TextWrapping="Wrap"
+                                           Foreground="{DynamicResource ErrorBrush}"
+                                           Text="未选择安装 Legacy Fabric API，这可能导致大多数 Legacy Fabric 模组无法启动。"
+                                           IsVisible="{Binding Wizard.ShowLegacyFabricApiWarning}" />
+                                <TextBlock Margin="2,8,0,0"
+                                           FontSize="12"
+                                           TextWrapping="Wrap"
+                                           Foreground="{DynamicResource ErrorBrush}"
+                                           Text="必须安装 OptiFabric 才能使 OptiFine 与 Fabric 兼容。"
+                                           IsVisible="{Binding Wizard.ShowOptiFabricWarning}" />
+                                <TextBlock Margin="2,8,0,0"
+                                           FontSize="12"
+                                           TextWrapping="Wrap"
+                                           Foreground="{DynamicResource PrimaryDeepBrush}"
+                                           Text="Legacy Fabric 需要手动安装 LegacyOptiFabric 才能与 OptiFine 兼容。"
+                                           IsVisible="{Binding Wizard.ShowLegacyOptiFabricWarning}" />
                                 </StackPanel>
                             </Panel>
                             </StackPanel>
@@ -1471,6 +1497,102 @@
                                 MinWidth="104"
                                 Content="{Binding ActiveCompSection.SaveDialogConfirmText}"
                                 Command="{Binding ActiveCompSection.ConfirmSaveCommand}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Panel>
+
+        <!-- 模组前置解析/确认（对应 PCL-CE CompDependency.ConfirmDependencyInstall） -->
+        <Panel Grid.ColumnSpan="2"
+               IsVisible="{Binding IsDependencyDialogVisible}"
+               Background="{DynamicResource DialogScrimBrush}"
+               ZIndex="4">
+            <Border Classes="dialog-card"
+                    Width="580"
+                    MaxHeight="560"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                <StackPanel>
+                    <TextBlock Classes="dialog-title" Text="{Binding ActiveCompSection.DependencyDialogTitle}" />
+                    <TextBlock Classes="dialog-body"
+                               Margin="0,9,0,0"
+                               Text="{Binding ActiveCompSection.DependencyDialogBody}"
+                               TextWrapping="Wrap" />
+
+                    <!-- 解析中：不确定态加载动画 + 取消 -->
+                    <StackPanel Orientation="Horizontal"
+                                Spacing="12"
+                                Margin="0,20,0,0"
+                                HorizontalAlignment="Center"
+                                IsVisible="{Binding ActiveCompSection.IsDependencyResolving}">
+                        <c:McLoading Width="40" Height="40" />
+                        <TextBlock FontSize="12.5"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource Gray2Brush}"
+                                   Text="正在查询社区资源，请稍候…" />
+                    </StackPanel>
+
+                    <!-- 前置列表 / 未解析原因 -->
+                    <ScrollViewer MaxHeight="240"
+                                  Margin="0,12,0,0"
+                                  IsVisible="{Binding ActiveCompSection.IsDependencyListVisible}">
+                        <ItemsControl ItemsSource="{Binding ActiveCompSection.DependencyItems}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:DependencyDialogItemViewModel">
+                                    <Border BorderBrush="{DynamicResource Primary6Brush}"
+                                            BorderThickness="0,0,0,1"
+                                            Padding="2,7">
+                                        <StackPanel Spacing="2">
+                                            <TextBlock FontSize="12.5"
+                                                       TextWrapping="Wrap"
+                                                       Text="{Binding Title}"
+                                                       IsVisible="{Binding IsNormal}" />
+                                            <TextBlock FontSize="12.5"
+                                                       TextWrapping="Wrap"
+                                                       Foreground="{DynamicResource PrimaryDeepBrush}"
+                                                       Text="{Binding Title}"
+                                                       IsVisible="{Binding IsError}" />
+                                            <TextBlock FontSize="11.5"
+                                                       TextWrapping="Wrap"
+                                                       Foreground="{DynamicResource Gray2Brush}"
+                                                       Text="{Binding Detail}" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+
+                    <TextBlock Margin="0,10,0,0"
+                               FontSize="11.5"
+                               TextWrapping="Wrap"
+                               Foreground="{DynamicResource PrimaryDeepBrush}"
+                               Text="{Binding ActiveCompSection.DependencyDialogError}"
+                               IsVisible="{Binding ActiveCompSection.DependencyDialogError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+                    <StackPanel Orientation="Horizontal"
+                                Spacing="10"
+                                HorizontalAlignment="Right"
+                                Margin="0,20,0,0">
+                        <Button Classes="mc-btn"
+                                MinWidth="88"
+                                Content="取消"
+                                Command="{Binding ActiveCompSection.CancelDependencyDialogCommand}" />
+                        <Button Classes="mc-btn"
+                                MinWidth="104"
+                                Content="仅下载本体"
+                                IsVisible="{Binding ActiveCompSection.IsDependencyInstallVisible}"
+                                Command="{Binding ActiveCompSection.ConfirmDependencyWithoutDependenciesCommand}" />
+                        <Button Classes="mc-btn primary"
+                                MinWidth="104"
+                                Content="{Binding ActiveCompSection.DependencyConfirmText}"
+                                IsVisible="{Binding ActiveCompSection.IsDependencyInstallVisible}"
+                                Command="{Binding ActiveCompSection.ConfirmDependencyWithDependenciesCommand}" />
+                        <Button Classes="mc-btn primary"
+                                MinWidth="104"
+                                Content="继续下载"
+                                IsVisible="{Binding ActiveCompSection.IsDependencyContinueVisible}"
+                                Command="{Binding ActiveCompSection.ConfirmDependencyWithoutDependenciesCommand}" />
                     </StackPanel>
                 </StackPanel>
             </Border>

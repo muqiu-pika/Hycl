@@ -75,17 +75,16 @@ public sealed class FabricLikeProvider(
                            && !(policy.VersionListSource == (int)DownloadSourceMode.OfficialOnly
                                 || (policy.VersionListSource == (int)DownloadSourceMode.OfficialAuto
                                     && policy.MojangFast));
-        Exception? mirrorError = null;
         if (preferMirror)
         {
             try
             {
                 return await FetchFromAsync(mirrorBaseUrl!, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
+                // 单源 15 秒超时会抛 TaskCanceledException，同样要回退到另一源
                 logger.Warn($"{Kind} 镜像列表失败，改用官方源：{ex.Message}");
-                mirrorError = ex;
             }
         }
 
@@ -93,7 +92,7 @@ public sealed class FabricLikeProvider(
         {
             return await FetchFromAsync(metaBaseUrl, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (mirrorBaseUrl is not null && ex is not OperationCanceledException)
+        catch (Exception ex) when (mirrorBaseUrl is not null && !cancellationToken.IsCancellationRequested)
         {
             logger.Warn($"{Kind} 官方列表失败，重试镜像：{ex.Message}");
             return await FetchFromAsync(mirrorBaseUrl, cancellationToken).ConfigureAwait(false);
@@ -102,8 +101,22 @@ public sealed class FabricLikeProvider(
 
     private async Task<FabricMetaVersions> FetchFromAsync(string baseUrl, CancellationToken cancellationToken)
     {
-        var meta = await client.GetJsonAsync<FabricMetaVersions>($"{baseUrl}/versions", cancellationToken)
-            .ConfigureAwait(false);
+        // 单源 15 秒上限：镜像 404/官方超时都能快速回退，避免列表长时间停留在“正在获取”
+        FabricMetaVersions meta;
+        try
+        {
+            meta = await client
+                .GetJsonOnceAsync<FabricMetaVersions>(
+                    $"{baseUrl}/versions",
+                    TimeSpan.FromSeconds(15),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new LoaderMetadataException($"{Kind} 版本列表请求超时：{baseUrl}", ex);
+        }
+
         if (!meta.IsValid)
         {
             throw new LoaderMetadataException($"{Kind} meta 数据不完整（缺少 game/loader/installer）");

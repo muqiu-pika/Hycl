@@ -173,6 +173,29 @@ public sealed class DownloadClient : IDisposable
     public async Task<T> GetJsonAsync<T>(string url, CancellationToken cancellationToken = default)
         => await GetJsonAsync<T>([url], cancellationToken).ConfigureAwait(false);
 
+    /// <summary>单次请求并解析 JSON（不重试、单源超时），用于镜像/官方串行竞速的加载器列表。</summary>
+    public async Task<T> GetJsonOnceAsync<T>(
+        string url,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default)
+    {
+        var json = await GetStringOnceAsync(url, timeout, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var value = JsonSerializer.Deserialize<T>(json, JsonOptions);
+            if (value is null)
+            {
+                throw new DownloadException($"接口返回空内容：{url}");
+            }
+
+            return value;
+        }
+        catch (JsonException ex)
+        {
+            throw new DownloadException($"解析接口数据失败：{url}", ex);
+        }
+    }
+
     public async Task<T> GetJsonAsync<T>(IReadOnlyList<string> urls, CancellationToken cancellationToken = default)
     {
         var json = await GetStringAsync(urls, cancellationToken).ConfigureAwait(false);

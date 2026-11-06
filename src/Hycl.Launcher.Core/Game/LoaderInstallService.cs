@@ -30,8 +30,8 @@ public sealed record LoaderInstallPlan
     /// <summary>附属 LiteLoader 条目。</summary>
     public LiteLoaderEntry? LiteLoader { get; init; }
 
-    /// <summary>前置 Mod（Modrinth slug，如 fabric-api），安装后放入 mods。</summary>
-    public string? CompanionModSlug { get; init; }
+    /// <summary>前置 Mod（Modrinth slug，如 fabric-api / optifabric），安装后放入 mods。</summary>
+    public IReadOnlyList<string> CompanionModSlugs { get; init; } = [];
 
     public DownloadPolicy Policy { get; init; } = DownloadPolicy.Default;
 
@@ -133,10 +133,10 @@ public sealed class LoaderInstallService
                 .ConfigureAwait(false);
         }
 
-        // 前置 Mod（Fabric API / Legacy Fabric API）
-        if (!string.IsNullOrWhiteSpace(plan.CompanionModSlug))
+        // 前置 Mod（Fabric API / Legacy Fabric API / OptiFabric）
+        foreach (var slug in plan.CompanionModSlugs)
         {
-            await DownloadCompanionModAsync(plan, installedName, cancellationToken).ConfigureAwait(false);
+            await DownloadCompanionModAsync(plan, installedName, slug, cancellationToken).ConfigureAwait(false);
         }
 
         return installedName;
@@ -280,17 +280,19 @@ public sealed class LoaderInstallService
     private async Task DownloadCompanionModAsync(
         LoaderInstallPlan plan,
         string installedName,
+        string slug,
         CancellationToken cancellationToken)
     {
         try
         {
-            var versions = await _modrinth
-                .GetVersionsAsync(plan.CompanionModSlug!, cancellationToken)
-                .ConfigureAwait(false);
-            var recommended = _modrinth.Recommend(versions, plan.GameVersion, ["fabric", "legacyfabric", "quilt"]);
+            var versions = await _modrinth.GetVersionsAsync(slug, cancellationToken).ConfigureAwait(false);
+            var loaders = slug == "legacy-fabric-api"
+                ? new[] { "fabric", "legacyfabric" }
+                : new[] { "fabric", "quilt" };
+            var recommended = _modrinth.Recommend(versions, plan.GameVersion, loaders);
             if (recommended is null)
             {
-                _logger.Warn($"未找到与 {plan.GameVersion} 匹配的前置 Mod：{plan.CompanionModSlug}");
+                _logger.Warn($"未找到与 {plan.GameVersion} 匹配的前置 Mod：{slug}");
                 return;
             }
 

@@ -98,6 +98,10 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
                 {
                     OnPropertyChanged(nameof(IsSaveDialogVisible));
                 }
+                else if (e.PropertyName == nameof(CompSectionViewModel.IsDependencyDialogVisible))
+                {
+                    OnPropertyChanged(nameof(IsDependencyDialogVisible));
+                }
             };
         }
     }
@@ -143,6 +147,9 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
 
     /// <summary>下载前保存位置弹窗（仅社区资源分区有效）。</summary>
     public bool IsSaveDialogVisible => ActiveCompSection?.IsSaveDialogVisible == true;
+
+    /// <summary>模组前置确认弹窗（仅社区资源分区有效）。</summary>
+    public bool IsDependencyDialogVisible => ActiveCompSection?.IsDependencyDialogVisible == true;
 
     public bool IsStartButtonVisible => IsInstallSection && Wizard.IsStep2 && !Install.IsInstalling;
 
@@ -224,8 +231,15 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
             item.IsActive = ReferenceEquals(item, value);
         }
 
-        // 切换分区时取消上一个分区仍在进行的版本列表请求
+        // 切换分区时取消上一个分区仍在进行的版本列表请求，并收起其保存/前置弹窗
         ActiveSection?.CancelPending();
+        foreach (var navCompSection in CompSections)
+        {
+            if (!ReferenceEquals(navCompSection, value?.Section))
+            {
+                navCompSection.DismissDialogs();
+            }
+        }
         if (value?.Section is LoaderSectionViewModel section)
         {
             ActiveSection = section;
@@ -247,6 +261,7 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
 
         OnPropertyChanged(nameof(IsStartButtonVisible));
         OnPropertyChanged(nameof(IsSaveDialogVisible));
+        OnPropertyChanged(nameof(IsDependencyDialogVisible));
         OnPropertyChanged(nameof(IsFavoritesSection));
         OnPropertyChanged(nameof(ActiveFavoritesSection));
 
@@ -330,11 +345,11 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
             "liteloader" => $"{summary.Id}-liteloader",
             _ => $"{summary.Id}-{kind}"
         };
-        var companionModSlug = kind switch
+        var companionModSlugs = kind switch
         {
-            "fabric" => "fabric-api",
-            "legacyfabric" => "legacy-fabric-api",
-            _ => null
+            "fabric" => new[] { "fabric-api" },
+            "legacyfabric" => new[] { "legacy-fabric-api" },
+            _ => []
         };
         var plan = new LoaderInstallPlan
         {
@@ -342,7 +357,7 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
             GameDirectory = _services.Config.EffectiveGameDirectory,
             GameVersion = summary.Id,
             TargetName = targetName,
-            CompanionModSlug = companionModSlug,
+            CompanionModSlugs = companionModSlugs,
             Policy = DownloadPolicy.FromConfig(_services.Config),
             VersionIsolation = _services.Config.IsInstanceIsolated(targetName),
             Threads = _services.Config.DownloadThreads,

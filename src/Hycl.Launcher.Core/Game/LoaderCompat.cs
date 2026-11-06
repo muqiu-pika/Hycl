@@ -43,11 +43,29 @@ public static class LoaderCompat
             "neoforge" or "labymod" or "cleanroom" => false,
             // Forge 1.13 ~ 1.14.3 与 OptiFine 全部不兼容
             "forge" => !(IsVersionAtLeast(minecraftVersion, "1.13") && IsVersionAtMost(minecraftVersion, "1.14.3")),
-            // Fabric / Quilt / LegacyFabric 需要 OptiFabric 桥（尚未实现），一律判不兼容，
-            // 与 LoaderInstallService 的执行口径保持一致，避免 UI 可选但安装必失败
-            "fabric" or "quilt" or "legacyfabric" => false,
+            // Fabric 通过 OptiFabric 与 OptiFine 共存，但 1.20.5+ 没有可用的 OptiFabric
+            "fabric" => !IsVersionAtLeast(minecraftVersion, "1.20.5"),
+            // Legacy Fabric 需要手动安装 LegacyOptiFabric，PCL-CE 允许选择并给出提示
+            "legacyfabric" => true,
+            // PCL-CE 不提供 Quilt 选择，保持不兼容以免出现无法安装的组合
+            "quilt" => false,
             _ => true
         };
+    }
+
+    /// <summary>
+    /// OptiFabric 是否可用于该原版版本（对应 PCL-CE LoadOptiFabricGetError）：
+    /// 1.14 ~ 1.15 需要 OptiFabric Origins，1.20.5+ 无可用版本。
+    /// </summary>
+    public static bool IsOptiFabricCompatible(string minecraftVersion)
+    {
+        if (IsVersionAtLeast(minecraftVersion, "1.20.5") || IsVersionAtMost(minecraftVersion, "1.13.2"))
+        {
+            return false;
+        }
+
+        // 1.14 ~ 1.15 需要 OptiFabric Origins，PCL-CE 不自动选择
+        return !(IsVersionAtLeast(minecraftVersion, "1.14") && IsVersionAtMost(minecraftVersion, "1.15.2"));
     }
 
     /// <summary>

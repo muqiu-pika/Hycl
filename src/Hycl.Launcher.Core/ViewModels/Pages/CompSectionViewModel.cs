@@ -112,6 +112,25 @@ public sealed partial class CompFileItemViewModel : ObservableObject
     private async Task InstallAsync() => await _owner.InstallFileAsync(this).ConfigureAwait(true);
 }
 
+/// <summary>前置弹窗中的一行（项目、来源、版本或未解析原因）。</summary>
+public sealed class DependencyDialogItemViewModel
+{
+    public DependencyDialogItemViewModel(string title, string detail, bool isError)
+    {
+        Title = title;
+        Detail = detail;
+        IsError = isError;
+    }
+
+    public string Title { get; }
+
+    public string Detail { get; }
+
+    public bool IsError { get; }
+
+    public bool IsNormal => !IsError;
+}
+
 /// <summary>
 /// 下载页「社区资源」分区（对应 PCL-CE PageComp）：搜索 + 筛选 + 结果列表 + 版本列表 + 分页。
 /// </summary>
@@ -218,10 +237,11 @@ public partial class CompSectionViewModel : ObservableObject
         _detailGeneration++;
         IsSearching = false;
         IsLoadingVersions = false;
-        // 保存位置选择框随页面一起关闭：尚未开始下载，不产生任何文件
+        // 保存位置/前置确认框随页面一起关闭：尚未开始下载，不产生任何文件
         IsSaveDialogVisible = false;
         _pendingFile = null;
         SaveHint = "";
+        CloseDependencyDialog();
     }
 
     private static void CancelAndDispose(ref CancellationTokenSource? source)
@@ -462,6 +482,61 @@ public partial class CompSectionViewModel : ObservableObject
 
     public bool IsInstanceSelectable => !IsModpackSave;
 
+    // ---------- 模组前置解析与确认（对应 PCL-CE CompDependency.ConfirmDependencyInstall） ----------
+
+    /// <summary>前置弹窗状态：解析中 / 待确认 / 部分未解析 / 解析失败。</summary>
+    public enum DependencyDialogMode
+    {
+        None,
+        Resolving,
+        Confirm,
+        Unresolved,
+        Failed
+    }
+
+    private CancellationTokenSource? _dependencyCts;
+    private CompDependencyResolution? _dependencyResolution;
+    private CompFileItemViewModel? _dependencyItem;
+    private CompFile? _dependencyMainFile;
+    private string _dependencyTargetDirectory = "";
+    private int _dependencyGeneration;
+
+    public ObservableCollection<DependencyDialogItemViewModel> DependencyItems { get; } = [];
+
+    [ObservableProperty]
+    private bool _isDependencyDialogVisible;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsDependencyResolving))]
+    [NotifyPropertyChangedFor(nameof(IsDependencyListVisible))]
+    [NotifyPropertyChangedFor(nameof(IsDependencyInstallVisible))]
+    [NotifyPropertyChangedFor(nameof(IsDependencyContinueVisible))]
+    [NotifyPropertyChangedFor(nameof(DependencyConfirmText))]
+    private DependencyDialogMode _dependencyMode = DependencyDialogMode.None;
+
+    [ObservableProperty]
+    private string _dependencyDialogTitle = "";
+
+    [ObservableProperty]
+    private string _dependencyDialogBody = "";
+
+    [ObservableProperty]
+    private string _dependencyDialogError = "";
+
+    public bool IsDependencyResolving => DependencyMode == DependencyDialogMode.Resolving;
+
+    public bool IsDependencyListVisible =>
+        DependencyMode is DependencyDialogMode.Confirm or DependencyDialogMode.Unresolved;
+
+    /// <summary>可一并安装：显示「一起安装」。</summary>
+    public bool IsDependencyInstallVisible => DependencyMode == DependencyDialogMode.Confirm;
+
+    /// <summary>存在未解析/解析失败：显示「继续下载」。</summary>
+    public bool IsDependencyContinueVisible =>
+        DependencyMode is DependencyDialogMode.Unresolved or DependencyDialogMode.Failed;
+
+    public string DependencyConfirmText => DependencyMode == DependencyDialogMode.Confirm ? "一起安装" : "继续下载";
+
     public string SaveDialogTitle => IsModpackSave ? "安装整合包" : "选择保存位置";
 
     public string SaveDialogConfirmText => IsModpackSave ? "开始安装" : "下载";
@@ -681,6 +756,12 @@ public partial class CompSectionViewModel : ObservableObject
             _toast?.Invoke("已取消下载，未保存任何文件");
         }
 
+        if (IsDependencyDialogVisible)
+        {
+            CloseDependencyDialog();
+            _toast?.Invoke("已取消下载，未保存任何文件");
+        }
+
         if (_installingItem is not null && _install.IsInstalling)
         {
             if (_install.CancelIfDownloading())
@@ -808,7 +889,7 @@ public partial class CompSectionViewModel : ObservableObject
     /// </summary>
     public async Task InstallFileAsync(CompFileItemViewModel item)
     {
-        if (item.IsInstalling || _install.IsInstalling || IsSaveDialogVisible)
+        if (item.IsInstalling || _install.IsInstalling || IsSaveDialogVisible || IsDependencyDialogVisible)
         {
             return;
         }
@@ -1005,11 +1086,41 @@ public partial class CompSectionViewModel : ObservableObject
         IsSaveDialogVisible = false;
         _pendingFile = null;
         SaveHint = "";
+
+        // 模组且开启自动安装前置时，先解析必需前置并让用户确认（对应 PCL-CE Save_Click 的依赖确认）
+        if (await TryStartDependencyCheckAsync(item, directory).ConfigureAwait(true))
+        {
+            return;
+        }
+
+        await StartCompDownloadAsync(item, directory, []).ConfigureAwait(true);
+    }
+
+    /// <summary>开始下载（可带前置文件；前置失败不阻断本体）。</summary>
+    private async Task StartCompDownloadAsync(
+        CompFileItemViewModel item,
+        string directory,
+        IReadOnlyList<CompFile> dependencies)
+    {
+        if (item.IsInstalling || _install.IsInstalling)
+        {
+            return;
+        }
+
         item.IsInstalling = true;
         _installingItem = item;
         try
         {
-            await _install.RunCompFileToDirectoryAsync(item.File, directory, Title).ConfigureAwait(true);
+            if (dependencies.Count > 0)
+            {
+                await _install
+                    .RunCompFileWithDependenciesAsync(dependencies, item.File, directory, Title)
+                    .ConfigureAwait(true);
+            }
+            else
+            {
+                await _install.RunCompFileToDirectoryAsync(item.File, directory, Title).ConfigureAwait(true);
+            }
         }
         finally
         {
@@ -1019,6 +1130,265 @@ public partial class CompSectionViewModel : ObservableObject
                 _installingItem = null;
             }
         }
+    }
+
+    /// <summary>
+    /// 解析模组必需前置；返回 true 表示已打开确认弹窗（调用方不要立即开始下载），
+    /// 返回 false 表示无需确认、可以直接下载。
+    /// </summary>
+    private async Task<bool> TryStartDependencyCheckAsync(CompFileItemViewModel item, string directory)
+    {
+        if (item.File.Type != CompResourceType.Mod
+            || !_services.Config.CompAutoInstallDependencies
+            || item.File.Dependencies.Count == 0)
+        {
+            return false;
+        }
+
+        var target = ResolveDependencyTarget(item.File, directory);
+        _dependencyItem = item;
+        _dependencyMainFile = item.File;
+        _dependencyTargetDirectory = directory;
+        _dependencyResolution = null;
+        DependencyItems.Clear();
+        DependencyDialogError = "";
+        DependencyDialogTitle = "正在解析前置内容";
+        DependencyDialogBody = "正在查找该 Mod 所需的必需前置，请稍候…";
+        DependencyMode = DependencyDialogMode.Resolving;
+        IsDependencyDialogVisible = true;
+
+        var generation = ++_dependencyGeneration;
+        CancelAndDispose(ref _dependencyCts);
+        // 多源串行等待设总时长上限，避免长时间无反馈
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        _dependencyCts = cts;
+        try
+        {
+            var result = await _services.CompDependencies
+                .ResolveAsync(item.File, target.GameVersion, target.Loaders, directory, cts.Token)
+                .ConfigureAwait(true);
+            if (generation != _dependencyGeneration || !IsDependencyDialogVisible)
+            {
+                return true;
+            }
+
+            _dependencyResolution = result;
+            if (result.ToInstall.Count == 0 && result.Unresolved.Count == 0)
+            {
+                CloseDependencyDialog();
+                return false;
+            }
+
+            FillDependencyItems(result);
+            if (result.Unresolved.Count > 0)
+            {
+                DependencyMode = DependencyDialogMode.Unresolved;
+                DependencyDialogTitle = "安装模组前置确认";
+                DependencyDialogBody = "以下前置内容未能自动解析，继续下载将仅安装所选 Mod。";
+                return true;
+            }
+
+            DependencyMode = DependencyDialogMode.Confirm;
+            DependencyDialogTitle = "安装模组前置确认";
+            DependencyDialogBody = "该 Mod 需要以下前置内容。是否一并安装？确认后将先下载前置，再下载所选 Mod。";
+            return true;
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            if (generation != _dependencyGeneration || !IsDependencyDialogVisible)
+            {
+                return true;
+            }
+
+            // 30 秒超时按解析失败处理，保证弹窗仍可继续或关闭
+            DependencyMode = DependencyDialogMode.Failed;
+            DependencyDialogTitle = "前置解析失败";
+            DependencyDialogBody = "获取前置信息超时，是否继续下载所选 Mod？";
+            DependencyDialogError = "前置解析超时";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            if (generation != _dependencyGeneration || !IsDependencyDialogVisible)
+            {
+                return true;
+            }
+
+            _services.Logger.Error("前置解析失败", ex);
+            DependencyMode = DependencyDialogMode.Failed;
+            DependencyDialogTitle = "前置解析失败";
+            DependencyDialogBody = "无法解析该 Mod 的前置内容，是否继续下载？";
+            DependencyDialogError = ex.Message;
+            return true;
+        }
+        finally
+        {
+            if (ReferenceEquals(_dependencyCts, cts))
+            {
+                _dependencyCts = null;
+            }
+
+            cts.Dispose();
+        }
+    }
+
+    private void FillDependencyItems(CompDependencyResolution result)
+    {
+        DependencyItems.Clear();
+        if (result.Unresolved.Count > 0)
+        {
+            // 未解析弹窗只列失败项，避免让用户误以为这些内容会被安装
+            foreach (var unresolved in result.Unresolved)
+            {
+                var source = unresolved.FromCurseForge ? "CurseForge" : "Modrinth";
+                DependencyItems.Add(new DependencyDialogItemViewModel(
+                    $"未解析的前置：{unresolved.ProjectId}",
+                    $"{source} · {unresolved.Reason}",
+                    isError: true));
+            }
+
+            return;
+        }
+
+        foreach (var install in result.ToInstall)
+        {
+            var detail = install.File.DisplayName.Length > 0
+                ? install.File.DisplayName
+                : install.File.Version;
+            if (detail.Length == 0)
+            {
+                detail = install.File.FileName;
+            }
+
+            var source = install.Project.FromCurseForge ? "CurseForge" : "Modrinth";
+            DependencyItems.Add(new DependencyDialogItemViewModel(
+                install.Project.Title,
+                $"{source} · {detail}",
+                isError: false));
+        }
+    }
+
+    /// <summary>取目标实例的原版版本与加载器；找不到实例时回退到资源文件自身信息。</summary>
+    private (string GameVersion, IReadOnlyList<string> Loaders) ResolveDependencyTarget(
+        CompFile file,
+        string directory)
+    {
+        MinecraftInstance? instance = null;
+        var index = TargetInstanceOptions.IndexOf(SelectedTargetInstance);
+        if (index >= 0 && index < _dialogInstances.Count)
+        {
+            instance = _dialogInstances[index];
+        }
+        else
+        {
+            // 用户手动改了保存目录：按目录匹配实例内容根，仍能拿到准确的版本/加载器
+            var fullPath = Path.GetFullPath(directory);
+            instance = _dialogInstances.FirstOrDefault(candidate =>
+            {
+                var root = InstanceManager.GetContentRoot(
+                    _services.Config.EffectiveGameDirectory,
+                    candidate.Id,
+                    _services.Config.IsInstanceIsolated(candidate.Id));
+                return fullPath.StartsWith(
+                    Path.GetFullPath(root) + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase);
+            });
+        }
+
+        var gameVersion = instance?.GameVersion;
+        if (string.IsNullOrWhiteSpace(gameVersion))
+        {
+            gameVersion = file.GameVersions.FirstOrDefault() ?? "";
+        }
+
+        var loaders = instance is null
+            ? file.ModLoaders
+            : MapInstanceLoaders(instance.Loader, file.ModLoaders);
+        return (gameVersion, loaders);
+    }
+
+    private static IReadOnlyList<string> MapInstanceLoaders(
+        string instanceLoader,
+        IReadOnlyList<string> fileLoaders)
+        => instanceLoader switch
+        {
+            "Forge" or "Cleanroom" => ["forge"],
+            "NeoForge" => ["neoforge"],
+            "Fabric" or "Legacy Fabric" => ["fabric"],
+            "Quilt" => ["quilt"],
+            "LiteLoader" => ["liteloader"],
+            _ => fileLoaders
+        };
+
+
+    /// <summary>切换下载分区时收起本分区的保存/前置弹窗，避免返回后弹窗残留。</summary>
+    public void DismissDialogs()
+    {
+        if (IsSaveDialogVisible)
+        {
+            IsSaveDialogVisible = false;
+            _pendingFile = null;
+            SaveHint = "";
+        }
+
+        if (IsDependencyDialogVisible)
+        {
+            CloseDependencyDialog();
+        }
+    }
+
+    /// <summary>关闭前置弹窗并丢弃解析结果（取消/切页/下载结束时统一走这里）。</summary>
+    private void CloseDependencyDialog()
+    {
+        _dependencyGeneration++;
+        CancelAndDispose(ref _dependencyCts);
+        IsDependencyDialogVisible = false;
+        DependencyMode = DependencyDialogMode.None;
+        DependencyItems.Clear();
+        _dependencyResolution = null;
+        _dependencyItem = null;
+        _dependencyMainFile = null;
+        _dependencyTargetDirectory = "";
+    }
+
+    [RelayCommand]
+    private void CancelDependencyDialog()
+    {
+        CloseDependencyDialog();
+        _toast?.Invoke("已取消下载，未保存任何文件");
+    }
+
+    [RelayCommand]
+    private async Task ConfirmDependencyWithDependenciesAsync()
+    {
+        var item = _dependencyItem;
+        var mainFile = _dependencyMainFile;
+        var directory = _dependencyTargetDirectory;
+        var resolution = _dependencyResolution;
+        if (item is null || mainFile is null || resolution is null)
+        {
+            CloseDependencyDialog();
+            return;
+        }
+
+        var dependencies = resolution.ToInstall.Select(install => install.File).ToList();
+        CloseDependencyDialog();
+        await StartCompDownloadAsync(item, directory, dependencies).ConfigureAwait(true);
+    }
+
+    [RelayCommand]
+    private async Task ConfirmDependencyWithoutDependenciesAsync()
+    {
+        var item = _dependencyItem;
+        var directory = _dependencyTargetDirectory;
+        if (item is null)
+        {
+            CloseDependencyDialog();
+            return;
+        }
+
+        CloseDependencyDialog();
+        await StartCompDownloadAsync(item, directory, []).ConfigureAwait(true);
     }
 
     private async Task ConfirmModpackSaveAsync(CompFileItemViewModel item)

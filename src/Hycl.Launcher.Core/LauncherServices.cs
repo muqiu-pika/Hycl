@@ -25,6 +25,7 @@ public sealed class LauncherServices
         Game.LoaderInstallService loaderInstall,
         Game.Comp.CompRequester compRequester,
         Game.Comp.CompInstallService compInstall,
+        Game.Comp.CompDependencyResolver compDependencies,
         InstanceManager instances,
         LaunchService launch,
         SystemService system,
@@ -44,6 +45,7 @@ public sealed class LauncherServices
         LoaderInstall = loaderInstall;
         CompRequester = compRequester;
         CompInstall = compInstall;
+        CompDependencies = compDependencies;
         Instances = instances;
         Launch = launch;
         System = system;
@@ -77,6 +79,8 @@ public sealed class LauncherServices
     public Game.Comp.CompRequester CompRequester { get; }
 
     public Game.Comp.CompInstallService CompInstall { get; }
+
+    public Game.Comp.CompDependencyResolver CompDependencies { get; }
 
     public InstanceManager Instances { get; }
 
@@ -133,11 +137,16 @@ public sealed class LauncherServices
 
         // 社区资源（Modrinth / CurseForge）
         var compRequester = new Game.Comp.CompRequester(downloadClient, configStore.Config, logger);
+        var curseForge = new Game.Comp.CurseForgeClient(compRequester);
         var compInstall = new Game.Comp.CompInstallService(
             compRequester,
-            new Game.Comp.CurseForgeClient(compRequester),
+            curseForge,
             instances,
             loaderInstall,
+            logger);
+        var compDependencies = new Game.Comp.CompDependencyResolver(
+            curseForge,
+            new Game.Comp.ModrinthClient(compRequester),
             logger);
 
         return new LauncherServices(
@@ -153,6 +162,7 @@ public sealed class LauncherServices
             loaderInstall,
             compRequester,
             compInstall,
+            compDependencies,
             instances,
             launch,
             system,

@@ -327,11 +327,11 @@ public partial class InstallWizardViewModel : ObservableObject
 
     private LoaderCardViewModel? _legacyFabricApiCard;
 
+    private LoaderCardViewModel? _optiFabricCard;
+
     private LoaderCardViewModel? _optiFineCard;
 
     private LoaderCardViewModel? _liteLoaderCard;
-
-    private string? _companionModSlug;
 
     /// <summary>向导代际：切换 MC 版本或返回时自增，使陈旧的加载器列表请求作废。</summary>
     private int _wizardGeneration;
@@ -588,7 +588,6 @@ public partial class InstallWizardViewModel : ObservableObject
         _selectedLoaderCardTitle = "";
         _selectedOptiFineItem = null;
         _selectedLiteLoaderItem = null;
-        _companionModSlug = null;
         ActiveLoaderCard = null;
         IsLoaderLoading = true;
         LoaderError = "";
@@ -853,10 +852,28 @@ public partial class InstallWizardViewModel : ObservableObject
                     ["推荐"],
                     CompanionModPayload("legacy-fabric-api"))
             ]));
+        // OptiFabric：仅 Fabric + OptiFine 组合下出现（对应 PCL-CE LoadOptiFabric）
+        var optiFabricItem = new VersionItemViewModel(
+            "推荐最新稳定版",
+            "安装时从 Modrinth 自动匹配",
+            "optifine",
+            ["推荐"],
+            CompanionModPayload("optifabric"));
+        _optiFabricCard = new LoaderCardViewModel(
+            "OptiFabric",
+            "optifine",
+            "让 OptiFine 与 Fabric 共存的前置 Mod",
+            "optifabric",
+            true,
+            () => Task.FromResult<IReadOnlyList<VersionItemViewModel>>([optiFabricItem]));
+        // 预置条目用于自动选中；点开卡片后 EnsureLoaded 会复用同一实例
+        _optiFabricCard.Items.Add(optiFabricItem);
         CompanionCards.Add(_fabricApiCard);
         CompanionCards.Add(_legacyFabricApiCard);
+        CompanionCards.Add(_optiFabricCard);
         _fabricApiCard.IsAvailable = false;
         _legacyFabricApiCard.IsAvailable = false;
+        _optiFabricCard.IsAvailable = false;
     }
 
     private static string BuildLoaderEntryInfo(LoaderVersionEntry entry)
@@ -1056,6 +1073,8 @@ public partial class InstallWizardViewModel : ObservableObject
 
         _selectedOptiFineItem = item.Payload is OptiFineEntry ? item : null;
         _selectedLiteLoaderItem = item.Payload is LiteLoaderEntry ? item : null;
+        // 选完 OptiFine 后重新评估 OptiFabric 卡是否需要出现并自动勾选
+        RefreshCompanionAvailability();
         _toast?.Invoke($"已选择附属：{item.Title}");
     }
 
@@ -1078,10 +1097,7 @@ public partial class InstallWizardViewModel : ObservableObject
             _selectedLiteLoaderItem = null;
         }
 
-        if (ReferenceEquals(card, _fabricApiCard) || ReferenceEquals(card, _legacyFabricApiCard))
-        {
-            _companionModSlug = null;
-        }
+        NotifyCompanionHints();
     }
 
     /// <summary>
@@ -1099,8 +1115,12 @@ public partial class InstallWizardViewModel : ObservableObject
             {
                 "optifine" => LoaderCompat.IsOptiFineCompatibleWith(kind, SelectedMcId),
                 "liteloader" => LoaderCompat.IsLiteLoaderCompatibleWith(kind),
-                "fabric-api" => kind is "fabric" or "quilt",
+                // PCL-CE 只在 Fabric 下展示 Fabric API；Quilt 默认内置 Fabric API 语义
+                "fabric-api" => kind is "fabric",
                 "legacyfabric-api" => kind is "legacyfabric",
+                "optifabric" => kind is "fabric"
+                                && _selectedOptiFineItem is not null
+                                && LoaderCompat.IsOptiFabricCompatible(SelectedMcId),
                 _ => card.IsAvailable
             };
 
@@ -1109,6 +1129,43 @@ public partial class InstallWizardViewModel : ObservableObject
                 ClearCompanionCard(card);
             }
         }
+
+        // 对应 PCL-CE LoadOptiFabric：可用时默认勾选（用户仍可手动取消）
+        if (_optiFabricCard is { IsAvailable: true, HasSelection: false, Items.Count: > 0 })
+        {
+            var item = _optiFabricCard.Items[0];
+            item.IsSelected = true;
+            _optiFabricCard.HasSelection = true;
+            _optiFabricCard.SelectedTitle = item.Title;
+        }
+
+        NotifyCompanionHints();
+    }
+
+    /// <summary>Fabric/Legacy Fabric 缺少对应 API、Fabric 缺少 OptiFabric 时的提示（对应 PCL-CE ShowHint*）。</summary>
+    public bool ShowFabricApiWarning =>
+        (_selectedLoaderItem?.Payload as LoaderChoice)?.Kind is "fabric"
+        && _fabricApiCard?.HasSelection != true;
+
+    public bool ShowLegacyFabricApiWarning =>
+        (_selectedLoaderItem?.Payload as LoaderChoice)?.Kind is "legacyfabric"
+        && _legacyFabricApiCard?.HasSelection != true;
+
+    public bool ShowOptiFabricWarning =>
+        (_selectedLoaderItem?.Payload as LoaderChoice)?.Kind is "fabric"
+        && _selectedOptiFineItem is not null
+        && _optiFabricCard?.HasSelection != true;
+
+    public bool ShowLegacyOptiFabricWarning =>
+        (_selectedLoaderItem?.Payload as LoaderChoice)?.Kind is "legacyfabric"
+        && _selectedOptiFineItem is not null;
+
+    private void NotifyCompanionHints()
+    {
+        OnPropertyChanged(nameof(ShowFabricApiWarning));
+        OnPropertyChanged(nameof(ShowLegacyFabricApiWarning));
+        OnPropertyChanged(nameof(ShowOptiFabricWarning));
+        OnPropertyChanged(nameof(ShowLegacyOptiFabricWarning));
     }
 
     [RelayCommand]
@@ -1143,12 +1200,22 @@ public partial class InstallWizardViewModel : ObservableObject
         var choice = _selectedLoaderItem?.Payload as LoaderChoice;
         var kind = choice?.Kind?.ToLowerInvariant() ?? "vanilla";
         var targetName = string.IsNullOrWhiteSpace(TargetName) ? SelectedMcId : TargetName;
-        _companionModSlug = kind switch
+        var companionModSlugs = new List<string>();
+        if (kind == "fabric" && _fabricApiCard?.HasSelection == true)
         {
-            "fabric" when _fabricApiCard?.HasSelection == true => "fabric-api",
-            "legacyfabric" when _legacyFabricApiCard?.HasSelection == true => "legacy-fabric-api",
-            _ => null
-        };
+            companionModSlugs.Add("fabric-api");
+        }
+
+        if (kind == "legacyfabric" && _legacyFabricApiCard?.HasSelection == true)
+        {
+            companionModSlugs.Add("legacy-fabric-api");
+        }
+
+        // PCL-CE 在 Fabric + OptiFine 时自动附带 OptiFabric
+        if (kind == "fabric" && _optiFabricCard?.HasSelection == true)
+        {
+            companionModSlugs.Add("optifabric");
+        }
 
         var plan = new LoaderInstallPlan
         {
@@ -1162,7 +1229,7 @@ public partial class InstallWizardViewModel : ObservableObject
                 : null,
             OptiFine = _selectedOptiFineItem?.Payload as OptiFineEntry,
             LiteLoader = _selectedLiteLoaderItem?.Payload as LiteLoaderEntry,
-            CompanionModSlug = _companionModSlug,
+            CompanionModSlugs = companionModSlugs,
             Policy = DownloadPolicy.FromConfig(_services.Config),
             VersionIsolation = _services.Config.IsInstanceIsolated(targetName),
             Threads = _services.Config.DownloadThreads,

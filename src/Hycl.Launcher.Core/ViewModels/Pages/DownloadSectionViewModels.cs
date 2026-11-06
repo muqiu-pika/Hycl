@@ -232,6 +232,44 @@ public partial class InstallTaskViewModel : ObservableObject
             .ConfigureAwait(true);
     }
 
+    /// <summary>
+    /// 先安装前置再下载本体（对应 PCL-CE 依赖下载：前置失败不阻断本体，本体失败才整体失败）。
+    /// </summary>
+    public async Task RunCompFileWithDependenciesAsync(
+        IReadOnlyList<CompFile> dependencies,
+        CompFile mainFile,
+        string targetDirectory,
+        string sectionTitle)
+    {
+        await RunAsync(
+            $"{mainFile.DisplayName}（{sectionTitle}）",
+            async (progress, token) =>
+            {
+                foreach (var dependency in dependencies)
+                {
+                    try
+                    {
+                        await _services.CompInstall
+                            .InstallFileToDirectoryAsync(dependency, targetDirectory, progress, token)
+                            .ConfigureAwait(true);
+                    }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex) when (ex is not OutOfMemoryException)
+                    {
+                        _services.Logger.Warn($"前置 {dependency.DisplayName} 安装失败：{ex.Message}");
+                        _toast?.Invoke($"前置安装失败：{dependency.DisplayName}");
+                    }
+                }
+
+                return await _services.CompInstall
+                    .InstallFileToDirectoryAsync(mainFile, targetDirectory, progress, token)
+                    .ConfigureAwait(true);
+            }).ConfigureAwait(true);
+    }
+
     /// <summary>安装整合包（下载 → 解析 → 资源落盘 → 自动安装原版与加载器）。</summary>
     public async Task RunCompModpackAsync(CompFile file, string instanceName)
     {
