@@ -100,13 +100,35 @@ public static class GameWindowProbe
             return default;
         }
 
-        if (title.StartsWith("FML", StringComparison.OrdinalIgnoreCase)
-            || title.StartsWith("Quilt Loader", StringComparison.OrdinalIgnoreCase))
+        if (IsLoaderWindowTitle(title))
         {
             return new GameWindowInfo(GameWindowKind.LoaderWindow, handle, title);
         }
 
         return new GameWindowInfo(GameWindowKind.MainWindow, handle, title);
+    }
+
+    /// <summary>
+    /// 加载器遮罩窗口：FML / Quilt Loader，以及 NeoForge、Forge 新版的
+    /// 「Minecraft: NeoForge Loading...」类标题。这类窗口只推进阶段文案，
+    /// 不能当作启动完成；成功要等真正的游戏主窗口。
+    /// </summary>
+    private static bool IsLoaderWindowTitle(string title)
+    {
+        if (title.StartsWith("FML", StringComparison.OrdinalIgnoreCase)
+            || title.StartsWith("Quilt Loader", StringComparison.OrdinalIgnoreCase)
+            || title.Contains("NeoForge Loading", StringComparison.OrdinalIgnoreCase)
+            || title.Contains("Forge Loading", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var loadingSuffix = title.EndsWith("Loading...", StringComparison.OrdinalIgnoreCase)
+            || title.EndsWith("Loading…", StringComparison.OrdinalIgnoreCase);
+        return loadingSuffix
+            && (title.Contains("Minecraft", StringComparison.OrdinalIgnoreCase)
+                || title.Contains("NeoForge", StringComparison.OrdinalIgnoreCase)
+                || title.Contains("Forge", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>向已探测到的游戏窗口发送 WM_CLOSE，触发游戏自身的正常退出流程。</summary>
