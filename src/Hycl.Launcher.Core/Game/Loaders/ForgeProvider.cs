@@ -40,8 +40,12 @@ public sealed partial class ForgeProvider(
             "forge:mcversions",
             async token =>
             {
-                var json = await client
-                    .GetStringAsync("https://bmclapi2.bangbang93.com/forge/minecraft", token)
+                var json = await SourceRace
+                    .GetTextAsync(
+                        client,
+                        "https://bmclapi2.bangbang93.com/forge/minecraft",
+                        15,
+                        token)
                     .ConfigureAwait(false);
                 using var document = System.Text.Json.JsonDocument.Parse(json);
                 var versions = new List<string>();
@@ -68,38 +72,24 @@ public sealed partial class ForgeProvider(
         DownloadPolicy policy,
         CancellationToken cancellationToken)
     {
-        var preferMirror = !(policy.VersionListSource == (int)DownloadSourceMode.OfficialOnly
-                             || (policy.VersionListSource == (int)DownloadSourceMode.OfficialAuto
-                                 && policy.MojangFast));
-        List<ForgeEntry> entries;
-        if (preferMirror)
-        {
-            try
-            {
-                entries = await FetchBmclapiAsync(minecraftVersion, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger.Warn($"Forge BMCLAPI 列表失败，改用官方源：{ex.Message}");
-                entries = await FetchOfficialAsync(minecraftVersion, cancellationToken).ConfigureAwait(false);
-            }
-        }
-        else
-        {
-            try
-            {
-                entries = await FetchOfficialAsync(minecraftVersion, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger.Warn($"Forge 官方列表失败，改用 BMCLAPI：{ex.Message}");
-                entries = await FetchBmclapiAsync(minecraftVersion, cancellationToken).ConfigureAwait(false);
-            }
-        }
+        var preferMirror = SourceRace.PreferMirror(policy);
+        var mirror = (CancellationToken token) => FetchBmclapiAsync(minecraftVersion, token);
+        var official = (CancellationToken token) => FetchOfficialAsync(minecraftVersion, token);
+        List<ForgeEntry> entries = preferMirror
+            ? await SourceRace.RunAsync(
+                logger, $"Forge {minecraftVersion}",
+                "BMCLAPI", mirror,
+                "官方源", official,
+                TimeSpan.FromSeconds(3), cancellationToken).ConfigureAwait(false)
+            : await SourceRace.RunAsync(
+                logger, $"Forge {minecraftVersion}",
+                "官方源", official,
+                "BMCLAPI", mirror,
+                TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
 
         if (entries.Count == 0)
         {
-            throw new LoaderMetadataException($"Forge 在 {minecraftVersion} 下没有可用版本");
+            throw new LoaderUnsupportedException($"Forge 在 {minecraftVersion} 下没有可用版本");
         }
 
         entries.Sort((a, b) => b.NumericVersion.CompareTo(a.NumericVersion));
@@ -119,9 +109,11 @@ public sealed partial class ForgeProvider(
 
     private async Task<List<ForgeEntry>> FetchBmclapiAsync(string minecraftVersion, CancellationToken cancellationToken)
     {
-        var json = await client
-            .GetStringAsync(
+        var json = await SourceRace
+            .GetTextAsync(
+                client,
                 $"https://bmclapi2.bangbang93.com/forge/minecraft/{minecraftVersion.Replace('-', '_')}",
+                15,
                 cancellationToken)
             .ConfigureAwait(false);
         using var document = System.Text.Json.JsonDocument.Parse(json);
@@ -154,7 +146,7 @@ public sealed partial class ForgeProvider(
 
         if (entries.Count == 0)
         {
-            throw new LoaderMetadataException($"Forge BMCLAPI 列表为空：{minecraftVersion}");
+            throw new LoaderUnsupportedException($"Forge BMCLAPI 列表为空：{minecraftVersion}");
         }
 
         return entries;
@@ -202,9 +194,11 @@ public sealed partial class ForgeProvider(
 
     private async Task<List<ForgeEntry>> FetchOfficialAsync(string minecraftVersion, CancellationToken cancellationToken)
     {
-        var page = await client
-            .GetStringAsync(
+        var page = await SourceRace
+            .GetTextAsync(
+                client,
                 $"https://files.minecraftforge.net/maven/net/minecraftforge/forge/index_{minecraftVersion.Replace('-', '_')}.html",
+                15,
                 cancellationToken)
             .ConfigureAwait(false);
         if (page.Length < 1000)
@@ -361,7 +355,12 @@ public sealed partial class ForgeProvider(
                 return;
             }
 
-            var promos = await client.GetStringAsync("https://bmclapi2.bangbang93.com/forge/promos", cancellationToken)
+            var promos = await SourceRace
+                .GetTextAsync(
+                    client,
+                    "https://bmclapi2.bangbang93.com/forge/promos",
+                    10,
+                    cancellationToken)
                 .ConfigureAwait(false);
             if (promos.Length < 1000)
             {

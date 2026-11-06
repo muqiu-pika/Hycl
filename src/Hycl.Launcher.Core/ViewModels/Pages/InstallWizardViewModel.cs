@@ -1129,14 +1129,6 @@ public partial class InstallWizardViewModel : ObservableObject
             // 已选中的卡在中间列展示所选版本，右侧留空
             card.SetStatus("", true);
         }
-        else if (card.IsFailed)
-        {
-            card.MarkFailed();
-        }
-        else if (card.IsEmpty)
-        {
-            card.MarkEmpty();
-        }
         else if (card.IsLoaded)
         {
             if (card.Items.Count > 0)
@@ -1150,7 +1142,8 @@ public partial class InstallWizardViewModel : ObservableObject
         }
         else if (_loaderEntryCache.TryGetValue((SelectedMcId, card.Kind), out var cachedEntries))
         {
-            // 预热只填充数据缓存（卡片 Items 在点开时才构建）；按缓存条数区分"可下载"与"暂无对应资源"
+            // 预热只填充数据缓存（卡片 Items 在点开时才构建）；按缓存条数区分"可下载"与"暂无对应资源"。
+            // 缓存命中说明后续预热已成功，必须优先于失败标记，否则早期失败会一直留在卡片上
             if (cachedEntries.Count > 0)
             {
                 card.MarkReady();
@@ -1159,6 +1152,14 @@ public partial class InstallWizardViewModel : ObservableObject
             {
                 card.MarkEmpty();
             }
+        }
+        else if (card.IsFailed)
+        {
+            card.MarkFailed();
+        }
+        else if (card.IsEmpty)
+        {
+            card.MarkEmpty();
         }
         else if (card.ErrorText.Length == 0)
         {

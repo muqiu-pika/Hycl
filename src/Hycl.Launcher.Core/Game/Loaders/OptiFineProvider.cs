@@ -52,34 +52,20 @@ public sealed partial class OptiFineProvider(
         DownloadPolicy policy,
         CancellationToken cancellationToken)
     {
-        var preferMirror = !(policy.VersionListSource == (int)DownloadSourceMode.OfficialOnly
-                             || (policy.VersionListSource == (int)DownloadSourceMode.OfficialAuto
-                                 && policy.MojangFast));
-        List<OptiFineEntry> entries;
-        if (preferMirror)
-        {
-            try
-            {
-                entries = await FetchBmclapiAsync(cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger.Warn($"OptiFine BMCLAPI 列表失败，改用官方源：{ex.Message}");
-                entries = await FetchOfficialAsync(cancellationToken).ConfigureAwait(false);
-            }
-        }
-        else
-        {
-            try
-            {
-                entries = await FetchOfficialAsync(cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger.Warn($"OptiFine 官方列表失败，改用 BMCLAPI：{ex.Message}");
-                entries = await FetchBmclapiAsync(cancellationToken).ConfigureAwait(false);
-            }
-        }
+        var preferMirror = SourceRace.PreferMirror(policy);
+        var mirror = (CancellationToken token) => FetchBmclapiAsync(token);
+        var official = (CancellationToken token) => FetchOfficialAsync(token);
+        List<OptiFineEntry> entries = preferMirror
+            ? await SourceRace.RunAsync(
+                logger, "OptiFine",
+                "BMCLAPI", mirror,
+                "官方源", official,
+                TimeSpan.FromSeconds(3), cancellationToken).ConfigureAwait(false)
+            : await SourceRace.RunAsync(
+                logger, "OptiFine",
+                "官方源", official,
+                "BMCLAPI", mirror,
+                TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
 
         return entries.Select(entry => new LoaderVersionEntry
         {
@@ -96,8 +82,8 @@ public sealed partial class OptiFineProvider(
 
     private async Task<List<OptiFineEntry>> FetchBmclapiAsync(CancellationToken cancellationToken)
     {
-        var json = await client
-            .GetStringAsync("https://bmclapi2.bangbang93.com/optifine/versionList", cancellationToken)
+        var json = await SourceRace
+            .GetTextAsync(client, "https://bmclapi2.bangbang93.com/optifine/versionList", 15, cancellationToken)
             .ConfigureAwait(false);
         using var document = JsonDocument.Parse(json);
         var entries = new List<OptiFineEntry>();
@@ -150,7 +136,8 @@ public sealed partial class OptiFineProvider(
         using var request = new HttpRequestMessage(HttpMethod.Get, "https://optifine.net/downloads");
         request.Headers.Accept.ParseAdd("application/json, text/javascript, */*; q=0.01");
         request.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
-        var result = await client.GetStringAsync("https://optifine.net/downloads", cancellationToken)
+        var result = await SourceRace
+            .GetTextAsync(client, "https://optifine.net/downloads", 15, cancellationToken)
             .ConfigureAwait(false);
         if (result.Length < 200)
         {
@@ -270,34 +257,20 @@ public sealed class LiteLoaderProvider(
         DownloadPolicy policy,
         CancellationToken cancellationToken)
     {
-        var preferMirror = !(policy.VersionListSource == (int)DownloadSourceMode.OfficialOnly
-                             || (policy.VersionListSource == (int)DownloadSourceMode.OfficialAuto
-                                 && policy.MojangFast));
-        List<LiteLoaderEntry> entries;
-        if (preferMirror)
-        {
-            try
-            {
-                entries = await FetchFromAsync(true, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger.Warn($"LiteLoader BMCLAPI 列表失败，改用官方源：{ex.Message}");
-                entries = await FetchFromAsync(false, cancellationToken).ConfigureAwait(false);
-            }
-        }
-        else
-        {
-            try
-            {
-                entries = await FetchFromAsync(false, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger.Warn($"LiteLoader 官方列表失败，改用 BMCLAPI：{ex.Message}");
-                entries = await FetchFromAsync(true, cancellationToken).ConfigureAwait(false);
-            }
-        }
+        var preferMirror = SourceRace.PreferMirror(policy);
+        var mirror = (CancellationToken token) => FetchFromAsync(true, token);
+        var official = (CancellationToken token) => FetchFromAsync(false, token);
+        List<LiteLoaderEntry> entries = preferMirror
+            ? await SourceRace.RunAsync(
+                logger, "LiteLoader",
+                "BMCLAPI", mirror,
+                "官方源", official,
+                TimeSpan.FromSeconds(3), cancellationToken).ConfigureAwait(false)
+            : await SourceRace.RunAsync(
+                logger, "LiteLoader",
+                "官方源", official,
+                "BMCLAPI", mirror,
+                TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
 
         return entries.Select(entry => new LoaderVersionEntry
         {
@@ -315,7 +288,7 @@ public sealed class LiteLoaderProvider(
         var url = useMirror
             ? "https://bmclapi2.bangbang93.com/maven/com/mumfrey/liteloader/versions.json"
             : "https://dl.liteloader.com/versions/versions.json";
-        var json = await client.GetStringAsync(url, cancellationToken).ConfigureAwait(false);
+        var json = await SourceRace.GetTextAsync(client, url, 15, cancellationToken).ConfigureAwait(false);
         using var document = JsonDocument.Parse(json);
         var versions = document.RootElement.TryGetProperty("versions", out var versionsElement)
             ? versionsElement
@@ -430,8 +403,12 @@ public sealed class LabyModProvider(
         {
             try
             {
-                var json = await client
-                    .GetStringAsync($"https://releases.r2.labymod.net/api/v1/manifest/{channel}/latest.json", cancellationToken)
+                var json = await SourceRace
+                    .GetTextAsync(
+                        client,
+                        $"https://releases.r2.labymod.net/api/v1/manifest/{channel}/latest.json",
+                        12,
+                        cancellationToken)
                     .ConfigureAwait(false);
                 using var document = JsonDocument.Parse(json);
                 var version = document.RootElement.TryGetProperty("labyModVersion", out var versionElement)

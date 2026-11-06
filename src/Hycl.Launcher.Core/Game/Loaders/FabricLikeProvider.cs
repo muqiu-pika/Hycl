@@ -71,37 +71,31 @@ public sealed class FabricLikeProvider(
 
     private async Task<FabricMetaVersions> FetchMetaAsync(DownloadPolicy policy, CancellationToken cancellationToken)
     {
-        var preferMirror = mirrorBaseUrl is not null
-                           && !(policy.VersionListSource == (int)DownloadSourceMode.OfficialOnly
-                                || (policy.VersionListSource == (int)DownloadSourceMode.OfficialAuto
-                                    && policy.MojangFast));
-        if (preferMirror)
-        {
-            try
-            {
-                return await FetchFromAsync(mirrorBaseUrl!, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
-            {
-                // 单源 15 秒超时会抛 TaskCanceledException，同样要回退到另一源
-                logger.Warn($"{Kind} 镜像列表失败，改用官方源：{ex.Message}");
-            }
-        }
-
-        try
+        var mirrorUrl = mirrorBaseUrl;
+        if (mirrorUrl is null)
         {
             return await FetchFromAsync(metaBaseUrl, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (mirrorBaseUrl is not null && !cancellationToken.IsCancellationRequested)
-        {
-            logger.Warn($"{Kind} 官方列表失败，重试镜像：{ex.Message}");
-            return await FetchFromAsync(mirrorBaseUrl, cancellationToken).ConfigureAwait(false);
-        }
+
+        var preferMirror = SourceRace.PreferMirror(policy);
+        var mirror = (CancellationToken token) => FetchFromAsync(mirrorUrl, token);
+        var official = (CancellationToken token) => FetchFromAsync(metaBaseUrl, token);
+        return preferMirror
+            ? await SourceRace.RunAsync(
+                logger, Kind.ToString(),
+                "BMCLAPI", mirror,
+                "官方源", official,
+                TimeSpan.FromSeconds(3), cancellationToken).ConfigureAwait(false)
+            : await SourceRace.RunAsync(
+                logger, Kind.ToString(),
+                "官方源", official,
+                "BMCLAPI", mirror,
+                TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<FabricMetaVersions> FetchFromAsync(string baseUrl, CancellationToken cancellationToken)
     {
-        // 单源 15 秒上限：镜像 404/官方超时都能快速回退，避免列表长时间停留在“正在获取”
+        // 单源 15 秒上限：镜像 404/官方超时都能快速回退，避免列表长时间停留在加载状态
         FabricMetaVersions meta;
         try
         {

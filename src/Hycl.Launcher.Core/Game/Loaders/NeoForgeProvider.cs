@@ -52,34 +52,20 @@ public sealed partial class NeoForgeProvider(
         DownloadPolicy policy,
         CancellationToken cancellationToken)
     {
-        var preferMirror = !(policy.VersionListSource == (int)DownloadSourceMode.OfficialOnly
-                             || (policy.VersionListSource == (int)DownloadSourceMode.OfficialAuto
-                                 && policy.MojangFast));
-        List<NeoForgeEntry> entries;
-        if (preferMirror)
-        {
-            try
-            {
-                entries = await FetchAsync(true, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger.Warn($"NeoForge BMCLAPI 列表失败，改用官方源：{ex.Message}");
-                entries = await FetchAsync(false, cancellationToken).ConfigureAwait(false);
-            }
-        }
-        else
-        {
-            try
-            {
-                entries = await FetchAsync(false, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger.Warn($"NeoForge 官方列表失败，改用 BMCLAPI：{ex.Message}");
-                entries = await FetchAsync(true, cancellationToken).ConfigureAwait(false);
-            }
-        }
+        var preferMirror = SourceRace.PreferMirror(policy);
+        var mirror = (CancellationToken token) => FetchAsync(true, token);
+        var official = (CancellationToken token) => FetchAsync(false, token);
+        List<NeoForgeEntry> entries = preferMirror
+            ? await SourceRace.RunAsync(
+                logger, "NeoForge",
+                "BMCLAPI", mirror,
+                "官方源", official,
+                TimeSpan.FromSeconds(3), cancellationToken).ConfigureAwait(false)
+            : await SourceRace.RunAsync(
+                logger, "NeoForge",
+                "官方源", official,
+                "BMCLAPI", mirror,
+                TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
 
         return entries
             .OrderByDescending(x => x.NumericVersion)
@@ -99,9 +85,11 @@ public sealed partial class NeoForgeProvider(
         var baseHost = useMirror
             ? "https://bmclapi2.bangbang93.com/neoforge/meta/api/maven/details/releases"
             : "https://maven.neoforged.net/api/maven/versions/releases";
-        var latestJson = await client.GetStringAsync($"{baseHost}/net/neoforged/neoforge", cancellationToken)
+        var latestJson = await SourceRace
+            .GetTextAsync(client, $"{baseHost}/net/neoforged/neoforge", 15, cancellationToken)
             .ConfigureAwait(false);
-        var legacyJson = await client.GetStringAsync($"{baseHost}/net/neoforged/forge", cancellationToken)
+        var legacyJson = await SourceRace
+            .GetTextAsync(client, $"{baseHost}/net/neoforged/forge", 15, cancellationToken)
             .ConfigureAwait(false);
         if (latestJson.Length < 100 || legacyJson.Length < 100)
         {
@@ -159,8 +147,12 @@ public sealed class CleanroomProvider(
             "cleanroom:all",
             async token =>
             {
-                var json = await client
-                    .GetStringAsync("https://api.github.com/repos/CleanroomMC/Cleanroom/releases", token)
+                var json = await SourceRace
+                    .GetTextAsync(
+                        client,
+                        "https://api.github.com/repos/CleanroomMC/Cleanroom/releases",
+                        15,
+                        token)
                     .ConfigureAwait(false);
                 using var document = JsonDocument.Parse(json);
                 var entries = new List<CleanroomEntry>();
