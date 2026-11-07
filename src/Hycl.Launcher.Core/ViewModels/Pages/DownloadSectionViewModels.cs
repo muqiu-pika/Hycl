@@ -124,6 +124,12 @@ public partial class LoaderSectionViewModel : ObservableObject
     }
 }
 
+/// <summary>一次安装/导入任务的结果；已有任务在跑时 Busy 为 true。</summary>
+public sealed record InstallRunResult(string? InstalledId, bool Cancelled, Exception? Error)
+{
+    public bool Busy { get; init; }
+}
+
 /// <summary>
 /// 底部安装任务状态：把现有 <see cref="Game.VersionInstaller"/> 的进度映射到
 /// Hycl (2) 安装条的绑定字段。
@@ -310,13 +316,38 @@ public partial class InstallTaskViewModel : ObservableObject
             .ConfigureAwait(true);
     }
 
-    private async Task RunAsync(
+    /// <summary>
+    /// 导入本地整合包并注册为全局安装任务：右下角悬浮下载按钮、下载页任务卡片与取消都复用同一套状态。
+    /// <paramref name="progressSink"/> 供导入页面同步自己的进度条（在 UI 线程回调）。
+    /// </summary>
+    public async Task<InstallRunResult> RunModpackImportAsync(
+        string sourcePath,
+        string instanceName,
+        IReadOnlyCollection<long>? optionalFileIds,
+        Action<InstallProgress>? progressSink = null)
+    {
+        return await RunAsync(
+            $"整合包 {instanceName}",
+            (progress, token) => _services.CompInstall.ImportModpackAsync(
+                sourcePath,
+                _services.Config.EffectiveGameDirectory,
+                instanceName,
+                DownloadPolicy.FromConfig(_services.Config),
+                _services.Config.DownloadThreads,
+                progress,
+                token,
+                optionalFileIds: optionalFileIds),
+            progressSink).ConfigureAwait(true);
+    }
+
+    private async Task<InstallRunResult> RunAsync(
         string displayName,
-        Func<IProgress<InstallProgress>, CancellationToken, Task<string>> action)
+        Func<IProgress<InstallProgress>, CancellationToken, Task<string>> action,
+        Action<InstallProgress>? progressSink = null)
     {
         if (IsInstalling)
         {
-            return;
+            return new InstallRunResult(null, false, null) { Busy = true };
         }
 
         _cts?.Cancel();
@@ -339,6 +370,7 @@ public partial class InstallTaskViewModel : ObservableObject
                     if (generation == _runGeneration && !cts.IsCancellationRequested)
                     {
                         ApplyProgress(value);
+                        progressSink?.Invoke(value);
                     }
                 }));
             var actionTask = action(progress, cts.Token);
@@ -356,12 +388,14 @@ public partial class InstallTaskViewModel : ObservableObject
             }
 
             Completed?.Invoke(this, installedId);
+            return new InstallRunResult(installedId, false, null);
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
             StageText = "已取消";
             TransferText = "";
             ErrorText = "";
+            return new InstallRunResult(null, true, null);
         }
         catch (Exception ex)
         {
@@ -369,6 +403,7 @@ public partial class InstallTaskViewModel : ObservableObject
             ErrorText = ex.Message;
             _toast?.Invoke($"安装失败：{ex.Message}");
             _services.Logger.Error("安装失败", ex);
+            return new InstallRunResult(null, false, ex);
         }
         finally
         {

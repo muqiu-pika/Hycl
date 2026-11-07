@@ -57,7 +57,7 @@ public partial class MainViewModel : ObservableObject
         LaunchProgress = new LaunchProgressViewModel(Launch);
         Download = new DownloadPageViewModel(services, ShowToast);
         PerfTrace.Mark("download_vm_ctor_done");
-        Instances = new InstancesViewModel(services);
+        Instances = new InstancesViewModel(services, Download.Install);
         PerfTrace.Mark("instances_vm_ctor_done");
         Settings = new SettingsPageViewModel(services, ShowToast);
         PerfTrace.Mark("settings_vm_ctor_done");

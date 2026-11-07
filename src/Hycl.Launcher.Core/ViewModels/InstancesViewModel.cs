@@ -6,6 +6,7 @@ using Hycl.Launcher.Core.Download;
 using Hycl.Launcher.Core.Game;
 using Hycl.Launcher.Core.Game.Comp;
 using Hycl.Launcher.Core.Services;
+using Hycl.Launcher.Core.ViewModels.Pages;
 
 namespace Hycl.Launcher.Core.ViewModels;
 
@@ -44,13 +45,15 @@ public sealed partial class ModpackFileOption : ObservableObject
 public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycle
 {
     private readonly LauncherServices _services;
+    private readonly InstallTaskViewModel _installTask;
     private bool _suppressEditorReload;
     private CancellationTokenSource? _savesCts;
     private int _savesGeneration;
 
-    public InstancesViewModel(LauncherServices services)
+    public InstancesViewModel(LauncherServices services, InstallTaskViewModel installTask)
     {
         _services = services;
+        _installTask = installTask;
         Instances.CollectionChanged += (_, _) =>
         {
             OnPropertyChanged(nameof(HasInstances));
@@ -107,8 +110,6 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
 
     private bool _isImportDialog;
 
-    private CancellationTokenSource? _importCts;
-
     /// <summary>导入前可选项清单（CurseForge：required 禁勾，optional 默认勾选）。</summary>
     public ObservableCollection<ModpackFileOption> ModpackFileOptions { get; } = new();
 
@@ -137,13 +138,13 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
     [RelayCommand]
     private void CancelImport()
     {
-        if (_importCts is null)
+        if (!IsImporting)
         {
             return;
         }
 
         ImportStageText = "正在取消导入…";
-        _importCts.Cancel();
+        _installTask.Cancel();
     }
 
     /// <summary>Java 可执行文件选择器：返回 javaw.exe / java 的完整文件路径（由 UI 层注入）。</summary>
@@ -1126,48 +1127,47 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         IsImporting = true;
         ImportPercentage = 0;
         ImportStageText = "准备导入…";
-        var cts = new CancellationTokenSource();
-        _importCts = cts;
         try
         {
-            var importedName = await _services.CompInstall.ImportModpackAsync(
+            // 走全局安装任务：右下角悬浮下载按钮、下载页任务卡片、取消按钮都与普通下载一致
+            var result = await _installTask.RunModpackImportAsync(
                     path,
-                    _services.Config.EffectiveGameDirectory,
                     name,
-                    DownloadPolicy.FromConfig(_services.Config),
-                    _services.Config.DownloadThreads,
-                    new Progress<InstallProgress>(value =>
+                    optionalFileIds,
+                    value =>
                     {
                         ImportPercentage = value.Percentage * 100;
                         ImportStageText = string.IsNullOrEmpty(value.CurrentItem)
                             ? value.Stage
                             : $"{value.Stage} · {value.CurrentItem}";
-                    }),
-                    cts.Token,
-                    optionalFileIds: optionalFileIds)
+                    })
                 .ConfigureAwait(true);
 
             await RefreshAsync().ConfigureAwait(true);
-            SelectedInstance = Instances.FirstOrDefault(x => x.Id.Equals(importedName, StringComparison.OrdinalIgnoreCase));
-            StatusMessage = $"已导入整合包：{importedName}";
-            DetailResetRequested?.Invoke(this, EventArgs.Empty);
-        }
-        catch (OperationCanceledException)
-        {
-            StatusMessage = "已取消导入，临时文件与本次新建的实例目录已清理";
-            _services.Logger.Info("用户取消整合包导入");
-            await RefreshAsync().ConfigureAwait(true);
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"导入失败：{ex.Message}";
-            _services.Logger.Error("导入整合包失败", ex);
-            await RefreshAsync().ConfigureAwait(true);
+            if (result.Busy)
+            {
+                StatusMessage = "已有下载或安装任务正在进行，请等它结束后再导入整合包";
+            }
+            else if (result.Cancelled)
+            {
+                StatusMessage = "已取消导入，临时文件与本次新建的实例目录已清理";
+                _services.Logger.Info("用户取消整合包导入");
+            }
+            else if (result.Error is not null)
+            {
+                StatusMessage = $"导入失败：{result.Error.Message}";
+                _services.Logger.Error("导入整合包失败", result.Error);
+            }
+            else if (result.InstalledId is not null)
+            {
+                SelectedInstance = Instances.FirstOrDefault(
+                    x => x.Id.Equals(result.InstalledId, StringComparison.OrdinalIgnoreCase));
+                StatusMessage = $"已导入整合包：{result.InstalledId}";
+                DetailResetRequested?.Invoke(this, EventArgs.Empty);
+            }
         }
         finally
         {
-            cts.Dispose();
-            _importCts = null;
             IsImporting = false;
             ImportPercentage = 0;
             ImportStageText = "";
