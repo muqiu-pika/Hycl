@@ -28,6 +28,7 @@ public partial class InstancesPage : UserControl
         viewModel.FolderPicker = PickFolderAsync;
         viewModel.ModpackFilePicker = PickModpackFileAsync;
         viewModel.JavaFilePicker = PickJavaFileAsync;
+        viewModel.ExportFilePicker = PickExportSaveAsync;
         viewModel.ListResetRequested -= OnListResetRequested;
         viewModel.ListResetRequested += OnListResetRequested;
         viewModel.DetailResetRequested -= OnDetailResetRequested;
@@ -125,6 +126,28 @@ public partial class InstancesPage : UserControl
             FileTypeFilter = [modpackType, allFilesType]
         });
         return files.Count > 0 ? files[0].TryGetLocalPath() : null;
+    }
+
+    /// <summary>选择导出压缩包的保存位置。</summary>
+    private async Task<string?> PickExportSaveAsync(string? suggestedName)
+    {
+        var top = TopLevel.GetTopLevel(this);
+        if (top?.StorageProvider is null)
+        {
+            return null;
+        }
+
+        var file = await top.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "导出实例",
+            SuggestedFileName = string.IsNullOrWhiteSpace(suggestedName) ? "instance.zip" : suggestedName,
+            DefaultExtension = "zip",
+            FileTypeChoices =
+            [
+                new FilePickerFileType("Zip 压缩包") { Patterns = ["*.zip"] }
+            ]
+        });
+        return file?.TryGetLocalPath();
     }
 
     /// <summary>选择 Java 可执行文件（javaw.exe / java），与保存时的 File.Exists 校验语义一致。</summary>

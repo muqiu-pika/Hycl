@@ -33,6 +33,9 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
             OnPropertyChanged(nameof(HasSaves));
             OnPropertyChanged(nameof(SavesTitleText));
         };
+        Files = new InstanceFilesViewModel(services);
+        Export = new InstanceExportViewModel(services, message => StatusMessage = message);
+        Servers = new InstanceServersViewModel(services, message => StatusMessage = message);
     }
 
     public ObservableCollection<MinecraftInstance> Instances { get; } = new();
@@ -145,6 +148,143 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
 
     [ObservableProperty]
     private bool _isLoadingSaves;
+
+    // ------------------------- 实例管理分区（对应 PCL-CE PageInstanceLeft） -------------------------
+
+    /// <summary>当前分区键：overview/setup/modify/export/saves/screenshots/mods/resourcepacks/shaderpacks/schematics/servers。</summary>
+    private string _sectionKey = "overview";
+
+    public string InstanceSectionKey => _sectionKey;
+
+    public bool IsOverviewSection => _sectionKey == "overview";
+
+    public bool IsSetupSection => _sectionKey == "setup";
+
+    public bool IsModifySection => _sectionKey == "modify";
+
+    public bool IsExportSection => _sectionKey == "export";
+
+    public bool IsSavesSection => _sectionKey == "saves";
+
+    public bool IsScreenshotsSection => _sectionKey == "screenshots";
+
+    public bool IsModsSection => _sectionKey == "mods";
+
+    public bool IsResourcePacksSection => _sectionKey == "resourcepacks";
+
+    public bool IsShaderPacksSection => _sectionKey == "shaderpacks";
+
+    public bool IsSchematicsSection => _sectionKey == "schematics";
+
+    public bool IsFilesSection => _sectionKey is "screenshots" or "mods" or "resourcepacks" or "shaderpacks" or "schematics";
+
+    public bool IsServersSection => _sectionKey == "servers";
+
+    public InstanceFilesViewModel Files { get; }
+
+    public InstanceExportViewModel Export { get; }
+
+    public InstanceServersViewModel Servers { get; }
+
+    /// <summary>由 UI 层注入的导出保存位置选择器（取消返回 null）。</summary>
+    public Func<string?, Task<string?>>? ExportFilePicker
+    {
+        get => Export.SaveFilePicker;
+        set => Export.SaveFilePicker = value;
+    }
+
+    [RelayCommand]
+    private void SelectInstanceSection(string key)
+    {
+        if (_sectionKey == key)
+        {
+            return;
+        }
+
+        _sectionKey = key;
+        NotifySection();
+        RefreshSectionContent();
+    }
+
+    private void NotifySection()
+    {
+        OnPropertyChanged(nameof(InstanceSectionKey));
+        OnPropertyChanged(nameof(IsOverviewSection));
+        OnPropertyChanged(nameof(IsSetupSection));
+        OnPropertyChanged(nameof(IsModifySection));
+        OnPropertyChanged(nameof(IsExportSection));
+        OnPropertyChanged(nameof(IsSavesSection));
+        OnPropertyChanged(nameof(IsScreenshotsSection));
+        OnPropertyChanged(nameof(IsModsSection));
+        OnPropertyChanged(nameof(IsResourcePacksSection));
+        OnPropertyChanged(nameof(IsShaderPacksSection));
+        OnPropertyChanged(nameof(IsSchematicsSection));
+        OnPropertyChanged(nameof(IsFilesSection));
+        OnPropertyChanged(nameof(IsServersSection));
+    }
+
+    /// <summary>按当前分区准备内容 VM：只给当前分区扫描目录，避免每次选中实例都全量扫描。</summary>
+    private void RefreshSectionContent()
+    {
+        var instance = SelectedInstance;
+        if (instance is null)
+        {
+            Files.Configure("", "", "", [], false, false);
+            Files.Items.Clear();
+            Export.Configure(null, "");
+            Servers.Configure("");
+            return;
+        }
+
+        var contentRoot = ContentRoot;
+        var gameDirectory = _services.Config.EffectiveGameDirectory;
+        switch (_sectionKey)
+        {
+            case "export":
+                Export.Configure(instance, contentRoot);
+                break;
+            case "servers":
+                Servers.Configure(contentRoot);
+                break;
+            case "screenshots":
+                Files.Configure(
+                    gameDirectory, Path.Combine(contentRoot, "screenshots"),
+                    "screenshots 目录下还没有截图。",
+                    [".png", ".jpg", ".jpeg"], false, false);
+                _ = Files.RefreshAsync();
+                break;
+            case "mods":
+                Files.Configure(
+                    gameDirectory, Path.Combine(contentRoot, "mods"),
+                    "mods 目录下还没有模组。",
+                    [".jar", ".zip"], false, true);
+                _ = Files.RefreshAsync();
+                break;
+            case "resourcepacks":
+                Files.Configure(
+                    gameDirectory, Path.Combine(contentRoot, "resourcepacks"),
+                    "resourcepacks 目录下还没有资源包。",
+                    [".zip"], true, false);
+                _ = Files.RefreshAsync();
+                break;
+            case "shaderpacks":
+                Files.Configure(
+                    gameDirectory, Path.Combine(contentRoot, "shaderpacks"),
+                    "shaderpacks 目录下还没有光影包。",
+                    [".zip"], true, false);
+                _ = Files.RefreshAsync();
+                break;
+            case "schematics":
+                Files.Configure(
+                    gameDirectory, Path.Combine(contentRoot, "schematics"),
+                    "schematics 目录下还没有投影原理图。",
+                    [".schematic", ".schem", ".litematic", ".nbt"], false, false);
+                _ = Files.RefreshAsync();
+                break;
+            default:
+                break;
+        }
+    }
 
     // ------------------------- 实例设置编辑区 -------------------------
 
@@ -972,6 +1112,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         NotifySelection();
         StatusMessage = "";
         _ = ReloadSavesAsync();
+        RefreshSectionContent();
     }
 
     partial void OnEditorVersionIsolationChanged(bool value)
@@ -980,6 +1121,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         {
             NotifyDirectories();
             _ = ReloadSavesAsync();
+            RefreshSectionContent();
         }
     }
 

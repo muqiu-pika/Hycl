@@ -159,8 +159,96 @@
             </Grid>
         </Border>
 
-        <!-- 右栏：实例详情与设置（分组对齐 PCL-CE：基础信息 / 启动设置 / 目录与隔离 / 实例操作 / 危险操作） -->
-        <Panel Grid.Column="1" Margin="22,18,18,18">
+        <!-- 右栏：实例管理（左侧分区导航 + 右侧内容，对齐 PCL-CE PageInstance） -->
+        <Grid Grid.Column="1" ColumnDefinitions="158,*">
+            <Border Classes="page-divider" IsVisible="{Binding HasInstances}">
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="10,10,10,12" Spacing="2">
+                        <TextBlock Classes="side-cat" Text="游戏本体" />
+                        <Button Classes="side-item" Classes.active="{Binding IsOverviewSection}"
+                                Command="{Binding SelectInstanceSectionCommand}" CommandParameter="overview">
+                            <Grid ColumnDefinitions="Auto,*">
+                                <c:HyclIcon Kind="blocks" Width="17" Height="17" Margin="0,0,9,0" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="概览" FontSize="13" VerticalAlignment="Center" />
+                            </Grid>
+                        </Button>
+                        <Button Classes="side-item" Classes.active="{Binding IsSetupSection}"
+                                Command="{Binding SelectInstanceSectionCommand}" CommandParameter="setup">
+                            <Grid ColumnDefinitions="Auto,*">
+                                <c:HyclIcon Kind="settings" Width="17" Height="17" Margin="0,0,9,0" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="设置" FontSize="13" VerticalAlignment="Center" />
+                            </Grid>
+                        </Button>
+                        <Button Classes="side-item" Classes.active="{Binding IsModifySection}"
+                                Command="{Binding SelectInstanceSectionCommand}" CommandParameter="modify">
+                            <Grid ColumnDefinitions="Auto,*">
+                                <c:HyclIcon Kind="wrench" Width="17" Height="17" Margin="0,0,9,0" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="修改" FontSize="13" VerticalAlignment="Center" />
+                            </Grid>
+                        </Button>
+                        <Button Classes="side-item" Classes.active="{Binding IsExportSection}"
+                                Command="{Binding SelectInstanceSectionCommand}" CommandParameter="export">
+                            <Grid ColumnDefinitions="Auto,*">
+                                <c:HyclIcon Kind="archive" Width="17" Height="17" Margin="0,0,9,0" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="导出" FontSize="13" VerticalAlignment="Center" />
+                            </Grid>
+                        </Button>
+
+                        <TextBlock Classes="side-cat" Text="游戏资源" Margin="0,10,0,4" />
+                        <Button Classes="side-item" Classes.active="{Binding IsSavesSection}"
+                                Command="{Binding SelectInstanceSectionCommand}" CommandParameter="saves">
+                            <Grid ColumnDefinitions="Auto,*">
+                                <c:HyclIcon Kind="globe" Width="17" Height="17" Margin="0,0,9,0" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="存档" FontSize="13" VerticalAlignment="Center" />
+                            </Grid>
+                        </Button>
+                        <Button Classes="side-item" Classes.active="{Binding IsScreenshotsSection}"
+                                Command="{Binding SelectInstanceSectionCommand}" CommandParameter="screenshots">
+                            <Grid ColumnDefinitions="Auto,*">
+                                <c:HyclIcon Kind="image" Width="17" Height="17" Margin="0,0,9,0" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="截图" FontSize="13" VerticalAlignment="Center" />
+                            </Grid>
+                        </Button>
+                        <Button Classes="side-item" Classes.active="{Binding IsModsSection}"
+                                Command="{Binding SelectInstanceSectionCommand}" CommandParameter="mods">
+                            <Grid ColumnDefinitions="Auto,*">
+                                <c:HyclIcon Kind="forge" Width="17" Height="17" Margin="0,0,9,0" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="模组" FontSize="13" VerticalAlignment="Center" />
+                            </Grid>
+                        </Button>
+                        <Button Classes="side-item" Classes.active="{Binding IsResourcePacksSection}"
+                                Command="{Binding SelectInstanceSectionCommand}" CommandParameter="resourcepacks">
+                            <Grid ColumnDefinitions="Auto,*">
+                                <c:HyclIcon Kind="cobblestone" Width="17" Height="17" Margin="0,0,9,0" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="资源包" FontSize="13" VerticalAlignment="Center" />
+                            </Grid>
+                        </Button>
+                        <Button Classes="side-item" Classes.active="{Binding IsShaderPacksSection}"
+                                Command="{Binding SelectInstanceSectionCommand}" CommandParameter="shaderpacks">
+                            <Grid ColumnDefinitions="Auto,*">
+                                <c:HyclIcon Kind="gold-block" Width="17" Height="17" Margin="0,0,9,0" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="光影包" FontSize="13" VerticalAlignment="Center" />
+                            </Grid>
+                        </Button>
+                        <Button Classes="side-item" Classes.active="{Binding IsSchematicsSection}"
+                                Command="{Binding SelectInstanceSectionCommand}" CommandParameter="schematics">
+                            <Grid ColumnDefinitions="Auto,*">
+                                <c:HyclIcon Kind="map" Width="17" Height="17" Margin="0,0,9,0" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="投影原理图" FontSize="13" VerticalAlignment="Center" />
+                            </Grid>
+                        </Button>
+                        <Button Classes="side-item" Classes.active="{Binding IsServersSection}"
+                                Command="{Binding SelectInstanceSectionCommand}" CommandParameter="servers">
+                            <Grid ColumnDefinitions="Auto,*">
+                                <c:HyclIcon Kind="network" Width="17" Height="17" Margin="0,0,9,0" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="服务器" FontSize="13" VerticalAlignment="Center" />
+                            </Grid>
+                        </Button>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <Panel Grid.Column="1" Margin="18,18,18,18">
             <ScrollViewer Name="DetailScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                 <Panel>
                     <StackPanel IsVisible="{Binding HasInstances}">
@@ -213,7 +301,8 @@
                         </Grid>
 
                         <!-- 1. 基础信息 -->
-                        <Border Classes="setting-card" Margin="0,0,0,14">
+                        <Border Classes="setting-card" Margin="0,0,0,14"
+                                IsVisible="{Binding IsOverviewSection}">
                             <StackPanel>
                                 <TextBlock Classes="setting-card-title" Text="基础信息" />
                                 <Border Classes="setting-card-rule" />
@@ -253,7 +342,8 @@
                         </Border>
 
                         <!-- 2. 启动设置：内存 / JVM / Java / 窗口（留空跟随全局） -->
-                        <Border Classes="setting-card" Margin="0,0,0,14">
+                        <Border Classes="setting-card" Margin="0,0,0,14"
+                                IsVisible="{Binding IsSetupSection}">
                             <StackPanel>
                                 <TextBlock Classes="setting-card-title" Text="启动设置" />
                                 <Border Classes="setting-card-rule" />
@@ -365,7 +455,8 @@
                         </Border>
 
                         <!-- 3. 目录与隔离 -->
-                        <Border Classes="setting-card" Margin="0,0,0,14">
+                        <Border Classes="setting-card" Margin="0,0,0,14"
+                                IsVisible="{Binding IsSetupSection}">
                             <StackPanel>
                                 <TextBlock Classes="setting-card-title" Text="目录与隔离" />
                                 <Border Classes="setting-card-rule" />
@@ -411,7 +502,8 @@
                         </Border>
 
                         <!-- 3.5 本地存档：列表 / 复制 / 删除 / 打开目录（落点随隔离与独立存档目录变化） -->
-                        <Border Classes="setting-card" Margin="0,0,0,14">
+                        <Border Classes="setting-card" Margin="0,0,0,14"
+                                IsVisible="{Binding IsSavesSection}">
                             <StackPanel>
                                 <Grid ColumnDefinitions="*,Auto">
                                     <TextBlock Classes="setting-card-title" Text="{Binding SavesTitleText}" />
@@ -489,10 +581,11 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- 4. 实例操作 -->
-                        <Border Classes="setting-card" Margin="0,0,0,14">
+                        <!-- 4. 启动与目录（概览） -->
+                        <Border Classes="setting-card" Margin="0,0,0,14"
+                                IsVisible="{Binding IsOverviewSection}">
                             <StackPanel>
-                                <TextBlock Classes="setting-card-title" Text="实例操作" />
+                                <TextBlock Classes="setting-card-title" Text="启动与目录" />
                                 <Border Classes="setting-card-rule" />
                                 <Grid Classes="setting-row" ColumnDefinitions="170,*">
                                     <TextBlock Classes="srow-label" Text="当前使用" />
@@ -512,13 +605,22 @@
                                     </StackPanel>
                                 </Grid>
                                 <Grid Classes="setting-row" ColumnDefinitions="170,*">
-                                    <TextBlock Classes="srow-label" Text="管理" />
-                                    <WrapPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                                        <Button Classes="mc-btn" Margin="0,2,6,2" Content="打开实例目录" Command="{Binding OpenInstanceFolderCommand}" />
-                                        <Button Classes="mc-btn" Margin="0,2,6,2" Content="复制" Command="{Binding StartCopyCommand}" />
-                                        <Button Classes="mc-btn" Margin="0,2,0,2" Content="重命名" Command="{Binding StartRenameCommand}" />
-                                    </WrapPanel>
+                                    <TextBlock Classes="srow-label" Text="目录" />
+                                    <Button Grid.Column="1"
+                                            Classes="mc-btn"
+                                            HorizontalAlignment="Left"
+                                            Content="打开实例目录"
+                                            Command="{Binding OpenInstanceFolderCommand}" />
                                 </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- 4.5 保存设置（设置页底部） -->
+                        <Border Classes="setting-card" Margin="0,0,0,14"
+                                IsVisible="{Binding IsSetupSection}">
+                            <StackPanel>
+                                <TextBlock Classes="setting-card-title" Text="保存" />
+                                <Border Classes="setting-card-rule" />
                                 <Grid Classes="setting-row" ColumnDefinitions="170,*">
                                     <TextBlock Classes="srow-label" Text="游戏内设置" />
                                     <c:McComboBox Grid.Column="1"
@@ -529,7 +631,7 @@
                                                   SelectedItem="{Binding EditorGameSettingsMode, Mode=TwoWay}" />
                                 </Grid>
                                 <Grid Classes="setting-row" ColumnDefinitions="170,*">
-                                    <TextBlock Classes="srow-label" Text="保存" />
+                                    <TextBlock Classes="srow-label" Text="实例设置" />
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                         <Button Classes="mc-btn" Content="恢复全局设置" Command="{Binding ResetSettingsCommand}" />
                                         <Button Classes="mc-btn primary-soft" Content="保存实例设置" Command="{Binding SaveSettingsCommand}" />
@@ -538,8 +640,258 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- 5. 危险操作（与其它设置分离） -->
-                        <Border Classes="setting-card" Margin="0,0,0,14">
+                        <!-- 5. 修改实例（重命名 / 复制） -->
+                        <Border Classes="setting-card" Margin="0,0,0,14"
+                                IsVisible="{Binding IsModifySection}">
+                            <StackPanel>
+                                <TextBlock Classes="setting-card-title" Text="实例信息" />
+                                <Border Classes="setting-card-rule" />
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="名称" />
+                                    <TextBlock Grid.Column="1" Classes="srow-value" Text="{Binding SelectedName}" TextWrapping="Wrap" />
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="操作" />
+                                    <WrapPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Button Classes="mc-btn" Margin="0,2,6,2" Content="重命名" Command="{Binding StartRenameCommand}" />
+                                        <Button Classes="mc-btn" Margin="0,2,6,2" Content="复制实例" Command="{Binding StartCopyCommand}" />
+                                        <Button Classes="mc-btn" Margin="0,2,0,2" Content="打开实例目录" Command="{Binding OpenInstanceFolderCommand}" />
+                                    </WrapPanel>
+                                </Grid>
+                                <TextBlock Classes="sline"
+                                           Margin="0,0,0,2"
+                                           Text="重命名会同步修改 versions 下的目录名与配置；复制会生成一个独立实例。" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- 6. 导出实例 -->
+                        <Border Classes="setting-card" Margin="0,0,0,14"
+                                IsVisible="{Binding IsExportSection}">
+                            <StackPanel>
+                                <TextBlock Classes="setting-card-title" Text="导出实例" />
+                                <Border Classes="setting-card-rule" />
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="压缩包名称" />
+                                    <TextBox Grid.Column="1"
+                                             Classes="stext"
+                                             VerticalAlignment="Center"
+                                             Text="{Binding Export.ExportName, Mode=TwoWay}"
+                                             PlaceholderText="导出 zip 的文件名" />
+                                </Grid>
+                                <TextBlock Classes="sline" Margin="0,4,0,6" Text="选择要包含的内容：" />
+                                <WrapPanel Margin="0,0,0,8">
+                                    <CheckBox Content="模组" Margin="0,2,14,2" IsChecked="{Binding Export.IncludeMods, Mode=TwoWay}" />
+                                    <CheckBox Content="资源包" Margin="0,2,14,2" IsChecked="{Binding Export.IncludeResourcePacks, Mode=TwoWay}" />
+                                    <CheckBox Content="光影包" Margin="0,2,14,2" IsChecked="{Binding Export.IncludeShaderPacks, Mode=TwoWay}" />
+                                    <CheckBox Content="存档" Margin="0,2,14,2" IsChecked="{Binding Export.IncludeSaves, Mode=TwoWay}" />
+                                    <CheckBox Content="截图" Margin="0,2,14,2" IsChecked="{Binding Export.IncludeScreenshots, Mode=TwoWay}" />
+                                    <CheckBox Content="投影原理图" Margin="0,2,14,2" IsChecked="{Binding Export.IncludeSchematics, Mode=TwoWay}" />
+                                    <CheckBox Content="服务器列表" Margin="0,2,14,2" IsChecked="{Binding Export.IncludeServers, Mode=TwoWay}" />
+                                    <CheckBox Content="配置" Margin="0,2,14,2" IsChecked="{Binding Export.IncludeConfig, Mode=TwoWay}" />
+                                </WrapPanel>
+                                <ProgressBar Height="4"
+                                             Margin="0,2,0,10"
+                                             Minimum="0"
+                                             Maximum="100"
+                                             Value="{Binding Export.Progress}"
+                                             IsVisible="{Binding Export.IsExporting}" />
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button Classes="mc-btn primary-soft"
+                                            Content="导出为压缩包"
+                                            Command="{Binding Export.ExportCommand}"
+                                            IsEnabled="{Binding !Export.IsExporting}" />
+                                </StackPanel>
+                                <TextBlock Margin="0,8,0,0"
+                                           FontSize="11.5"
+                                           TextWrapping="Wrap"
+                                           Foreground="{DynamicResource PrimaryDeepBrush}"
+                                           Text="{Binding Export.StatusMessage}" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- 7. 本地内容（截图 / 模组 / 资源包 / 光影 / 投影） -->
+                        <Border Classes="setting-card" Margin="0,0,0,14"
+                                IsVisible="{Binding IsFilesSection}">
+                            <StackPanel>
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Classes="setting-card-title" Text="本地内容" />
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Files.CountText}"
+                                                   FontSize="11.5"
+                                                   Foreground="{DynamicResource Gray2Brush}"
+                                                   VerticalAlignment="Center" />
+                                        <Button Classes="mc-btn" MinHeight="0" Padding="8,3" FontSize="11.5"
+                                                Content="刷新" Command="{Binding Files.RefreshCommand}" />
+                                        <Button Classes="mc-btn" MinHeight="0" Padding="8,3" FontSize="11.5"
+                                                Content="打开文件夹" Command="{Binding Files.OpenFolderCommand}" />
+                                    </StackPanel>
+                                </Grid>
+                                <Border Classes="setting-card-rule" />
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="目录" />
+                                    <TextBlock Grid.Column="1" Classes="srow-value" Text="{Binding Files.Directory}" TextWrapping="Wrap" />
+                                </Grid>
+                                <TextBlock IsVisible="{Binding !Files.HasItems}"
+                                           Margin="0,4,0,2"
+                                           FontSize="11.5"
+                                           TextWrapping="Wrap"
+                                           Foreground="{DynamicResource Gray2Brush}"
+                                           Text="{Binding Files.EmptyText}" />
+                                <ItemsControl IsVisible="{Binding Files.HasItems}" ItemsSource="{Binding Files.Items}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:LocalContentItemViewModel">
+                                            <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,5,0,5">
+                                                <Border Width="34" Height="34"
+                                                        Margin="0,0,10,0"
+                                                        CornerRadius="6"
+                                                        VerticalAlignment="Center"
+                                                        Background="{DynamicResource GlassSurfaceBrush}"
+                                                        BorderBrush="{DynamicResource CardBorderBrush}"
+                                                        BorderThickness="1">
+                                                    <Panel>
+                                                        <c:HyclImage Width="34" Height="34"
+                                                                     Stretch="UniformToFill"
+                                                                     IsVisible="{Binding IsImage}"
+                                                                     Url="{Binding PreviewUrl}" />
+                                                        <c:HyclIcon Kind="scroll-text"
+                                                                    Width="16"
+                                                                    Height="16"
+                                                                    IsVisible="{Binding !IsImage}"
+                                                                    Foreground="{DynamicResource Gray2Brush}"
+                                                                    HorizontalAlignment="Center"
+                                                                    VerticalAlignment="Center" />
+                                                    </Panel>
+                                                </Border>
+                                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                                        <TextBlock Text="{Binding Name}"
+                                                                   FontSize="12.5"
+                                                                   Foreground="{DynamicResource TextBrush}"
+                                                                   TextTrimming="CharacterEllipsis" />
+                                                        <TextBlock Text="{Binding StateText}"
+                                                                   FontSize="10.5"
+                                                                   Foreground="{DynamicResource Gray2Brush}"
+                                                                   VerticalAlignment="Center" />
+                                                    </StackPanel>
+                                                    <TextBlock Text="{Binding Info}"
+                                                               FontSize="10.5"
+                                                               Foreground="{DynamicResource Gray2Brush}" />
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="2"
+                                                            Orientation="Horizontal"
+                                                            Spacing="6"
+                                                            VerticalAlignment="Center">
+                                                    <Button Classes="mc-btn"
+                                                            MinHeight="0"
+                                                            Padding="9,3"
+                                                            FontSize="11.5"
+                                                            Content="打开"
+                                                            Command="{Binding $parent[UserControl].((vm:InstancesViewModel)DataContext).Files.OpenItemCommand}"
+                                                            CommandParameter="{Binding}" />
+                                                    <Button Classes="mc-btn"
+                                                            MinHeight="0"
+                                                            Padding="9,3"
+                                                            FontSize="11.5"
+                                                            Content="禁用/启用"
+                                                            IsVisible="{Binding $parent[UserControl].((vm:InstancesViewModel)DataContext).Files.ShowToggle}"
+                                                            Command="{Binding $parent[UserControl].((vm:InstancesViewModel)DataContext).Files.ToggleCommand}"
+                                                            CommandParameter="{Binding}" />
+                                                    <Button Classes="mc-btn danger"
+                                                            MinHeight="0"
+                                                            Padding="9,3"
+                                                            FontSize="11.5"
+                                                            Content="删除"
+                                                            Command="{Binding $parent[UserControl].((vm:InstancesViewModel)DataContext).Files.DeleteCommand}"
+                                                            CommandParameter="{Binding}" />
+                                                </StackPanel>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Margin="0,6,0,0"
+                                           FontSize="11.5"
+                                           TextWrapping="Wrap"
+                                           Foreground="{DynamicResource PrimaryDeepBrush}"
+                                           Text="{Binding Files.StatusMessage}" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- 8. 服务器 -->
+                        <Border Classes="setting-card" Margin="0,0,0,14"
+                                IsVisible="{Binding IsServersSection}">
+                            <StackPanel>
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Classes="setting-card-title" Text="服务器列表" />
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Servers.CountText}"
+                                                   FontSize="11.5"
+                                                   Foreground="{DynamicResource Gray2Brush}"
+                                                   VerticalAlignment="Center" />
+                                        <Button Classes="mc-btn" MinHeight="0" Padding="8,3" FontSize="11.5"
+                                                Content="刷新" Command="{Binding Servers.RefreshCommand}" />
+                                        <Button Classes="mc-btn" MinHeight="0" Padding="8,3" FontSize="11.5"
+                                                Content="打开文件夹" Command="{Binding Servers.OpenFolderCommand}" />
+                                    </StackPanel>
+                                </Grid>
+                                <Border Classes="setting-card-rule" />
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="servers.dat" />
+                                    <TextBlock Grid.Column="1" Classes="srow-value" Text="{Binding Servers.ServerPath}" TextWrapping="Wrap" />
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="添加服务器" />
+                                    <Grid Grid.Column="1" ColumnDefinitions="150,*,Auto" ColumnSpacing="8">
+                                        <TextBox Classes="stext" VerticalAlignment="Center"
+                                                 Text="{Binding Servers.NewServerName, Mode=TwoWay}"
+                                                 PlaceholderText="显示名称（可留空）" />
+                                        <TextBox Grid.Column="1" Classes="stext" VerticalAlignment="Center"
+                                                 Text="{Binding Servers.NewServerIp, Mode=TwoWay}"
+                                                 PlaceholderText="play.example.com:25565" />
+                                        <Button Grid.Column="2" Classes="mc-btn" Content="添加"
+                                                Command="{Binding Servers.AddServerCommand}" />
+                                    </Grid>
+                                </Grid>
+                                <TextBlock IsVisible="{Binding !Servers.HasServers}"
+                                           Margin="0,4,0,2"
+                                           FontSize="11.5"
+                                           Foreground="{DynamicResource Gray2Brush}"
+                                           Text="还没有保存的服务器；添加后会写入实例的 servers.dat。" />
+                                <ItemsControl IsVisible="{Binding Servers.HasServers}" ItemsSource="{Binding Servers.Servers}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="g:GameServerEntry">
+                                            <Grid ColumnDefinitions="*,Auto" Margin="0,5,0,5">
+                                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="1">
+                                                    <TextBlock Text="{Binding Name}"
+                                                               FontSize="12.5"
+                                                               Foreground="{DynamicResource TextBrush}"
+                                                               TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Text="{Binding Ip}"
+                                                               FontSize="10.5"
+                                                               Foreground="{DynamicResource Gray2Brush}" />
+                                                </StackPanel>
+                                                <Button Grid.Column="1"
+                                                        Classes="mc-btn danger"
+                                                        MinHeight="0"
+                                                        Padding="9,3"
+                                                        FontSize="11.5"
+                                                        Content="删除"
+                                                        Command="{Binding $parent[UserControl].((vm:InstancesViewModel)DataContext).Servers.DeleteServerCommand}"
+                                                        CommandParameter="{Binding}" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Margin="0,6,0,0"
+                                           FontSize="11.5"
+                                           TextWrapping="Wrap"
+                                           Foreground="{DynamicResource PrimaryDeepBrush}"
+                                           Text="{Binding Servers.StatusMessage}" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- 9. 危险操作（与其它设置分离） -->
+                        <Border Classes="setting-card" Margin="0,0,0,14"
+                                IsVisible="{Binding IsModifySection}">
                             <StackPanel>
                                 <TextBlock Classes="setting-card-title" Text="危险操作" />
                                 <Border Classes="setting-card-rule" />
@@ -584,7 +936,8 @@
                     </StackPanel>
                 </Panel>
             </ScrollViewer>
-        </Panel>
+            </Panel>
+        </Grid>
 
         <!-- 删除确认 -->
         <Panel Grid.ColumnSpan="2"
