@@ -844,7 +844,6 @@ public partial class MainWindow : Window
         {
             _startupFinished = true;
             PerfTrace.Mark("splash_done");
-            overlay.IsVisible = false;
             if (titleBar is not null)
             {
                 titleBar.Opacity = 1;
@@ -858,6 +857,13 @@ public partial class MainWindow : Window
             _startupTimer?.Stop();
             _startupTimer = null;
             _startupClock = null;
+
+            // 启动层已完全不可见：从可视树移除，释放其渐变/图形资源
+            overlay.IsVisible = false;
+            if (overlay.Parent is Panel overlayHost)
+            {
+                overlayHost.Children.Remove(overlay);
+            }
         }
     }
 
