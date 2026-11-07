@@ -218,9 +218,10 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// 页面切换分两段串行执行，任一时刻屏幕上只有一层页面：
-    /// 1. 旧页单独快速淡出（约 90ms 缓入，带轻微下移/缩小）；
-    /// 2. 旧页彻底隐藏后，新页淡入 + 上移 + 轻微缩放回正（约 180ms 缓出）。
+    /// 1. 旧页单独快速淡出（约 55ms 缓入，带轻微下移/缩小）；
+    /// 2. 旧页彻底隐藏后，新页淡入 + 上移 + 轻微缩放回正（约 120ms 缓出）。
     /// 不做交叉淡入淡出，因此不会出现两层半透明页面叠在一起的拖影。
+    /// 原节奏为 90ms + 180ms（实测每次切页 274~307ms），缩短后每次少约 95ms。
     /// </summary>
     private async Task RunPageSwitchAsync(
         Control view,
@@ -275,9 +276,9 @@ public partial class MainWindow : Window
         view.RenderTransform = new TransformGroup { Children = { scale, translate } };
         view.Opacity = 0;
 
-        await AnimateAsync(TimeSpan.FromMilliseconds(180), token, t =>
+        await AnimateAsync(TimeSpan.FromMilliseconds(120), token, t =>
         {
-            // 淡入在 150ms 内完成，随后保持完全不透明
+            // 淡入在前 100ms 内完成，随后保持完全不透明
             var opacityT = Math.Min(1d, t * 1.2d);
             view.Opacity = EnterEaseOut.GetSplineProgress(opacityT);
 
@@ -298,7 +299,7 @@ public partial class MainWindow : Window
         view.RenderTransformOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative);
         view.RenderTransform = new TransformGroup { Children = { scale, translate } };
 
-        await AnimateAsync(TimeSpan.FromMilliseconds(90), token, t =>
+        await AnimateAsync(TimeSpan.FromMilliseconds(55), token, t =>
         {
             var eased = ExitEaseIn.GetSplineProgress(t);
             view.Opacity = 1d - eased;

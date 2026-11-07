@@ -20,8 +20,6 @@ public partial class SettingsPageViewModel : ObservableObject
     private Task? _loadTask;
     private int _saveVersion;
 
-    private const int MinimumLoadingMilliseconds = 220;
-
     private static readonly string[] MemoryOptions =
     [
         "自动分配", "1024 MB", "2048 MB", "4096 MB", "8192 MB", "16384 MB"
@@ -311,7 +309,6 @@ public partial class SettingsPageViewModel : ObservableObject
 
     private async Task LoadAsyncCore()
     {
-        var watch = System.Diagnostics.Stopwatch.StartNew();
         IsLoading = true;
         IsReady = false;
 
@@ -319,12 +316,6 @@ public partial class SettingsPageViewModel : ObservableObject
         await Task.Run(BuildSections);
         WirePersistence();
         CurrentSection = SelectedSection is null ? null : _sections.GetValueOrDefault(SelectedSection.Title);
-
-        var remaining = MinimumLoadingMilliseconds - (int)watch.ElapsedMilliseconds;
-        if (remaining > 0)
-        {
-            await Task.Delay(remaining);
-        }
 
         IsLoading = false;
         IsReady = true;
