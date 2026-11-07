@@ -71,9 +71,20 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
             OnPropertyChanged(nameof(ModpackFileSummary));
         };
         Files = new InstanceFilesViewModel(services);
+        Files.DownloadRequested = type => DownloadResourceRequested?.Invoke(
+            type,
+            SelectedGameVersion,
+            SelectedLoaderLabel,
+            SelectedInstance?.Id ?? "");
         Export = new InstanceExportViewModel(services, message => StatusMessage = message);
         Servers = new InstanceServersViewModel(services, message => StatusMessage = message);
     }
+
+    /// <summary>
+    /// 从资源列表进入下载页（由主窗口接线）：携带当前实例的版本号/加载器/实例 Id，
+    /// 让下载页自动选中对应类别并套用兼容筛选。
+    /// </summary>
+    public Action<CompResourceType, string, string, string>? DownloadResourceRequested { get; set; }
 
     public ObservableCollection<MinecraftInstance> Instances { get; } = new();
 
@@ -199,6 +210,8 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
 
     public string ShaderPacksDirectory => SelectedInstance is null ? "" : Path.Combine(ContentRoot, "shaderpacks");
 
+    public string DataPacksDirectory => SelectedInstance is null ? "" : Path.Combine(ContentRoot, "datapacks");
+
     public string SavesDirectory => SelectedInstance is null
         ? ""
         : string.IsNullOrWhiteSpace(EditorSavesDirectory)
@@ -248,9 +261,12 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
 
     public bool IsShaderPacksSection => _sectionKey == "shaderpacks";
 
+    public bool IsDataPacksSection => _sectionKey == "datapacks";
+
     public bool IsSchematicsSection => _sectionKey == "schematics";
 
-    public bool IsFilesSection => _sectionKey is "screenshots" or "mods" or "resourcepacks" or "shaderpacks" or "schematics";
+    public bool IsFilesSection => _sectionKey is "screenshots" or "mods" or "resourcepacks" or "shaderpacks"
+        or "datapacks" or "schematics";
 
     public bool IsServersSection => _sectionKey == "servers";
 
@@ -292,6 +308,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         OnPropertyChanged(nameof(IsModsSection));
         OnPropertyChanged(nameof(IsResourcePacksSection));
         OnPropertyChanged(nameof(IsShaderPacksSection));
+        OnPropertyChanged(nameof(IsDataPacksSection));
         OnPropertyChanged(nameof(IsSchematicsSection));
         OnPropertyChanged(nameof(IsFilesSection));
         OnPropertyChanged(nameof(IsServersSection));
@@ -303,7 +320,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         var instance = SelectedInstance;
         if (instance is null)
         {
-            Files.Configure("", "", "", [], false, false);
+            Files.Configure("", "", "选择左侧版本后查看本地内容。", [], false, false);
             Files.Items.Clear();
             Export.Configure(null, "");
             Servers.Configure("");
@@ -312,6 +329,8 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
 
         var contentRoot = ContentRoot;
         var gameDirectory = _services.Config.EffectiveGameDirectory;
+        var gameVersion = instance.GameVersion;
+        var loader = instance.Loader;
         switch (_sectionKey)
         {
             case "export":
@@ -324,35 +343,48 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
                 Files.Configure(
                     gameDirectory, Path.Combine(contentRoot, "screenshots"),
                     "screenshots 目录下还没有截图。",
-                    [".png", ".jpg", ".jpeg"], false, false);
+                    [".png", ".jpg", ".jpeg"], false, false,
+                    sectionTitle: "截图");
                 _ = Files.RefreshAsync();
                 break;
             case "mods":
                 Files.Configure(
                     gameDirectory, Path.Combine(contentRoot, "mods"),
                     "mods 目录下还没有模组。",
-                    [".jar", ".zip"], false, true);
+                    [".jar", ".zip"], false, true,
+                    CompResourceType.Mod, gameVersion, loader, "模组管理");
                 _ = Files.RefreshAsync();
                 break;
             case "resourcepacks":
                 Files.Configure(
                     gameDirectory, Path.Combine(contentRoot, "resourcepacks"),
                     "resourcepacks 目录下还没有资源包。",
-                    [".zip"], true, false);
+                    [".zip"], true, false,
+                    CompResourceType.ResourcePack, gameVersion, loader, "资源包管理");
                 _ = Files.RefreshAsync();
                 break;
             case "shaderpacks":
                 Files.Configure(
                     gameDirectory, Path.Combine(contentRoot, "shaderpacks"),
                     "shaderpacks 目录下还没有光影包。",
-                    [".zip"], true, false);
+                    [".zip"], true, false,
+                    CompResourceType.Shader, gameVersion, loader, "光影管理");
+                _ = Files.RefreshAsync();
+                break;
+            case "datapacks":
+                Files.Configure(
+                    gameDirectory, Path.Combine(contentRoot, "datapacks"),
+                    "datapacks 目录下还没有数据包。",
+                    [".zip"], true, false,
+                    CompResourceType.DataPack, gameVersion, loader, "数据包管理");
                 _ = Files.RefreshAsync();
                 break;
             case "schematics":
                 Files.Configure(
                     gameDirectory, Path.Combine(contentRoot, "schematics"),
                     "schematics 目录下还没有投影原理图。",
-                    [".schematic", ".schem", ".litematic", ".nbt"], false, false);
+                    [".schematic", ".schem", ".litematic", ".nbt"], false, false,
+                    sectionTitle: "投影原理图");
                 _ = Files.RefreshAsync();
                 break;
             default:

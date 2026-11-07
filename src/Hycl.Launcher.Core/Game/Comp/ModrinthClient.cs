@@ -14,6 +14,16 @@ public sealed record ModrinthHashMatch(
     string? Sha512,
     string DownloadUrl);
 
+/// <summary>按 SHA-1 反查到的「该文件对应的最新兼容版本」（用于本地内容更新检测）。</summary>
+public sealed record ModrinthLatestFile(
+    string ProjectId,
+    string VersionId,
+    string VersionNumber,
+    string FileName,
+    string Sha1,
+    string DownloadUrl,
+    DateTimeOffset? DatePublished);
+
 /// <summary>
 /// Modrinth 客户端：搜索 / 项目详情 / 文件列表（对应 PCL-CE Comp 模块的 Modrinth 分支）。
 /// 全部请求经 <see cref="CompRequester"/> 的镜像阶梯（api.modrinth.com ↔ mod.mcimirror.top/modrinth）。
@@ -284,6 +294,66 @@ public sealed class ModrinthClient(CompRequester requester)
                     file.Hashes?["sha1"] ?? hash,
                     file.Hashes?.GetValueOrDefault("sha512"),
                     file.Url);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// 按 SHA-1 批量查询「与当前实例版本/加载器兼容的最新版本」（POST /v2/version_files/update）。
+    /// 返回字典的键是请求里的 sha1；未在 Modrinth 收录的文件不会出现在结果中。
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, ModrinthLatestFile>> LookupLatestBySha1Async(
+        IReadOnlyCollection<string> sha1Hashes,
+        string? gameVersion = null,
+        IReadOnlyList<string>? loaders = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = new Dictionary<string, ModrinthLatestFile>(StringComparer.OrdinalIgnoreCase);
+        var hashes = sha1Hashes
+            .Where(hash => !string.IsNullOrWhiteSpace(hash))
+            .Select(hash => hash.Trim().ToLowerInvariant())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        foreach (var batch in hashes.Chunk(100))
+        {
+            var payload = new Dictionary<string, object>
+            {
+                ["hashes"] = batch,
+                ["algorithm"] = "sha1"
+            };
+            if (!string.IsNullOrWhiteSpace(gameVersion))
+            {
+                payload["game_versions"] = new[] { gameVersion };
+            }
+
+            if (loaders is { Count: > 0 })
+            {
+                payload["loaders"] = loaders;
+            }
+
+            var response = await requester.PostJsonAsync<Dictionary<string, ModrinthVersionJson>>(
+                    $"{ApiBase}/v2/version_files/update", JsonSerializer.Serialize(payload), cancellationToken)
+                .ConfigureAwait(false);
+            foreach (var (hash, version) in response ?? [])
+            {
+                var file = version.Files?.FirstOrDefault(candidate => candidate.Primary)
+                           ?? version.Files?.FirstOrDefault();
+                if (file?.Url is null)
+                {
+                    continue;
+                }
+
+                result[hash] = new ModrinthLatestFile(
+                    version.ProjectId ?? "",
+                    version.Id ?? "",
+                    version.VersionNumber ?? "",
+                    file.Filename ?? "",
+                    file.Hashes?.GetValueOrDefault("sha1") ?? "",
+                    file.Url,
+                    version.DatePublished);
             }
         }
 

@@ -151,6 +151,7 @@ public partial class CompSectionViewModel : ObservableObject
     private bool _attached = true;
     private bool _searchInterrupted;
     private bool _suppressFilterSearch;
+    private string? _preferredInstanceId;
 
     public CompSectionViewModel(
         LauncherServices services,
@@ -212,6 +213,38 @@ public partial class CompSectionViewModel : ObservableObject
         if (_searchInterrupted && Results.Count == 0)
         {
             _ = SearchAsync();
+        }
+    }
+
+    /// <summary>
+    /// 由实例资源列表跳转进入时调用：套用该实例的游戏版本/加载器筛选，
+    /// 并让保存位置弹窗优先选择该实例（仅当该实例与本资源兼容）。
+    /// </summary>
+    public void PrepareTarget(string? gameVersion, string? loader, string? preferredInstanceId)
+    {
+        _preferredInstanceId = preferredInstanceId;
+        _suppressFilterSearch = true;
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(gameVersion) && !GameVersionOptions.Contains(gameVersion))
+            {
+                GameVersionOptions.Add(gameVersion);
+            }
+
+            SelectedGameVersion = string.IsNullOrWhiteSpace(gameVersion) ? "全部版本" : gameVersion;
+            SelectedLoader = SupportsLoaderFilter
+                             && loader is not null
+                             && LoaderOptions.Contains(loader)
+                ? loader
+                : "全部加载器";
+            SelectedCategory = "全部分类";
+            SelectedSort = "综合排序";
+            SearchText = "";
+            SelectedProject = null;
+        }
+        finally
+        {
+            _suppressFilterSearch = false;
         }
     }
 
@@ -1164,9 +1197,18 @@ public partial class CompSectionViewModel : ObservableObject
                                || file.GameVersions.Any(v => v.Equals(instance.GameVersion, StringComparison.OrdinalIgnoreCase)))
             .OrderByDescending(instance => instance.LastWriteTime)
             .ToList();
+        var preferred = _preferredInstanceId is { Length: > 0 }
+            ? instances.FirstOrDefault(instance =>
+                instance.Id.Equals(_preferredInstanceId, StringComparison.OrdinalIgnoreCase))
+            : null;
         var current = instances.FirstOrDefault(instance =>
             instance.Id.Equals(_services.Config.SelectedVersion, StringComparison.OrdinalIgnoreCase));
-        if (current is not null && compatible.Contains(current))
+        if (preferred is not null && compatible.Contains(preferred))
+        {
+            compatible.Remove(preferred);
+            compatible.Insert(0, preferred);
+        }
+        else if (current is not null && compatible.Contains(current))
         {
             compatible.Remove(current);
             compatible.Insert(0, current);
@@ -1663,6 +1705,12 @@ public partial class CompSectionViewModel : ObservableObject
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(version => version, CompLocalization.VersionComparer)
             .ToList();
+
+        // 从实例资源列表跳转时可能带入快照版本；异步重建选项时保留它，避免筛选被重置为「全部版本」
+        if (selected != "全部版本" && !versions.Contains(selected, StringComparer.OrdinalIgnoreCase))
+        {
+            versions.Insert(0, selected);
+        }
 
         _suppressFilterSearch = true;
         try

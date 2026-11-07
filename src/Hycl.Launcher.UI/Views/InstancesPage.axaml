@@ -28,6 +28,18 @@
         <Style Selector="ListBox.instance-list ListBoxItem:selected">
             <Setter Property="Background" Value="{DynamicResource BlockButtonSelectedBrush}" />
         </Style>
+        <Style Selector="Button.filter-chip">
+            <Setter Property="Padding" Value="9,3" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="FontSize" Value="11.5" />
+        </Style>
+        <Style Selector="Button.filter-chip.active">
+            <Setter Property="BorderBrush" Value="{DynamicResource PrimaryDeepBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+        </Style>
+        <Style Selector="TextBlock.relation-detail.problem">
+            <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
+        </Style>
     </UserControl.Styles>
 
     <Grid ColumnDefinitions="220,*">
@@ -235,6 +247,13 @@
                             <Grid ColumnDefinitions="Auto,*">
                                 <c:HyclIcon Kind="gold-block" Width="17" Height="17" Margin="0,0,9,0" VerticalAlignment="Center" />
                                 <TextBlock Grid.Column="1" Text="光影包" FontSize="13" VerticalAlignment="Center" />
+                            </Grid>
+                        </Button>
+                        <Button Classes="side-item" Classes.active="{Binding IsDataPacksSection}"
+                                Command="{Binding SelectInstanceSectionCommand}" CommandParameter="datapacks">
+                            <Grid ColumnDefinitions="Auto,*">
+                                <c:HyclIcon Kind="bookmark" Width="17" Height="17" Margin="0,0,9,0" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="数据包" FontSize="13" VerticalAlignment="Center" />
                             </Grid>
                         </Button>
                         <Button Classes="side-item" Classes.active="{Binding IsSchematicsSection}"
@@ -744,12 +763,12 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- 7. 本地内容（截图 / 模组 / 资源包 / 光影 / 投影） -->
+                        <!-- 7. 本地内容（截图 / 模组 / 资源包 / 光影 / 数据包 / 投影） -->
                         <Border Classes="setting-card" Margin="0,0,0,14"
                                 IsVisible="{Binding IsFilesSection}">
                             <StackPanel>
                                 <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Classes="setting-card-title" Text="本地内容" />
+                                    <TextBlock Classes="setting-card-title" Text="{Binding Files.SectionTitle}" />
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                         <TextBlock Text="{Binding Files.CountText}"
                                                    FontSize="11.5"
@@ -757,26 +776,132 @@
                                                    VerticalAlignment="Center" />
                                         <Button Classes="mc-btn" MinHeight="0" Padding="8,3" FontSize="11.5"
                                                 Content="刷新" Command="{Binding Files.RefreshCommand}" />
-                                        <Button Classes="mc-btn" MinHeight="0" Padding="8,3" FontSize="11.5"
-                                                Content="打开文件夹" Command="{Binding Files.OpenFolderCommand}" />
                                     </StackPanel>
                                 </Grid>
                                 <Border Classes="setting-card-rule" />
-                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
-                                    <TextBlock Classes="srow-label" Text="目录" />
-                                    <TextBlock Grid.Column="1" Classes="srow-value" Text="{Binding Files.Directory}" TextWrapping="Wrap" />
+
+                                <!-- 搜索 + 操作工具条 -->
+                                <TextBox Classes="stext"
+                                         Margin="0,10,0,8"
+                                         HorizontalAlignment="Stretch"
+                                         Text="{Binding Files.SearchText, Mode=TwoWay}"
+                                         PlaceholderText="按名称、描述、标签或文件名搜索…" />
+                                <WrapPanel Margin="0,0,0,6">
+                                    <Button Classes="mc-btn" MinHeight="0" Padding="9,4" FontSize="11.5" Margin="0,0,6,6"
+                                            Content="打开文件夹" Command="{Binding Files.OpenFolderCommand}" />
+                                    <Button Classes="mc-btn" MinHeight="0" Padding="9,4" FontSize="11.5" Margin="0,0,6,6"
+                                            Content="从文件安装" Command="{Binding Files.InstallFromFileCommand}" />
+                                    <Button Classes="mc-btn primary" MinHeight="0" Padding="9,4" FontSize="11.5" Margin="0,0,6,6"
+                                            Content="下载新资源"
+                                            IsVisible="{Binding Files.ShowDownloadEntry}"
+                                            Command="{Binding Files.DownloadNewCommand}" />
+                                    <Button Classes="mc-btn" MinHeight="0" Padding="9,4" FontSize="11.5" Margin="0,0,6,6"
+                                            Content="{Binding Files.AllSelectText}"
+                                            Command="{Binding Files.SelectAllCommand}" />
+                                    <Button Classes="mc-btn" MinHeight="0" Padding="9,4" FontSize="11.5" Margin="0,0,6,6"
+                                            Content="导出信息" Command="{Binding Files.ExportInfoCommand}" />
+                                    <Button Classes="mc-btn" MinHeight="0" Padding="9,4" FontSize="11.5" Margin="0,0,6,6"
+                                            Content="模组关系"
+                                            IsVisible="{Binding Files.ShowModRelations}"
+                                            Command="{Binding Files.ShowRelationsCommand}" />
+                                </WrapPanel>
+
+                                <!-- 分类计数 + 排序 -->
+                                <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,6">
+                                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                        <Button Classes="mc-btn filter-chip"
+                                                Classes.active="{Binding !Files.IsShowingUpdates}"
+                                                Content="{Binding Files.AllCountText}"
+                                                Command="{Binding Files.ShowAllCommand}" />
+                                        <Button Classes="mc-btn filter-chip"
+                                                Classes.active="{Binding Files.IsShowingUpdates}"
+                                                IsVisible="{Binding Files.ShowUpdateFilter}"
+                                                Content="{Binding Files.UpdatableCountText}"
+                                                Command="{Binding Files.ShowUpdatesCommand}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                        <TextBlock Text="排序"
+                                                   FontSize="11.5"
+                                                   Foreground="{DynamicResource Gray2Brush}"
+                                                   VerticalAlignment="Center" />
+                                        <c:McComboBox Width="118"
+                                                      Items="{Binding Files.SortOptions}"
+                                                      SelectedItem="{Binding Files.SelectedSort, Mode=TwoWay}" />
+                                        <Button Classes="mc-btn" MinHeight="0" Padding="8,3" FontSize="11.5"
+                                                Content="{Binding Files.SortDirectionText}"
+                                                Command="{Binding Files.ToggleSortDirectionCommand}" />
+                                    </StackPanel>
                                 </Grid>
-                                <TextBlock IsVisible="{Binding !Files.HasItems}"
-                                           Margin="0,4,0,2"
-                                           FontSize="11.5"
-                                           TextWrapping="Wrap"
+
+                                <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,4">
+                                    <TextBlock Classes="srow-label" Text="目录" />
+                                    <TextBlock Grid.Column="1"
+                                               Margin="10,0,10,0"
+                                               FontSize="11"
+                                               Foreground="{DynamicResource Gray2Brush}"
+                                               Text="{Binding Files.Directory}"
+                                               TextTrimming="CharacterEllipsis"
+                                               ToolTip.Tip="{Binding Files.Directory}" />
+                                    <TextBlock Grid.Column="2"
+                                               FontSize="11"
+                                               Foreground="{DynamicResource Gray2Brush}"
+                                               Text="{Binding Files.SelectionText}" />
+                                </Grid>
+
+                                <!-- 正式空状态：无资源 / 搜索无结果 -->
+                                <StackPanel IsVisible="{Binding !Files.HasItems}"
+                                            HorizontalAlignment="Center"
+                                            MaxWidth="460"
+                                            Margin="0,28,0,26"
+                                            Spacing="9">
+                                    <c:HyclIcon Kind="scroll-text"
+                                                Width="42"
+                                                Height="42"
+                                                HorizontalAlignment="Center"
+                                                Foreground="{DynamicResource Gray2Brush}" />
+                                    <TextBlock Text="{Binding Files.EmptyTitle}"
+                                               FontSize="18"
+                                               FontWeight="Bold"
+                                               HorizontalAlignment="Center" />
+                                    <TextBlock Text="{Binding Files.EmptyDescription}"
+                                               FontSize="12.5"
+                                               Foreground="{DynamicResource Gray2Brush}"
+                                               TextWrapping="Wrap"
+                                               TextAlignment="Center"
+                                               HorizontalAlignment="Center" />
+                                    <Button Classes="mc-btn primary"
+                                            MinHeight="0"
+                                            Padding="12,5"
+                                            HorizontalAlignment="Center"
+                                            Content="下载新资源"
+                                            IsVisible="{Binding Files.ShowDownloadEntry}"
+                                            Command="{Binding Files.DownloadNewCommand}" />
+                                </StackPanel>
+
+                                <TextBlock IsVisible="{Binding Files.IsCheckingUpdates}"
+                                           Margin="0,2,0,4"
+                                           FontSize="11"
                                            Foreground="{DynamicResource Gray2Brush}"
-                                           Text="{Binding Files.EmptyText}" />
+                                           Text="{Binding Files.UpdateCheckText}" />
+                                <TextBlock IsVisible="{Binding !Files.IsCheckingUpdates}"
+                                           Margin="0,2,0,4"
+                                           FontSize="11"
+                                           Foreground="{DynamicResource Gray2Brush}"
+                                           TextWrapping="Wrap"
+                                           Text="{Binding Files.UpdateCheckText}" />
+
                                 <ItemsControl IsVisible="{Binding Files.HasItems}" ItemsSource="{Binding Files.Items}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="vm:LocalContentItemViewModel">
-                                            <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,5,0,5">
-                                                <Border Width="34" Height="34"
+                                            <Grid ColumnDefinitions="Auto,Auto,*,Auto" Margin="0,5,0,5">
+                                                <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                          MinHeight="0"
+                                                          MinWidth="0"
+                                                          Padding="0"
+                                                          Margin="0,0,8,0"
+                                                          VerticalAlignment="Center" />
+                                                <Border Grid.Column="1"
+                                                        Width="34" Height="34"
                                                         Margin="0,0,10,0"
                                                         CornerRadius="6"
                                                         VerticalAlignment="Center"
@@ -797,7 +922,8 @@
                                                                     VerticalAlignment="Center" />
                                                     </Panel>
                                                 </Border>
-                                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                                                <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="1"
+                                                            ToolTip.Tip="{Binding Description}">
                                                     <StackPanel Orientation="Horizontal" Spacing="6">
                                                         <TextBlock Text="{Binding Name}"
                                                                    FontSize="12.5"
@@ -807,12 +933,22 @@
                                                                    FontSize="10.5"
                                                                    Foreground="{DynamicResource Gray2Brush}"
                                                                    VerticalAlignment="Center" />
+                                                        <Border IsVisible="{Binding IsUpdateAvailable}"
+                                                                Padding="5,0"
+                                                                CornerRadius="4"
+                                                                VerticalAlignment="Center"
+                                                                Background="{DynamicResource BlockButtonSelectedBrush}">
+                                                            <TextBlock Text="{Binding UpdateText}"
+                                                                       FontSize="10.5"
+                                                                       Foreground="{DynamicResource PrimaryDeepBrush}" />
+                                                        </Border>
                                                     </StackPanel>
-                                                    <TextBlock Text="{Binding Info}"
+                                                    <TextBlock Text="{Binding MetaText}"
                                                                FontSize="10.5"
-                                                               Foreground="{DynamicResource Gray2Brush}" />
+                                                               Foreground="{DynamicResource Gray2Brush}"
+                                                               TextTrimming="CharacterEllipsis" />
                                                 </StackPanel>
-                                                <StackPanel Grid.Column="2"
+                                                <StackPanel Grid.Column="3"
                                                             Orientation="Horizontal"
                                                             Spacing="6"
                                                             VerticalAlignment="Center">
@@ -843,6 +979,70 @@
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
+
+                                <!-- 模组关系面板 -->
+                                <Border IsVisible="{Binding Files.IsRelationsDialogVisible}"
+                                        Margin="0,10,0,0"
+                                        Padding="12"
+                                        CornerRadius="8"
+                                        Background="{DynamicResource GlassSurfaceBrush}"
+                                        BorderBrush="{DynamicResource CardBorderBrush}"
+                                        BorderThickness="1">
+                                    <StackPanel>
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBlock Text="模组关系"
+                                                       FontSize="13"
+                                                       FontWeight="Bold" />
+                                            <Button Grid.Column="1"
+                                                    Classes="mc-btn"
+                                                    MinHeight="0"
+                                                    Padding="8,3"
+                                                    FontSize="11.5"
+                                                    Content="关闭"
+                                                    Command="{Binding Files.CloseModRelationsCommand}" />
+                                        </Grid>
+                                        <TextBlock Margin="0,4,0,6"
+                                                   FontSize="11.5"
+                                                   Foreground="{DynamicResource Gray2Brush}"
+                                                   TextWrapping="Wrap"
+                                                   Text="{Binding Files.RelationsSummary}" />
+                                        <ScrollViewer MaxHeight="260"
+                                                      VerticalScrollBarVisibility="Auto"
+                                                      HorizontalScrollBarVisibility="Disabled">
+                                            <ItemsControl ItemsSource="{Binding Files.Relations}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate x:DataType="g:ModRelationLine">
+                                                        <Grid ColumnDefinitions="*,Auto" Margin="0,3">
+                                                            <StackPanel>
+                                                                <TextBlock Text="{Binding ModName}"
+                                                                           FontSize="12"
+                                                                           TextTrimming="CharacterEllipsis" />
+                                                                <TextBlock Classes="relation-detail"
+                                                                           Classes.problem="{Binding IsProblem}"
+                                                                           FontSize="10.5"
+                                                                           Foreground="{DynamicResource Gray2Brush}"
+                                                                           TextWrapping="Wrap"
+                                                                           Text="{Binding Detail}" />
+                                                            </StackPanel>
+                                                            <Border Grid.Column="1"
+                                                                    Padding="6,1"
+                                                                    Margin="8,0,0,0"
+                                                                    CornerRadius="4"
+                                                                    VerticalAlignment="Center"
+                                                                    Background="{DynamicResource GlassSurfaceBrush}"
+                                                                    BorderBrush="{DynamicResource CardBorderBrush}"
+                                                                    BorderThickness="1">
+                                                                <TextBlock Text="{Binding Relation}"
+                                                                           FontSize="10.5" />
+                                                            </Border>
+                                                        </Grid>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </ScrollViewer>
+                                    </StackPanel>
+                                </Border>
+
                                 <TextBlock Margin="0,6,0,0"
                                            FontSize="11.5"
                                            TextWrapping="Wrap"

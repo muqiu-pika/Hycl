@@ -29,6 +29,8 @@ public partial class InstancesPage : UserControl
         viewModel.ModpackFilePicker = PickModpackFileAsync;
         viewModel.JavaFilePicker = PickJavaFileAsync;
         viewModel.ExportFilePicker = PickExportSaveAsync;
+        viewModel.Files.FilePicker = PickContentFileAsync;
+        viewModel.Files.SaveInfoPicker = PickInfoSaveAsync;
         viewModel.ListResetRequested -= OnListResetRequested;
         viewModel.ListResetRequested += OnListResetRequested;
         viewModel.DetailResetRequested -= OnDetailResetRequested;
@@ -155,6 +157,62 @@ public partial class InstancesPage : UserControl
                 new FilePickerFileType("Modrinth 整合包") { Patterns = ["*.mrpack"] },
                 new FilePickerFileType("Zip 压缩包") { Patterns = ["*.zip"] }
             ]
+        });
+        return file?.TryGetLocalPath();
+    }
+
+    /// <summary>选择要安装到当前资源分区的本地文件；类型是否匹配由 ViewModel 校验。</summary>
+    private async Task<string?> PickContentFileAsync(string? startDirectory)
+    {
+        var top = TopLevel.GetTopLevel(this);
+        if (top?.StorageProvider is null)
+        {
+            return null;
+        }
+
+        IStorageFolder? startFolder = null;
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(startDirectory) && Directory.Exists(startDirectory))
+            {
+                startFolder = await top.StorageProvider.TryGetFolderFromPathAsync(new Uri(startDirectory));
+            }
+        }
+        catch (ArgumentException)
+        {
+            // 起始目录无效时退回系统默认位置
+        }
+
+        var contentType = new FilePickerFileType("资源文件")
+        {
+            Patterns = ["*.jar", "*.zip", "*.schematic", "*.schem", "*.litematic", "*.nbt"]
+        };
+        var allFilesType = new FilePickerFileType("所有文件") { Patterns = ["*"] };
+        var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "从文件安装资源",
+            AllowMultiple = false,
+            SuggestedStartLocation = startFolder,
+            FileTypeFilter = [contentType, allFilesType]
+        });
+        return files.Count > 0 ? files[0].TryGetLocalPath() : null;
+    }
+
+    /// <summary>选择资源列表信息的导出位置（CSV，UTF-8 BOM）。</summary>
+    private async Task<string?> PickInfoSaveAsync(string? suggestedName)
+    {
+        var top = TopLevel.GetTopLevel(this);
+        if (top?.StorageProvider is null)
+        {
+            return null;
+        }
+
+        var file = await top.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "导出资源列表信息",
+            SuggestedFileName = string.IsNullOrWhiteSpace(suggestedName) ? "resources.csv" : suggestedName,
+            DefaultExtension = "csv",
+            FileTypeChoices = [new FilePickerFileType("CSV 表格") { Patterns = ["*.csv"] }]
         });
         return file?.TryGetLocalPath();
     }

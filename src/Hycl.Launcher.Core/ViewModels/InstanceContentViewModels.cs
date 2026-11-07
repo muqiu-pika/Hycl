@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Hycl.Launcher.Core.Game;
@@ -18,25 +19,43 @@ public enum InstanceSection
     Mods,
     ResourcePacks,
     ShaderPacks,
+    DataPacks,
     Schematics,
     Servers
 }
 
-/// <summary>内容列表里的一行（模组 / 资源包 / 光影 / 投影 / 截图）。</summary>
-public sealed class LocalContentItemViewModel
+/// <summary>内容列表里的一行（模组 / 资源包 / 光影 / 数据包 / 投影 / 截图）。</summary>
+public sealed partial class LocalContentItemViewModel : ObservableObject
 {
-    public LocalContentItemViewModel(LocalContentFile file)
+    private readonly string _searchText;
+
+    public LocalContentItemViewModel(LocalContentFile file, LocalContentMetadata metadata)
     {
         File = file;
+        Metadata = metadata;
+        _searchText = string.Join('\n',
+            file.Name,
+            System.IO.Path.GetFileNameWithoutExtension(file.Name),
+            metadata.Name,
+            metadata.Version,
+            metadata.Description,
+            metadata.ModId,
+            string.Join(' ', metadata.Tags));
     }
 
     public LocalContentFile File { get; }
 
-    public string Name => File.Name;
+    public LocalContentMetadata Metadata { get; }
+
+    public string Name => Metadata.Name.Length > 0 ? Metadata.Name : File.Name;
 
     public string Path => File.Path;
 
-    public string Info => $"{InstanceContentService.FormatSize(File.Size)} · {File.Modified:yyyy-MM-dd HH:mm}";
+    public string FileName => File.Name;
+
+    public string VersionText => Metadata.Version.Length > 0 ? Metadata.Version : "—";
+
+    public string Description => Metadata.Description;
 
     public string? PreviewUrl => File.IsDirectory ? null : Path;
 
@@ -50,29 +69,82 @@ public sealed class LocalContentItemViewModel
     public bool IsEnabled => File.IsEnabled;
 
     public string StateText => IsEnabled ? "" : "已禁用";
+
+    public string Info => $"{InstanceContentService.FormatSize(File.Size)} · {File.Modified:yyyy-MM-dd HH:mm}";
+
+    public string MetaText => $"{Info} · {VersionText} · {SourceText}";
+
+    /// <summary>名称/描述/标签/文件名/modid 的合并索引，供搜索框过滤。</summary>
+    public string SearchText => _searchText;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(UpdateText))]
+    private bool _isUpdateAvailable;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(UpdateText))]
+    private string _latestVersion = "";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(MetaText))]
+    private string _sourceText = "本地";
+
+    [ObservableProperty]
+    private bool _isSelected;
+
+    public string UpdateText => IsUpdateAvailable
+        ? (LatestVersion.Length > 0 ? $"可更新 {LatestVersion}" : "可更新")
+        : "";
+
+    public bool Matches(string query) => SearchText.Contains(query, StringComparison.OrdinalIgnoreCase);
 }
 
-/// <summary>通用本地内容列表：模组（支持启用/禁用）、资源包、光影包、投影原理图、截图。</summary>
+/// <summary>
+/// 通用本地内容列表：模组（支持启用/禁用）、资源包、光影包、数据包、投影原理图、截图。
+/// 工具条（搜索/导入/下载入口/全选/导出/模组关系）+ 分类计数 + 排序都在这里统一处理。
+/// </summary>
 public sealed partial class InstanceFilesViewModel : ObservableObject
 {
+    public const string SortByName = "资源名称";
+    public const string SortByFileName = "文件名";
+    public const string SortBySize = "大小";
+
     private readonly LauncherServices _services;
+    private readonly List<LocalContentItemViewModel> _allItems = [];
     private string _gameDirectory = "";
     private string _directory = "";
     private string[] _extensions = [];
     private bool _includeDirectories;
     private bool _supportsDisable;
+    private CompResourceType? _resourceType;
+    private string _gameVersion = "";
+    private string _loader = "";
+    private CancellationTokenSource? _updateCts;
+    private int _loadGeneration;
 
     public InstanceFilesViewModel(LauncherServices services)
     {
         _services = services;
-        Items.CollectionChanged += (_, _) =>
-        {
-            OnPropertyChanged(nameof(HasItems));
-            OnPropertyChanged(nameof(CountText));
-        };
+        SortOptions = [SortByName, SortByFileName, SortBySize];
     }
 
+    /// <summary>UI 注入的文件选择器（从文件安装；返回 null 表示用户取消）。</summary>
+    public Func<string?, Task<string?>>? FilePicker { get; set; }
+
+    /// <summary>UI 注入的保存位置选择器（导出信息；返回 null 表示用户取消）。</summary>
+    public Func<string?, Task<string?>>? SaveInfoPicker { get; set; }
+
+    /// <summary>进入下载页并选中对应资源类别（由主窗口接线）。</summary>
+    public Action<CompResourceType>? DownloadRequested { get; set; }
+
     public ObservableCollection<LocalContentItemViewModel> Items { get; } = new();
+
+    public ObservableCollection<ModRelationLine> Relations { get; } = new();
+
+    public IReadOnlyList<string> SortOptions { get; }
+
+    [ObservableProperty]
+    private string _sectionTitle = "本地内容";
 
     [ObservableProperty]
     private string _emptyText = "";
@@ -86,11 +158,79 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
     [ObservableProperty]
     private bool _showToggle;
 
+    [ObservableProperty]
+    private bool _isShowingUpdates;
+
+    [ObservableProperty]
+    private string _searchText = "";
+
+    [ObservableProperty]
+    private string _selectedSort = SortByName;
+
+    [ObservableProperty]
+    private bool _sortDescending;
+
+    [ObservableProperty]
+    private bool _isCheckingUpdates;
+
+    [ObservableProperty]
+    private string _updateCheckText = "";
+
+    [ObservableProperty]
+    private bool _isRelationsDialogVisible;
+
+    [ObservableProperty]
+    private string _relationsSummary = "";
+
     public string Directory => _directory;
 
     public bool HasItems => Items.Count > 0;
 
-    public string CountText => Items.Count == 0 ? "" : $"共 {Items.Count} 项";
+    public string CountText => _allItems.Count == 0
+        ? ""
+        : Items.Count == _allItems.Count
+            ? $"共 {_allItems.Count} 项"
+            : $"当前 {Items.Count} / 共 {_allItems.Count} 项";
+
+    public string AllCountText => $"全部({_allItems.Count})";
+
+    public string UpdatableCountText => $"可更新({_allItems.Count(item => item.IsUpdateAvailable)})";
+
+    public string EmptyTitle => _allItems.Count == 0 ? "还没有资源" : "没有匹配的资源";
+
+    public string EmptyDescription
+    {
+        get
+        {
+            if (_allItems.Count == 0)
+            {
+                return EmptyText.Length > 0 ? EmptyText : "当前目录下还没有资源。";
+            }
+
+            return IsShowingUpdates && SearchText.Trim().Length == 0
+                ? "没有检测到可更新的资源。"
+                : "试试调整搜索关键词，或切换回「全部」。";
+        }
+    }
+
+    public bool CanCheckUpdates =>
+        _resourceType is CompResourceType.Mod or CompResourceType.ResourcePack
+            or CompResourceType.Shader or CompResourceType.DataPack
+        && _allItems.Count > 0;
+
+    public bool ShowUpdateFilter => CanCheckUpdates;
+
+    public bool ShowDownloadEntry => _resourceType is not null;
+
+    public bool ShowModRelations => _resourceType == CompResourceType.Mod;
+
+    public bool AllSelected => Items.Count > 0 && Items.All(item => item.IsSelected);
+
+    public string AllSelectText => AllSelected ? "取消全选" : "全选";
+
+    public string SelectionText => $"已选 {Items.Count(item => item.IsSelected)} / {Items.Count}";
+
+    public string SortDirectionText => SortDescending ? "降序" : "升序";
 
     public void Configure(
         string gameDirectory,
@@ -98,17 +238,43 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
         string emptyText,
         string[] extensions,
         bool includeDirectories,
-        bool supportsDisable)
+        bool supportsDisable,
+        CompResourceType? resourceType = null,
+        string gameVersion = "",
+        string loader = "",
+        string sectionTitle = "本地内容")
     {
+        CancelUpdateCheck();
+        _loadGeneration++;
         _gameDirectory = gameDirectory;
         _directory = directory;
         EmptyText = emptyText;
         _extensions = extensions;
         _includeDirectories = includeDirectories;
         _supportsDisable = supportsDisable;
+        _resourceType = resourceType;
+        _gameVersion = gameVersion;
+        _loader = loader;
+        SectionTitle = sectionTitle;
         ShowToggle = supportsDisable;
         StatusMessage = "";
+        UpdateCheckText = "";
+        IsCheckingUpdates = false;
+        IsShowingUpdates = false;
+        SearchText = "";
+        SelectedSort = SortByName;
+        SortDescending = false;
+        IsRelationsDialogVisible = false;
+        Relations.Clear();
+        DetachItems();
+        _allItems.Clear();
+        Items.Clear();
+        NotifyListState();
         OnPropertyChanged(nameof(Directory));
+        OnPropertyChanged(nameof(ShowDownloadEntry));
+        OnPropertyChanged(nameof(ShowModRelations));
+        OnPropertyChanged(nameof(CanCheckUpdates));
+        OnPropertyChanged(nameof(ShowUpdateFilter));
     }
 
     public Task RefreshAsync() => LoadAsync();
@@ -118,27 +284,359 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
 
     private async Task LoadAsync()
     {
+        var generation = ++_loadGeneration;
+        CancelUpdateCheck();
         if (string.IsNullOrWhiteSpace(_directory))
         {
+            DetachItems();
+            _allItems.Clear();
             Items.Clear();
+            NotifyListState();
             return;
         }
 
         IsLoading = true;
         try
         {
-            var files = await Task.Run(
-                () => InstanceContentService.Scan(_directory, _extensions, _includeDirectories)).ConfigureAwait(true);
-            Items.Clear();
-            foreach (var file in files)
+            var directory = _directory;
+            var extensions = _extensions;
+            var includeDirectories = _includeDirectories;
+            var snapshot = await Task.Run(
+                () => InstanceContentService.Scan(directory, extensions, includeDirectories)).ConfigureAwait(true);
+            if (generation != _loadGeneration)
             {
-                Items.Add(new LocalContentItemViewModel(file));
+                return;
+            }
+
+            var items = await Task.Run(() => snapshot
+                .Select(file => new LocalContentItemViewModel(
+                    file,
+                    LocalContentMetadataReader.Read(file.Path, file.IsDirectory)))
+                .ToList()).ConfigureAwait(true);
+            if (generation != _loadGeneration)
+            {
+                return;
+            }
+
+            DetachItems();
+            _allItems.Clear();
+            _allItems.AddRange(items);
+            foreach (var item in _allItems)
+            {
+                item.PropertyChanged += OnItemPropertyChanged;
+            }
+
+            StatusMessage = "";
+            UpdateCheckText = "";
+            ApplyFilter();
+            if (CanCheckUpdates && generation == _loadGeneration)
+            {
+                _ = RunUpdateCheckAsync(generation);
             }
         }
         finally
         {
-            IsLoading = false;
+            if (generation == _loadGeneration)
+            {
+                IsLoading = false;
+            }
         }
+    }
+
+    private void OnItemPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(LocalContentItemViewModel.IsSelected))
+        {
+            OnPropertyChanged(nameof(AllSelected));
+            OnPropertyChanged(nameof(AllSelectText));
+            OnPropertyChanged(nameof(SelectionText));
+        }
+        else if (e.PropertyName == nameof(LocalContentItemViewModel.IsUpdateAvailable))
+        {
+            OnPropertyChanged(nameof(UpdatableCountText));
+            if (IsShowingUpdates)
+            {
+                ApplyFilter();
+            }
+        }
+    }
+
+    private void DetachItems()
+    {
+        foreach (var item in _allItems)
+        {
+            item.PropertyChanged -= OnItemPropertyChanged;
+        }
+    }
+
+    private void ApplyFilter()
+    {
+        var query = SearchText.Trim();
+        IEnumerable<LocalContentItemViewModel> filtered = _allItems;
+        if (IsShowingUpdates)
+        {
+            filtered = filtered.Where(item => item.IsUpdateAvailable);
+        }
+
+        if (query.Length > 0)
+        {
+            filtered = filtered.Where(item => item.Matches(query));
+        }
+
+        var sorted = SortItems(filtered);
+        Items.Clear();
+        foreach (var item in sorted)
+        {
+            Items.Add(item);
+        }
+
+        NotifyListState();
+    }
+
+    private IEnumerable<LocalContentItemViewModel> SortItems(IEnumerable<LocalContentItemViewModel> items)
+    {
+        var ordered = SelectedSort switch
+        {
+            SortByFileName => SortDescending
+                ? items.OrderByDescending(item => item.FileName, StringComparer.OrdinalIgnoreCase)
+                : items.OrderBy(item => item.FileName, StringComparer.OrdinalIgnoreCase),
+            SortBySize => SortDescending
+                ? items.OrderByDescending(item => item.File.Size)
+                : items.OrderBy(item => item.File.Size),
+            _ => SortDescending
+                ? items.OrderByDescending(item => item.Name, StringComparer.OrdinalIgnoreCase)
+                : items.OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+        };
+        return ordered.ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private void NotifyListState()
+    {
+        OnPropertyChanged(nameof(HasItems));
+        OnPropertyChanged(nameof(CountText));
+        OnPropertyChanged(nameof(AllCountText));
+        OnPropertyChanged(nameof(UpdatableCountText));
+        OnPropertyChanged(nameof(EmptyTitle));
+        OnPropertyChanged(nameof(EmptyDescription));
+        OnPropertyChanged(nameof(AllSelected));
+        OnPropertyChanged(nameof(AllSelectText));
+        OnPropertyChanged(nameof(SelectionText));
+        OnPropertyChanged(nameof(CanCheckUpdates));
+        OnPropertyChanged(nameof(ShowUpdateFilter));
+        OnPropertyChanged(nameof(ShowDownloadEntry));
+        OnPropertyChanged(nameof(ShowModRelations));
+    }
+
+    partial void OnSearchTextChanged(string value) => ApplyFilter();
+
+    partial void OnSelectedSortChanged(string value) => ApplyFilter();
+
+    partial void OnSortDescendingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(SortDirectionText));
+        ApplyFilter();
+    }
+
+    partial void OnIsShowingUpdatesChanged(bool value) => ApplyFilter();
+
+    [RelayCommand]
+    private void ShowAll()
+    {
+        IsShowingUpdates = false;
+    }
+
+    [RelayCommand]
+    private void ShowUpdates()
+    {
+        if (CanCheckUpdates)
+        {
+            IsShowingUpdates = true;
+        }
+    }
+
+    [RelayCommand]
+    private void SelectAll()
+    {
+        var select = !AllSelected;
+        foreach (var item in Items)
+        {
+            item.IsSelected = select;
+        }
+
+        OnPropertyChanged(nameof(AllSelected));
+        OnPropertyChanged(nameof(AllSelectText));
+        OnPropertyChanged(nameof(SelectionText));
+    }
+
+    [RelayCommand]
+    private void ToggleSortDirection()
+    {
+        SortDescending = !SortDescending;
+    }
+
+    [RelayCommand]
+    private void DownloadNew()
+    {
+        if (_resourceType is { } type)
+        {
+            DownloadRequested?.Invoke(type);
+        }
+    }
+
+    [RelayCommand]
+    private async Task InstallFromFileAsync()
+    {
+        var picker = FilePicker;
+        if (picker is null || _directory.Length == 0)
+        {
+            StatusMessage = "当前目录不可用，无法从文件安装。";
+            return;
+        }
+
+        var picked = await picker(_directory).ConfigureAwait(true);
+        if (picked is null)
+        {
+            return;
+        }
+
+        var source = Path.GetFullPath(picked);
+        if (!File.Exists(source))
+        {
+            StatusMessage = "所选文件不存在，可能已被移动。";
+            return;
+        }
+
+        var extension = Path.GetExtension(source);
+        var allowed = _extensions
+            .Select(item => item.StartsWith('.') ? item : $".{item}")
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (!allowed.Contains(extension))
+        {
+            StatusMessage = $"文件类型不匹配：当前分区只接受 {string.Join(" / ", _extensions)}";
+            return;
+        }
+
+        if (extension.Equals(".jar", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".zip", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                using var archive = System.IO.Compression.ZipFile.OpenRead(source);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                           or InvalidDataException)
+            {
+                StatusMessage = $"文件校验失败（不是有效的压缩包）：{ex.Message}";
+                return;
+            }
+        }
+
+        var fileName = Path.GetFileName(source);
+        var target = Path.Combine(_directory, fileName);
+        if (File.Exists(target) || File.Exists(target + ".disabled"))
+        {
+            StatusMessage = $"已存在同名文件，未导入：{fileName}";
+            return;
+        }
+
+        try
+        {
+            System.IO.Directory.CreateDirectory(_directory);
+            File.Copy(source, target);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            StatusMessage = $"导入失败：{ex.Message}";
+            _services.Logger.Error("从文件安装资源失败", ex);
+            return;
+        }
+
+        StatusMessage = $"已导入：{fileName}";
+        await LoadAsync();
+    }
+
+    [RelayCommand]
+    private async Task ExportInfoAsync()
+    {
+        var picker = SaveInfoPicker;
+        if (picker is null)
+        {
+            StatusMessage = "当前平台不支持选择保存位置。";
+            return;
+        }
+
+        var target = await picker($"{SectionTitle}-{DateTime.Now:yyyyMMdd-HHmm}.csv").ConfigureAwait(true);
+        if (target is null)
+        {
+            return;
+        }
+
+        if (!target.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+        {
+            target += ".csv";
+        }
+
+        var lines = new List<string> { "名称,版本,来源,文件名,路径,大小,是否启用,可更新" };
+        foreach (var item in Items)
+        {
+            lines.Add(string.Join(',', new[]
+            {
+                Csv(item.Name),
+                Csv(item.VersionText),
+                Csv(item.SourceText),
+                Csv(System.IO.Path.GetFileName(item.Path)),
+                Csv(item.Path),
+                Csv(InstanceContentService.FormatSize(item.File.Size)),
+                Csv(item.IsEnabled ? "是" : "否"),
+                Csv(item.UpdateText.Length > 0 ? item.UpdateText : "否")
+            }));
+        }
+
+        try
+        {
+            await File.WriteAllTextAsync(
+                    target,
+                    string.Join(Environment.NewLine, lines),
+                    new UTF8Encoding(encoderShouldEmitUTF8Identifier: true))
+                .ConfigureAwait(true);
+            StatusMessage = $"已导出 {Items.Count} 项到 {target}";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            StatusMessage = $"导出信息失败：{ex.Message}";
+            _services.Logger.Error("导出资源列表信息失败", ex);
+        }
+    }
+
+    [RelayCommand]
+    private void ShowRelations()
+    {
+        var entries = _allItems
+            .Where(item => !item.IsDirectory && item.Metadata.ModId.Length > 0)
+            .Select(item => (item.File, item.Metadata))
+            .ToList();
+        var lines = ModRelationAnalyzer.Analyze(entries);
+        Relations.Clear();
+        foreach (var line in lines
+                     .OrderByDescending(item => item.IsProblem)
+                     .ThenBy(item => item.ModName, StringComparer.OrdinalIgnoreCase))
+        {
+            Relations.Add(line);
+        }
+
+        var problems = lines.Count(item => item.IsProblem);
+        RelationsSummary = entries.Count == 0
+            ? "没有可解析的模组元数据（仅支持 Fabric / Forge / NeoForge 模组）。"
+            : problems == 0
+                ? $"共 {lines.Count} 条依赖关系，未发现缺失或冲突。"
+                : $"共 {lines.Count} 条依赖关系，其中 {problems} 条缺失前置或冲突。";
+        IsRelationsDialogVisible = true;
+    }
+
+    [RelayCommand]
+    private void CloseModRelations()
+    {
+        IsRelationsDialogVisible = false;
     }
 
     [RelayCommand]
@@ -199,6 +697,205 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
         if (success)
         {
             await LoadAsync();
+        }
+    }
+
+    private static string Csv(string value)
+        => value.IndexOfAny(new[] { ',', '"', '\n', '\r' }) >= 0
+            ? $"\"{value.Replace("\"", "\"\"")}\""
+            : value;
+
+    /// <summary>
+    /// 真实更新检测：计算 SHA-1 / CurseForge 指纹 → Modrinth 批量反查已安装版本与最新兼容版本，
+    /// 版本 Id 不同即视为可更新；未命中 Modrinth 的文件再用 CurseForge 指纹反查来源。
+    /// </summary>
+    private async Task RunUpdateCheckAsync(int generation)
+    {
+        var candidates = _allItems.Where(item => !item.IsDirectory).ToList();
+        if (candidates.Count == 0)
+        {
+            return;
+        }
+
+        CancelUpdateCheck();
+        var cts = new CancellationTokenSource();
+        _updateCts = cts;
+        var token = cts.Token;
+        IsCheckingUpdates = true;
+        UpdateCheckText = "正在计算文件指纹…";
+        try
+        {
+            var hashed = await Task.Run(async () =>
+            {
+                var list = new List<(LocalContentItemViewModel Item, ModpackFileHashes Hash)>();
+                foreach (var item in candidates)
+                {
+                    token.ThrowIfCancellationRequested();
+                    try
+                    {
+                        list.Add((item, await ModpackHash.ComputeAsync(item.Path, token).ConfigureAwait(false)));
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        // 单个不可读文件跳过，不影响其余项
+                    }
+                }
+
+                return list;
+            }, token).ConfigureAwait(true);
+            token.ThrowIfCancellationRequested();
+            if (generation != _loadGeneration)
+            {
+                return;
+            }
+
+            UpdateCheckText = "正在通过 Modrinth 校验更新…";
+            var sha1s = hashed.Select(entry => entry.Hash.Sha1).ToList();
+            var modrinth = new ModrinthClient(_services.CompRequester);
+            var installedTask = modrinth.LookupBySha1Async(sha1s, token);
+            var latestTask = modrinth.LookupLatestBySha1Async(sha1s, _gameVersion, UpdateLoaders(), token);
+            await Task.WhenAll(installedTask, latestTask).ConfigureAwait(true);
+            var installed = await installedTask.ConfigureAwait(true);
+            var latest = await latestTask.ConfigureAwait(true);
+            if (generation != _loadGeneration)
+            {
+                return;
+            }
+
+            var updatable = 0;
+            foreach (var (item, hash) in hashed)
+            {
+                if (!installed.TryGetValue(hash.Sha1, out var match))
+                {
+                    continue;
+                }
+
+                item.SourceText = "Modrinth";
+                if (!latest.TryGetValue(hash.Sha1, out var newest) || newest.VersionId == match.VersionId)
+                {
+                    continue;
+                }
+
+                item.IsUpdateAvailable = true;
+                item.LatestVersion = newest.VersionNumber.Length > 0
+                    ? newest.VersionNumber
+                    : Path.GetFileNameWithoutExtension(newest.FileName);
+                updatable++;
+            }
+
+            await ApplyCurseForgeSourcesAsync(hashed, installed, token).ConfigureAwait(true);
+            if (generation != _loadGeneration)
+            {
+                return;
+            }
+
+            OnPropertyChanged(nameof(UpdatableCountText));
+            if (IsShowingUpdates)
+            {
+                ApplyFilter();
+            }
+
+            UpdateCheckText = $"已校验 {hashed.Count} 个文件，{updatable} 个可更新"
+                              + (hashed.Count > 0 && updatable == 0 ? "（仅 Modrinth 收录的资源可判断）" : "");
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // 切换分区/刷新导致的取消：不提示错误
+        }
+        catch (Exception ex)
+        {
+            UpdateCheckText = $"更新检测失败：{ex.Message}";
+            _services.Logger.Warn($"本地资源更新检测失败：{ex.Message}");
+        }
+        finally
+        {
+            if (ReferenceEquals(_updateCts, cts))
+            {
+                _updateCts = null;
+                IsCheckingUpdates = false;
+            }
+
+            cts.Dispose();
+        }
+    }
+
+    /// <summary>未命中 Modrinth 的文件按 CurseForge 指纹反查来源；失败只影响来源列，不影响更新判断。</summary>
+    private async Task ApplyCurseForgeSourcesAsync(
+        IReadOnlyList<(LocalContentItemViewModel Item, ModpackFileHashes Hash)> hashed,
+        IReadOnlyDictionary<string, ModrinthHashMatch> modrinthMatches,
+        CancellationToken cancellationToken)
+    {
+        var pending = hashed
+            .Where(entry => !modrinthMatches.ContainsKey(entry.Hash.Sha1))
+            .ToList();
+        if (pending.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var curseForge = new CurseForgeClient(_services.CompRequester);
+            var files = await curseForge
+                .LookupFingerprintsAsync(pending.Select(entry => entry.Hash.Murmur2).Distinct().ToList(), cancellationToken)
+                .ConfigureAwait(true);
+            var bySha1 = files
+                .Where(file => !string.IsNullOrEmpty(file.Hash))
+                .GroupBy(file => file.Hash!, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+            foreach (var (item, hash) in pending)
+            {
+                if (bySha1.TryGetValue(hash.Sha1, out _))
+                {
+                    item.SourceText = "CurseForge";
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // CurseForge 反查需要可用的 API Key/镜像；失败时保留“本地”来源，不伪造结果
+            _services.Logger.Warn($"CurseForge 指纹反查失败（来源列保持为本地）：{ex.Message}");
+        }
+    }
+
+    private IReadOnlyList<string>? UpdateLoaders()
+    {
+        if (_resourceType != CompResourceType.Mod)
+        {
+            return null;
+        }
+
+        return _loader switch
+        {
+            "Forge" or "Cleanroom" => ["forge"],
+            "NeoForge" => ["neoforge"],
+            "Fabric" or "Legacy Fabric" => ["fabric"],
+            "Quilt" => ["quilt"],
+            "LiteLoader" => ["liteloader"],
+            _ => null
+        };
+    }
+
+    private void CancelUpdateCheck()
+    {
+        var current = _updateCts;
+        _updateCts = null;
+        if (current is null)
+        {
+            return;
+        }
+
+        try
+        {
+            current.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // 已在其它路径释放
         }
     }
 }

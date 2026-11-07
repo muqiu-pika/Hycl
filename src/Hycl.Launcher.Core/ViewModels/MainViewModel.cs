@@ -58,6 +58,11 @@ public partial class MainViewModel : ObservableObject
         Download = new DownloadPageViewModel(services, ShowToast);
         PerfTrace.Mark("download_vm_ctor_done");
         Instances = new InstancesViewModel(services, Download.Install);
+        Instances.DownloadResourceRequested = (type, gameVersion, loaderLabel, instanceId) =>
+        {
+            SelectedTabIndex = 1;
+            Download.OpenCompSection(type, gameVersion, loaderLabel, instanceId);
+        };
         PerfTrace.Mark("instances_vm_ctor_done");
         Settings = new SettingsPageViewModel(services, ShowToast);
         PerfTrace.Mark("settings_vm_ctor_done");

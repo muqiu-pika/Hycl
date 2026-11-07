@@ -288,6 +288,42 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
         _ = section.OpenProjectAsync(project);
     }
 
+    /// <summary>
+    /// 从实例资源列表进入下载页：选中对应社区分区，套用实例的游戏版本/加载器筛选，
+    /// 并把该实例作为保存位置的优先目标。调用前主窗口已切到下载页（分区处于 Attach 状态）。
+    /// </summary>
+    public void OpenCompSection(
+        CompResourceType type,
+        string? gameVersion,
+        string? loaderLabel,
+        string? preferredInstanceId)
+    {
+        var section = CompSections.FirstOrDefault(item => item.Type == type);
+        var nav = Groups.SelectMany(group => group.Items)
+            .FirstOrDefault(item => ReferenceEquals(item.Section, section));
+        if (section is null || nav is null)
+        {
+            return;
+        }
+
+        _skipAutoSearch = true;
+        SelectedSection = nav;
+        _skipAutoSearch = false;
+        section.PrepareTarget(gameVersion, MapLoaderLabel(loaderLabel), preferredInstanceId);
+        if (!section.IsSearching)
+        {
+            _ = section.SearchFromStartCommand.ExecuteAsync(null);
+        }
+    }
+
+    private static string? MapLoaderLabel(string? loaderLabel) => loaderLabel switch
+    {
+        "Forge" or "Cleanroom" => "Forge",
+        "NeoForge" => "NeoForge",
+        "Fabric" or "Legacy Fabric" or "Quilt" => loaderLabel == "Quilt" ? "Quilt" : "Fabric",
+        _ => null
+    };
+
     [RelayCommand]
     private void SelectSection(NavItemViewModel? item) => SelectedSection = item;
 
