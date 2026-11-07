@@ -62,6 +62,16 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
         Groups = new ObservableCollection<NavGroupViewModel>
         {
             new("", [minecraft]),
+            new("社区资源",
+            [
+                new NavItemViewModel("收藏夹", "star", FavoritesSection),
+                new NavItemViewModel("整合包", "package", CompSections[0]),
+                new NavItemViewModel("模组", "forge", CompSections[1]),
+                new NavItemViewModel("资源包", "cobblestone", CompSections[2]),
+                new NavItemViewModel("光影", "gold-block", CompSections[3]),
+                new NavItemViewModel("数据包", "bookmark", CompSections[4]),
+                new NavItemViewModel("世界", "grass-block", CompSections[5])
+            ]),
             new("安装包",
             [
                 new NavItemViewModel("Vanilla", "vanilla", CreateClientSection()),
@@ -74,16 +84,6 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
                 new NavItemViewModel("OptiFine", "optifine", CreateLoaderSection("optifine", "OptiFine", "optifine")),
                 new NavItemViewModel("LiteLoader", "liteloader", CreateLoaderSection("liteloader", "LiteLoader", "liteloader")),
                 new NavItemViewModel("LabyMod", "labymod", CreateLoaderSection("labymod", "LabyMod", "labymod"))
-            ]),
-            new("社区资源",
-            [
-                new NavItemViewModel("收藏夹", "star", FavoritesSection),
-                new NavItemViewModel("整合包", "package", CompSections[0]),
-                new NavItemViewModel("模组", "forge", CompSections[1]),
-                new NavItemViewModel("资源包", "cobblestone", CompSections[2]),
-                new NavItemViewModel("光影", "gold-block", CompSections[3]),
-                new NavItemViewModel("数据包", "bookmark", CompSections[4]),
-                new NavItemViewModel("世界", "grass-block", CompSections[5])
             ])
         };
 
