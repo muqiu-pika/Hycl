@@ -370,7 +370,7 @@ public partial class InstallWizardViewModel : ObservableObject
     [ObservableProperty]
     private string _targetName = "";
 
-    /// <summary>实例名校验错误（非法字符 / 与现有实例重名），非空时阻止开始安装。</summary>
+    /// <summary>实例名校验错误（非法字符/保留字等），非空时阻止开始安装；重名由安装流程自动追加序号。</summary>
     [ObservableProperty]
     private string _targetNameError = "";
 
@@ -1382,21 +1382,24 @@ public partial class InstallWizardViewModel : ObservableObject
 
         var choice = _selectedLoaderItem?.Payload as LoaderChoice;
         var kind = choice?.Kind?.ToLowerInvariant() ?? "vanilla";
-        var targetName = string.IsNullOrWhiteSpace(TargetName) ? SelectedMcId : TargetName;
+        var targetName = string.IsNullOrWhiteSpace(TargetName) ? SelectedMcId : TargetName.Trim();
 
-        // 与 PCL-CE FolderNameValidator 一致：非法名称或 versions 下已有同名实例时阻止安装，
-        // 保持向导打开并提示换名，绝不覆盖已有实例。
+        // 非法名称仍阻断安装；同名实例已存在时自动追加序号（26.3 → 26.3-1 → 26.3-2 …），绝不覆盖旧实例。
         TargetNameError = "";
         var nameError = InstanceNameValidator.ValidateName(targetName);
-        var effectiveName = kind == "vanilla" ? SelectedMcId : targetName;
-        var collisionError = InstanceNameValidator.ValidateCollision(
-            _services.Config.EffectiveGameDirectory, effectiveName);
-        var validationError = nameError ?? collisionError;
-        if (validationError is not null)
+        if (nameError is not null)
         {
-            TargetNameError = validationError;
-            _toast?.Invoke(validationError);
+            TargetNameError = nameError;
+            _toast?.Invoke(nameError);
             return;
+        }
+
+        var effectiveName = InstanceNameValidator.GetAvailableName(
+            _services.Config.EffectiveGameDirectory, targetName);
+        if (!effectiveName.Equals(targetName, StringComparison.Ordinal))
+        {
+            TargetName = effectiveName;
+            _toast?.Invoke($"已存在同名实例 {targetName}，将安装为 {effectiveName}");
         }
 
         var companionModSlugs = new List<string>();
@@ -1421,7 +1424,7 @@ public partial class InstallWizardViewModel : ObservableObject
             Kind = kind,
             GameDirectory = _services.Config.EffectiveGameDirectory,
             GameVersion = SelectedMcId,
-            TargetName = targetName,
+            TargetName = effectiveName,
             LoaderVersion = choice?.DisplayName is { } loaderVersion
                             && !loaderVersion.Contains("自动", StringComparison.Ordinal)
                 ? loaderVersion
@@ -1430,11 +1433,11 @@ public partial class InstallWizardViewModel : ObservableObject
             LiteLoader = _selectedLiteLoaderItem?.Payload as LiteLoaderEntry,
             CompanionModSlugs = companionModSlugs,
             Policy = DownloadPolicy.FromConfig(_services.Config),
-            VersionIsolation = _services.Config.IsInstanceIsolated(targetName),
+            VersionIsolation = _services.Config.IsInstanceIsolated(effectiveName),
             Threads = _services.Config.DownloadThreads,
             JavaPath = _services.Config.JavaPath
         };
-        var displayName = $"{SelectedMcId} · {SelectedLoaderName}";
+        var displayName = $"{effectiveName} · {SelectedLoaderName}";
         _toast?.Invoke($"开始安装 {displayName}…");
         await _install.RunPlanAsync(plan, displayName).ConfigureAwait(true);
     }

@@ -170,23 +170,19 @@ public partial class InstallTaskViewModel : ObservableObject
             displayName,
             async (progress, token) =>
             {
-                // 与 PCL-CE 一致：同名实例已存在时阻止安装，不覆盖旧实例
-                var nameError = InstanceNameValidator.ValidateCollision(
+                // 同名实例已存在时自动追加序号（26.3 → 26.3-1 → 26.3-2 …），绝不覆盖旧实例
+                var targetName = InstanceNameValidator.GetAvailableName(
                     _services.Config.EffectiveGameDirectory, summary.Id);
-                if (nameError is not null)
-                {
-                    throw new DownloadException(nameError);
-                }
-
                 await _services.Installer.InstallVanillaAsync(
                         _services.Config.EffectiveGameDirectory,
                         summary,
                         DownloadPolicy.FromConfig(_services.Config),
                         _services.Config.DownloadThreads,
                         progress,
-                        token)
+                        token,
+                        targetName: targetName)
                     .ConfigureAwait(true);
-                return summary.Id;
+                return targetName;
             }).ConfigureAwait(true);
     }
 
@@ -195,14 +191,19 @@ public partial class InstallTaskViewModel : ObservableObject
         await RunAsync(
             displayName,
             async (progress, token) =>
-                await _services.Installer.InstallFabricAsync(
+            {
+                var targetName = InstanceNameValidator.GetAvailableName(
+                    _services.Config.EffectiveGameDirectory, $"{gameVersion}-fabric");
+                return await _services.Installer.InstallFabricAsync(
                         _services.Config.EffectiveGameDirectory,
                         gameVersion,
                         DownloadPolicy.FromConfig(_services.Config),
                         _services.Config.DownloadThreads,
                         progress,
-                        token)
-                    .ConfigureAwait(true)).ConfigureAwait(true);
+                        token,
+                        targetName)
+                    .ConfigureAwait(true);
+            }).ConfigureAwait(true);
     }
 
     /// <summary>执行完整的加载器安装计划（主加载器 + 附属内容 + 前置 Mod）。</summary>
@@ -212,23 +213,18 @@ public partial class InstallTaskViewModel : ObservableObject
             displayName,
             async (progress, token) =>
             {
-                // 与 PCL-CE FolderNameValidator 一致：非法名称或同名实例已存在时阻止安装。
-                // 原版计划实际写入 versions/<GameVersion>，其余加载器写入 versions/<TargetName>。
+                // 非法名称仍阻断；同名实例自动追加序号（与导入整合包命名语义一致）
                 var targetNameError = InstanceNameValidator.ValidateName(plan.TargetName);
                 if (targetNameError is not null)
                 {
                     throw new DownloadException(targetNameError);
                 }
 
-                var effectiveName = plan.Kind.Equals("vanilla", StringComparison.OrdinalIgnoreCase)
-                    ? plan.GameVersion
-                    : plan.TargetName;
-                var collisionError = InstanceNameValidator.ValidateCollision(plan.GameDirectory, effectiveName);
-                if (collisionError is not null)
+                plan = plan with
                 {
-                    throw new DownloadException(collisionError);
-                }
-
+                    TargetName = InstanceNameValidator.GetAvailableName(
+                        plan.GameDirectory, plan.TargetName)
+                };
                 return await _services.LoaderInstall.InstallAsync(plan, progress, token).ConfigureAwait(true);
             })
             .ConfigureAwait(true);

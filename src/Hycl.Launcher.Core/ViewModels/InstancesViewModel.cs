@@ -941,7 +941,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         ImportStageText = "准备导入…";
         try
         {
-            await _services.CompInstall.ImportModpackAsync(
+            var importedName = await _services.CompInstall.ImportModpackAsync(
                     path,
                     _services.Config.EffectiveGameDirectory,
                     name,
@@ -958,8 +958,8 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
                 .ConfigureAwait(true);
 
             await RefreshAsync().ConfigureAwait(true);
-            SelectedInstance = Instances.FirstOrDefault(x => x.Id.Equals(name, StringComparison.OrdinalIgnoreCase));
-            StatusMessage = $"已导入整合包：{name}";
+            SelectedInstance = Instances.FirstOrDefault(x => x.Id.Equals(importedName, StringComparison.OrdinalIgnoreCase));
+            StatusMessage = $"已导入整合包：{importedName}";
             DetailResetRequested?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception ex)
@@ -1032,14 +1032,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
 
         if (_isImportDialog)
         {
-            var collisionError = InstanceNameValidator.ValidateCollision(
-                _services.Config.EffectiveGameDirectory, newId);
-            if (collisionError is not null)
-            {
-                NameDialogHint = collisionError;
-                return;
-            }
-
+            // 同名冲突由导入服务自动追加序号（26.3 → 26.3-1 …），这里只校验名称格式
             await ConfirmImportAsync(newId).ConfigureAwait(true);
             return;
         }

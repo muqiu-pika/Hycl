@@ -234,6 +234,20 @@ public sealed class CompInstallService
         CancellationToken cancellationToken = default,
         bool downloadAssets = true)
     {
+        var nameError = InstanceNameValidator.ValidateName(instanceName);
+        if (nameError is not null)
+        {
+            throw new CompException(nameError);
+        }
+
+        // 同名实例已存在时自动追加序号（26.3 → 26.3-1 …），与安装新版本命名语义一致
+        var desiredName = instanceName;
+        instanceName = InstanceNameValidator.GetAvailableName(gameDirectory, instanceName);
+        if (!instanceName.Equals(desiredName, StringComparison.Ordinal))
+        {
+            _logger.Info($"整合包实例名 {desiredName} 已存在，改用 {instanceName}");
+        }
+
         var instanceDirectory = Path.Combine(gameDirectory, "versions", instanceName);
         // 回滚标记：目录是本次新建的才回滚，避免误删已存在的实例
         var createdInstanceDirectory = !Directory.Exists(instanceDirectory);
@@ -503,7 +517,7 @@ public sealed class CompInstallService
 
     /// <summary>
     /// 从本地压缩包/文件夹导入整合包（对应 PCL-CE 的"导入整合包"入口）。
-    /// 已存在同名实例直接拒绝；安装失败会整体回滚本次新建的实例目录。
+    /// 同名实例已存在时自动追加序号；安装失败会整体回滚本次新建的实例目录。
     /// </summary>
     public async Task<string> ImportModpackAsync(
         string sourcePath,
@@ -515,12 +529,21 @@ public sealed class CompInstallService
         CancellationToken cancellationToken = default,
         bool downloadAssets = true)
     {
-        var instanceDirectory = Path.Combine(gameDirectory, "versions", instanceName);
-        var nameError = InstanceNameValidator.Validate(gameDirectory, instanceName);
+        var nameError = InstanceNameValidator.ValidateName(instanceName);
         if (nameError is not null)
         {
             throw new CompException(nameError);
         }
+
+        // 同名实例已存在时自动追加序号（26.3 → 26.3-1 …），与安装新版本命名语义一致
+        var desiredName = instanceName;
+        instanceName = InstanceNameValidator.GetAvailableName(gameDirectory, instanceName);
+        if (!instanceName.Equals(desiredName, StringComparison.Ordinal))
+        {
+            _logger.Info($"导入实例名 {desiredName} 已存在，改用 {instanceName}");
+        }
+
+        var instanceDirectory = Path.Combine(gameDirectory, "versions", instanceName);
 
         var reporter = new CompProgress(progress);
         string? tempZip = null;

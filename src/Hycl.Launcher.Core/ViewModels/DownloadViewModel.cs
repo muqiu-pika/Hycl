@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Hycl.Launcher.Core.Config;
 using Hycl.Launcher.Core.Download;
+using Hycl.Launcher.Core.Game;
 
 namespace Hycl.Launcher.Core.ViewModels;
 
@@ -231,17 +232,21 @@ public sealed partial class DownloadViewModel : ObservableObject
         try
         {
             var progress = CreateProgress();
+            // 同名实例已存在时自动追加序号（26.3 → 26.3-1 …），绝不覆盖旧实例
+            var targetName = InstanceNameValidator.GetAvailableName(
+                config.EffectiveGameDirectory, version.Summary.Id);
             await _services.Installer.InstallVanillaAsync(
                     config.EffectiveGameDirectory,
                     version.Summary,
                     DownloadPolicy.FromConfig(config),
                     config.DownloadThreads,
                     progress,
-                    _installCts.Token)
+                    _installCts.Token,
+                    targetName: targetName)
                 .ConfigureAwait(true);
 
-            InstallStatus = $"版本 {version.Id} 安装完成，可回到主页启动";
-            VersionInstalled?.Invoke(this, version.Id);
+            InstallStatus = $"版本 {targetName} 安装完成，可回到主页启动";
+            VersionInstalled?.Invoke(this, targetName);
         }
         catch (OperationCanceledException)
         {
@@ -283,13 +288,17 @@ public sealed partial class DownloadViewModel : ObservableObject
         try
         {
             var progress = CreateProgress();
+            // 默认实例名为 {版本}-fabric；同名已存在时自动追加序号
+            var targetName = InstanceNameValidator.GetAvailableName(
+                config.EffectiveGameDirectory, $"{version.Id}-fabric");
             var installed = await _services.Installer.InstallFabricAsync(
                     config.EffectiveGameDirectory,
                     version.Id,
                     DownloadPolicy.FromConfig(config),
                     config.DownloadThreads,
                     progress,
-                    _installCts.Token)
+                    _installCts.Token,
+                    targetName)
                 .ConfigureAwait(true);
 
             InstallStatus = $"Fabric 安装完成：{installed}";

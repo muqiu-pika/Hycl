@@ -1617,8 +1617,7 @@ public partial class CompSectionViewModel : ObservableObject
 
     private async Task ConfirmModpackSaveAsync(CompFileItemViewModel item)
     {
-        var nameError = InstanceNameValidator.Validate(
-            _services.Config.EffectiveGameDirectory, InstanceName);
+        var nameError = InstanceNameValidator.ValidateName(InstanceName);
         if (nameError is not null)
         {
             SaveHint = nameError;

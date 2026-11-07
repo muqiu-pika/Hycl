@@ -197,7 +197,8 @@ public sealed class LoaderInstallService
                 plan.Threads,
                 progress,
                 cancellationToken,
-                plan.DownloadAssets)
+                plan.DownloadAssets,
+                plan.TargetName)
             .ConfigureAwait(false);
         return plan.TargetName;
     }

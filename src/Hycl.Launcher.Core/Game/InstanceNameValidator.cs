@@ -77,37 +77,57 @@ public static class InstanceNameValidator
 
     /// <summary>检查 versions 目录下是否已存在同名实例（不区分大小写，含同名文件）。</summary>
     public static string? ValidateCollision(string gameDirectory, string name)
+        => IsOccupied(gameDirectory, name) ? DuplicateMessage(name) : null;
+
+    /// <summary>完整校验：名称合法且 versions 目录下无同名实例。</summary>
+    public static string? Validate(string gameDirectory, string? name)
+        => ValidateName(name) ?? (name is null ? null : ValidateCollision(gameDirectory, name));
+
+    /// <summary>
+    /// 返回 versions 目录下可用的实例名：未被占用时原样返回；
+    /// 已存在同名实例时依次尝试 <c>名称-1</c>、<c>名称-2</c> …（跳过已占用的序号）。
+    /// </summary>
+    public static string GetAvailableName(string gameDirectory, string desiredName)
+    {
+        if (!IsOccupied(gameDirectory, desiredName))
+        {
+            return desiredName;
+        }
+
+        for (var index = 1; ; index++)
+        {
+            var candidate = $"{desiredName}-{index}";
+            if (!IsOccupied(gameDirectory, candidate))
+            {
+                return candidate;
+            }
+        }
+    }
+
+    /// <summary>versions 目录下是否已有同名目录或文件（不区分大小写）。</summary>
+    private static bool IsOccupied(string gameDirectory, string name)
     {
         var versionsDirectory = Path.Combine(gameDirectory, "versions");
         if (!Directory.Exists(versionsDirectory))
         {
-            return null;
+            return false;
         }
 
         var target = Path.Combine(versionsDirectory, name);
         if (Directory.Exists(target) || File.Exists(target))
         {
-            return DuplicateMessage(name);
+            return true;
         }
 
         // Windows 下 Directory.Exists 已不区分大小写；这里再显式枚举一次，
         // 覆盖大小写敏感的文件系统，保持与 PCL-CE ignoreCase = true 的语义一致。
-        if (Directory.EnumerateDirectories(versionsDirectory)
-                .Select(path => Path.GetFileName(path))
-                .Any(existing => existing.Equals(name, StringComparison.OrdinalIgnoreCase))
-            || Directory.EnumerateFiles(versionsDirectory)
-                .Select(path => Path.GetFileName(path))
-                .Any(existing => existing.Equals(name, StringComparison.OrdinalIgnoreCase)))
-        {
-            return DuplicateMessage(name);
-        }
-
-        return null;
+        return Directory.EnumerateDirectories(versionsDirectory)
+                   .Select(path => Path.GetFileName(path))
+                   .Any(existing => existing.Equals(name, StringComparison.OrdinalIgnoreCase))
+               || Directory.EnumerateFiles(versionsDirectory)
+                   .Select(path => Path.GetFileName(path))
+                   .Any(existing => existing.Equals(name, StringComparison.OrdinalIgnoreCase));
     }
-
-    /// <summary>完整校验：名称合法且 versions 目录下无同名实例。</summary>
-    public static string? Validate(string gameDirectory, string? name)
-        => ValidateName(name) ?? (name is null ? null : ValidateCollision(gameDirectory, name));
 
     private static string DuplicateMessage(string name)
         => $"同名实例已存在：{name}，请换一个名称或先删除旧实例。";

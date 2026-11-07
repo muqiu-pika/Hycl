@@ -345,6 +345,9 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
             "liteloader" => $"{summary.Id}-liteloader",
             _ => $"{summary.Id}-{kind}"
         };
+        // 同名实例已存在时自动追加序号（26.3-fabric → 26.3-fabric-1 …）
+        targetName = InstanceNameValidator.GetAvailableName(
+            _services.Config.EffectiveGameDirectory, targetName);
         var companionModSlugs = kind switch
         {
             "fabric" => new[] { "fabric-api" },

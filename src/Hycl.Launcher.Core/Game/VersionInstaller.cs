@@ -265,6 +265,7 @@ public sealed partial class VersionInstaller
     }
 
     /// <summary>安装某一原版版本（已存在的文件会跳过）。</summary>
+    /// <param name="targetName">实例目录名；null 或空表示使用版本 id（同版本重复安装时由调用方传入 26.3-1 等）。</param>
     public async Task InstallVanillaAsync(
         string gameDirectory,
         VersionSummary summary,
@@ -272,17 +273,19 @@ public sealed partial class VersionInstaller
         int threads,
         IProgress<InstallProgress>? progress = null,
         CancellationToken cancellationToken = default,
-        bool downloadAssets = true)
+        bool downloadAssets = true,
+        string? targetName = null)
     {
         var reporter = new ProgressReporter(progress);
-        var versionDirectory = Path.Combine(gameDirectory, "versions", summary.Id);
+        var displayName = string.IsNullOrWhiteSpace(targetName) ? summary.Id : targetName;
+        var versionDirectory = Path.Combine(gameDirectory, "versions", displayName);
         var versionDirectoryExisted = Directory.Exists(versionDirectory);
         Directory.CreateDirectory(versionDirectory);
 
         try
         {
             reporter.Stage("获取版本信息");
-            _logger.Info($"开始安装 {summary.Id}（版本列表源 {policy.VersionListSource} / 文件源 {policy.FileSource}）");
+            _logger.Info($"开始安装 {summary.Id} → {displayName}（版本列表源 {policy.VersionListSource} / 文件源 {policy.FileSource}）");
             var rawJson = await _client
                 .GetStringAsync(DownloadSources.GetLauncherOrMetaUrls(summary.Url, policy), cancellationToken)
                 .ConfigureAwait(false);
@@ -292,14 +295,20 @@ public sealed partial class VersionInstaller
                 rawJson = VersionJsonMerger.FixAuthlib(rawJson);
             }
 
-            var jsonPath = Path.Combine(versionDirectory, summary.Id + ".json");
+            // 以别名（如 26.3-1）安装时改写 json 的 id，保证目录名、json 文件名与 id 三者一致
+            if (!displayName.Equals(summary.Id, StringComparison.Ordinal))
+            {
+                rawJson = ReplaceVersionId(rawJson, displayName);
+            }
+
+            var jsonPath = Path.Combine(versionDirectory, displayName + ".json");
             await File.WriteAllTextAsync(jsonPath, rawJson, cancellationToken).ConfigureAwait(false);
 
             var info = JsonSerializer.Deserialize<VersionInfo>(rawJson, JsonOptions)
                        ?? throw new DownloadException($"版本 JSON 解析失败：{summary.Id}");
             if (string.IsNullOrWhiteSpace(info.Id))
             {
-                info.Id = summary.Id;
+                info.Id = displayName;
             }
 
             var environment = RuleEnvironment.Current(false);
@@ -308,10 +317,10 @@ public sealed partial class VersionInstaller
             if (info.Downloads?.Client is not null)
             {
                 reporter.Stage("下载客户端");
-                var jarPath = Path.Combine(versionDirectory, summary.Id + ".jar");
+                var jarPath = Path.Combine(versionDirectory, displayName + ".jar");
                 var client = info.Downloads.Client;
                 var urls = DownloadSources.GetLauncherOrMetaUrls(client.Url, policy);
-                reporter.BeginFile(summary.Id + ".jar", client.Size);
+                reporter.BeginFile(displayName + ".jar", client.Size);
                 await _client.DownloadFileAsync(
                         urls,
                         jarPath,
@@ -382,17 +391,36 @@ public sealed partial class VersionInstaller
             }
 
             reporter.Stage("安装完成");
-            _logger.Info($"版本 {summary.Id} 安装完成");
+            _logger.Info($"版本 {displayName} 安装完成");
         }
         catch (Exception ex) when (ex is OperationCanceledException or DownloadException or IOException or HttpRequestException)
         {
             // 取消/失败回滚：只清理本次新建的版本目录，避免留下"只有 json 没有 jar"的残缺实例
             if (!versionDirectoryExisted)
             {
-                TryDeleteDirectory(versionDirectory, summary.Id);
+                TryDeleteDirectory(versionDirectory, displayName);
             }
 
             throw;
+        }
+    }
+
+    /// <summary>把版本 JSON 的 id 改为实际实例名（同版本重复安装为 26.3-1 时保持目录名与 id 一致）。</summary>
+    private static string ReplaceVersionId(string json, string id)
+    {
+        try
+        {
+            if (JsonNode.Parse(json) is not JsonObject node)
+            {
+                return json;
+            }
+
+            node["id"] = id;
+            return node.ToJsonString(JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return json;
         }
     }
 
@@ -420,13 +448,14 @@ public sealed partial class VersionInstaller
         DownloadPolicy policy,
         int threads,
         IProgress<InstallProgress>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? targetName = null)
         => InstallFabricLikeAsync(
             gameDirectory,
             "fabric",
             gameVersion,
             null,
-            null,
+            targetName,
             policy,
             threads,
             progress,
