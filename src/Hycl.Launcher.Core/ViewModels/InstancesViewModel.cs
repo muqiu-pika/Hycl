@@ -74,6 +74,21 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
 
     private bool _isImportDialog;
 
+    private CancellationTokenSource? _importCts;
+
+    /// <summary>取消当前整合包导入（会清理临时文件并回滚本次新建的实例目录）。</summary>
+    [RelayCommand]
+    private void CancelImport()
+    {
+        if (_importCts is null)
+        {
+            return;
+        }
+
+        ImportStageText = "正在取消导入…";
+        _importCts.Cancel();
+    }
+
     /// <summary>Java 可执行文件选择器：返回 javaw.exe / java 的完整文件路径（由 UI 层注入）。</summary>
     public Func<string?, Task<string?>>? JavaFilePicker { get; set; }
 
@@ -912,7 +927,10 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         _isRenameDialog = false;
         NameDialogTitle = "导入整合包";
         NameDialogText = SanitizeInstanceName(inspection.SuggestedName, Path.GetFileNameWithoutExtension(path));
-        NameDialogHint = $"格式：{inspection.FormatName}。确认后新建实例，并按清单下载所需文件。";
+        var detail = string.IsNullOrWhiteSpace(inspection.LoaderLabel)
+            ? inspection.FormatName
+            : $"{inspection.FormatName}，{inspection.LoaderLabel}";
+        NameDialogHint = $"格式：{detail}。确认后新建实例，并按清单下载所需文件。";
         IsNameDialogVisible = true;
     }
 
@@ -945,6 +963,8 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         IsImporting = true;
         ImportPercentage = 0;
         ImportStageText = "准备导入…";
+        var cts = new CancellationTokenSource();
+        _importCts = cts;
         try
         {
             var importedName = await _services.CompInstall.ImportModpackAsync(
@@ -960,13 +980,19 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
                             ? value.Stage
                             : $"{value.Stage} · {value.CurrentItem}";
                     }),
-                    CancellationToken.None)
+                    cts.Token)
                 .ConfigureAwait(true);
 
             await RefreshAsync().ConfigureAwait(true);
             SelectedInstance = Instances.FirstOrDefault(x => x.Id.Equals(importedName, StringComparison.OrdinalIgnoreCase));
             StatusMessage = $"已导入整合包：{importedName}";
             DetailResetRequested?.Invoke(this, EventArgs.Empty);
+        }
+        catch (OperationCanceledException)
+        {
+            StatusMessage = "已取消导入，临时文件与本次新建的实例目录已清理";
+            _services.Logger.Info("用户取消整合包导入");
+            await RefreshAsync().ConfigureAwait(true);
         }
         catch (Exception ex)
         {
@@ -976,6 +1002,8 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         }
         finally
         {
+            cts.Dispose();
+            _importCts = null;
             IsImporting = false;
             ImportPercentage = 0;
             ImportStageText = "";

@@ -155,6 +155,7 @@ public sealed class LauncherServices
             curseForge,
             instances,
             loaderInstall,
+            loaderProviders,
             logger);
         var compDependencies = new Game.Comp.CompDependencyResolver(
             curseForge,

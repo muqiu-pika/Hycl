@@ -229,6 +229,8 @@ internal sealed class CompProgress(IProgress<InstallProgress>? progress) : IProg
 {
     private string _stage = "";
     private string _currentItem = "";
+    private string _currentName = "";
+    private string _currentBytesText = "";
     private int _filesDone;
     private int _filesTotal;
     private long _bytesDone;
@@ -241,36 +243,58 @@ internal sealed class CompProgress(IProgress<InstallProgress>? progress) : IProg
         _filesTotal = totalFiles;
         _bytesDone = 0;
         _bytesTotal = 0;
+        _currentName = "";
+        _currentBytesText = "";
         _currentItem = "";
         Report();
     }
 
     public void BeginFile(string name, long expectedBytes)
     {
-        _currentItem = name;
+        _currentName = name;
+        _currentBytesText = "";
         if (expectedBytes > 0)
         {
             _bytesTotal = expectedBytes;
         }
 
+        UpdateItem();
         Report();
     }
 
     public void FileBytes(long received, long total)
     {
-        _currentItem = total > 0
+        _currentBytesText = total > 0
             ? $"{Math.Round(received / (1024d * 1024d), 1)} MB / {Math.Round(total / (1024d * 1024d), 1)} MB"
             : $"{Math.Round(received / (1024d * 1024d), 1)} MB";
         _bytesDone = received;
         _bytesTotal = total;
+        UpdateItem();
         Report();
     }
 
     public void FileCompleted(long bytes)
     {
         _filesDone++;
+        _currentName = "";
+        _currentBytesText = "";
         _currentItem = "";
         Report();
+    }
+
+    /// <summary>「正在下载 xxx（3/27）」：文件名 + 序号 + 当前字节进度合成一行。</summary>
+    private void UpdateItem()
+    {
+        if (string.IsNullOrEmpty(_currentName))
+        {
+            _currentItem = "";
+            return;
+        }
+
+        var item = _filesTotal > 0
+            ? $"{_currentName}（{_filesDone + 1}/{_filesTotal}）"
+            : _currentName;
+        _currentItem = _currentBytesText.Length == 0 ? item : $"{item} · {_currentBytesText}";
     }
 
     private void Report()

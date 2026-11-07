@@ -153,6 +153,13 @@
                                        FontSize="11"
                                        Foreground="{DynamicResource Gray2Brush}"
                                        TextTrimming="CharacterEllipsis" />
+                            <Button Classes="mc-btn"
+                                    HorizontalAlignment="Left"
+                                    Padding="8,2"
+                                    MinHeight="0"
+                                    FontSize="11"
+                                    Content="取消导入"
+                                    Command="{Binding CancelImportCommand}" />
                         </StackPanel>
                     </StackPanel>
                 </ScrollViewer>

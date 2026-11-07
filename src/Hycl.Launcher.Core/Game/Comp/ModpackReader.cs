@@ -953,8 +953,20 @@ public static class ModpackReader
 
     private static string SuggestName(string? name, string fallback)
     {
-        var value = name?.Trim();
-        return string.IsNullOrWhiteSpace(value) ? fallback : value;
+        var value = string.IsNullOrWhiteSpace(name) ? fallback : name.Trim();
+        // 整合包名常含路径非法字符（如 ": "）：先清洗成可用目录名，用户仍可在命名对话框修改
+        foreach (var invalid in Path.GetInvalidFileNameChars())
+        {
+            value = value.Replace(invalid, '-');
+        }
+
+        value = value.Replace('!', '-').Replace(';', '-').Trim().TrimEnd('.');
+        if (value.Length > 80)
+        {
+            value = value[..80].Trim();
+        }
+
+        return string.IsNullOrWhiteSpace(value) ? "整合包" : value;
     }
 
     private static JsonObject ReadJsonObject(PackSource source, string entryName, string displayName)
