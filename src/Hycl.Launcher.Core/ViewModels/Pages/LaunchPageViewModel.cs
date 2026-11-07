@@ -1,5 +1,8 @@
+using System.Buffers.Binary;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Hycl.Launcher.Core.Auth;
@@ -536,7 +539,8 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                 accountUuid: account.Uuid,
                 skinPath: account.SkinPath,
                 isOffline: account.Type == "offline",
-                isSlim: account.SkinModel.Equals("slim", StringComparison.OrdinalIgnoreCase)));
+                isSlim: account.SkinModel.Equals("slim", StringComparison.OrdinalIgnoreCase),
+                capePath: account.Type == "offline" ? "" : account.CapePath));
         }
 
         ActiveProfile = Profiles.FirstOrDefault(x => x.IsActive) ?? Profiles.FirstOrDefault();
@@ -569,6 +573,8 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             var error = "";
             var needsLogin = false;
             string? skinUrl = null;
+            // null = 没有拿到权威资料（保持现有披风不动）；空字符串 = 明确没有披风
+            string? capeUrl = null;
 
             if (account.IsAuthlib)
             {
@@ -604,6 +610,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                 {
                     ApplyTextures(account, textures);
                     skinUrl = textures.SkinUrl;
+                    capeUrl = textures.CapeUrl;
                 }
                 else if (error.Length == 0)
                 {
@@ -612,6 +619,8 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             }
             else if (account.IsMicrosoft)
             {
+                // /minecraft/profile 的 capes 是最新权威值；刷新失败时保持 null，退回 sessionserver
+                string? profileCapeUrl = null;
                 if (string.IsNullOrWhiteSpace(account.RefreshToken))
                 {
                     error = "登录凭据已失效，请重新登录";
@@ -625,6 +634,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                         AccountStore.ApplyMicrosoftAuth(account, refreshed);
                         skinUrl = refreshed.SkinUrl;
                         account.SkinModel = refreshed.SkinModel;
+                        profileCapeUrl = refreshed.CapeUrl;
                     }
                     catch (MicrosoftAuthException ex)
                     {
@@ -652,6 +662,8 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                 {
                     error = "无法从正版服务器读取角色资料，请稍后重试";
                 }
+
+                capeUrl = profileCapeUrl ?? textures?.CapeUrl;
             }
             else
             {
@@ -664,6 +676,19 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                 if (!await DownloadSkinAsync(account, skinUrl).ConfigureAwait(true) && error.Length == 0)
                 {
                     error = "皮肤图片下载失败，请稍后重试";
+                }
+            }
+
+            if (capeUrl is not null)
+            {
+                account.CapeUrl = capeUrl;
+                if (string.IsNullOrWhiteSpace(capeUrl))
+                {
+                    account.CapePath = "";
+                }
+                else if (!await DownloadCapeAsync(account, capeUrl).ConfigureAwait(true) && error.Length == 0)
+                {
+                    error = "披风图片下载失败，请稍后重试";
                 }
             }
 
@@ -861,29 +886,171 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     }
 
     /// <summary>
-    /// 皮肤下载到缓存并回填 SkinUrl/SkinPath（两者都写回 accounts.json）；
-    /// 失败静默（皮肤非关键数据）。返回是否成功。
+    /// 皮肤下载到缓存并回填 SkinUrl/SkinPath（两者都写回 accounts.json）。
+    /// 缓存文件名包含贴图 URL 的哈希：同一 UUID 的不同账号（如皮肤站与正版同 UUID）
+    /// 或换皮肤后 URL 变化时都不会互相覆盖/复用旧图。失败静默（皮肤非关键数据）。
     /// </summary>
     private async Task<bool> DownloadSkinAsync(PlayerAccount account, string skinUrl)
     {
         try
         {
-            var directory = Path.Combine(_services.Paths.CacheDirectory, "skins");
-            Directory.CreateDirectory(directory);
-            var skinPath = Path.Combine(directory, account.Uuid + ".png");
-            await _services.DownloadClient
-                .DownloadFileAsync([skinUrl], skinPath, null, null, null, CancellationToken.None)
-                .ConfigureAwait(false);
+            var skinPath = SkinCachePath(account.Uuid, skinUrl);
+            Directory.CreateDirectory(Path.GetDirectoryName(skinPath)!);
+            var existed = File.Exists(skinPath);
+            if (!existed)
+            {
+                await _services.DownloadClient
+                    .DownloadFileAsync([skinUrl], skinPath, null, null, null, CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+
+            if (!File.Exists(skinPath))
+            {
+                _services.Logger.Warn($"下载皮肤失败（忽略）：{skinUrl}");
+                return false;
+            }
+
             account.SkinUrl = skinUrl;
             account.SkinPath = skinPath;
             // 持久化：SkinPath 不落盘时，重启后头像会回退到内置皮肤，表现为「皮肤没有导入」
             await _services.Accounts.SaveAsync().ConfigureAwait(false);
-            _services.Logger.Info($"皮肤已缓存：{account.Name} → {skinPath}");
+            if (!existed)
+            {
+                _services.Logger.Info($"皮肤已缓存：{account.Name} → {skinPath}");
+            }
+
             return true;
         }
         catch (Exception ex)
         {
             _services.Logger.Warn($"下载皮肤失败（忽略）：{ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>登录成功后后台拉取皮肤与披风，全部结束后再刷新首页人偶。</summary>
+    private async Task DownloadProfileTexturesAsync(PlayerAccount account, string skinUrl, string capeUrl)
+    {
+        if (!string.IsNullOrWhiteSpace(skinUrl))
+        {
+            await DownloadSkinAsync(account, skinUrl).ConfigureAwait(false);
+        }
+
+        if (!string.IsNullOrWhiteSpace(capeUrl))
+        {
+            await DownloadCapeAsync(account, capeUrl).ConfigureAwait(false);
+        }
+
+        await _services.Accounts.SaveAsync().ConfigureAwait(false);
+        _services.Dispatcher.Post(BuildProfiles);
+    }
+
+    /// <summary>贴图缓存文件名 = UUID + URL 哈希：URL 变了或同 UUID 多账号时也不会错误复用旧文件。</summary>
+    private static string TextureCacheFileName(string uuid, string url)
+    {
+        var hash = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(url))).ToLowerInvariant();
+        return $"{uuid}-{hash[..12]}.png";
+    }
+
+    private string SkinCachePath(string uuid, string url)
+        => Path.Combine(_services.Paths.CacheDirectory, "skins", TextureCacheFileName(uuid, url));
+
+    private string CapeCachePath(string uuid, string url)
+        => Path.Combine(_services.Paths.CacheDirectory, "capes", TextureCacheFileName(uuid, url));
+
+    /// <summary>
+    /// 披风贴图下载到 cache/capes/{uuid}-{urlHash}.png，并校验确实是 64x32 的 PNG 披风图。
+    /// 失败会删除坏文件并重试一次；仍失败则清空 CapePath（UI 随之隐藏披风，避免显示旧图）。
+    /// </summary>
+    private async Task<bool> DownloadCapeAsync(PlayerAccount account, string capeUrl)
+    {
+        if (string.IsNullOrWhiteSpace(capeUrl))
+        {
+            account.CapePath = "";
+            return false;
+        }
+
+        try
+        {
+            var capePath = CapeCachePath(account.Uuid, capeUrl);
+            Directory.CreateDirectory(Path.GetDirectoryName(capePath)!);
+
+            if (File.Exists(capePath) && IsCapeTexture(capePath))
+            {
+                account.CapePath = capePath;
+                return true;
+            }
+
+            // DownloadClient 对已存在的目标会直接跳过；坏文件先删掉才能重新下载
+            if (File.Exists(capePath))
+            {
+                File.Delete(capePath);
+            }
+
+            for (var attempt = 0; attempt < 2; attempt++)
+            {
+                await _services.DownloadClient
+                    .DownloadFileAsync([capeUrl], capePath, null, null, null, CancellationToken.None)
+                    .ConfigureAwait(false);
+                if (IsCapeTexture(capePath))
+                {
+                    account.CapeUrl = capeUrl;
+                    account.CapePath = capePath;
+                    _services.Logger.Info($"披风已缓存：{account.Name} → {capePath}");
+                    return true;
+                }
+
+                if (File.Exists(capePath))
+                {
+                    File.Delete(capePath);
+                }
+            }
+
+            account.CapePath = "";
+            _services.Logger.Warn($"披风贴图无效（要求 64x32 PNG）：{capeUrl}");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            account.CapePath = "";
+            _services.Logger.Warn($"下载披风失败（忽略）：{ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>校验披风贴图：PNG 签名、IHDR 尺寸必须为 64x32，且文件以 IEND 正常结束（防止截断）。</summary>
+    private static bool IsCapeTexture(string path)
+    {
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            if (stream.Length < 32)
+            {
+                return false;
+            }
+
+            var header = new byte[24];
+            if (stream.Read(header, 0, header.Length) != header.Length
+                || header[0] != 0x89 || header[1] != 'P' || header[2] != 'N' || header[3] != 'G')
+            {
+                return false;
+            }
+
+            var width = BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(16, 4));
+            var height = BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(20, 4));
+            if (width != 64 || height != 32)
+            {
+                return false;
+            }
+
+            // PNG 末尾固定为 IEND 块（4 字节长度 + "IEND" + 4 字节 CRC）
+            stream.Seek(-8, SeekOrigin.End);
+            var tail = new byte[4];
+            return stream.Read(tail, 0, tail.Length) == tail.Length
+                   && tail[0] == 'I' && tail[1] == 'E' && tail[2] == 'N' && tail[3] == 'D';
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
             return false;
         }
     }
@@ -907,8 +1074,6 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                 continue;
             }
 
-            var cachedExists = !string.IsNullOrWhiteSpace(account.SkinPath)
-                               && File.Exists(account.SkinPath);
             string? latestUrl = null;
             if (account.IsAuthlib && !string.IsNullOrWhiteSpace(account.Server))
             {
@@ -934,20 +1099,39 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             }
 
             var targetUrl = string.IsNullOrWhiteSpace(latestUrl) ? account.SkinUrl : latestUrl;
-            if (string.IsNullOrWhiteSpace(targetUrl))
+            if (!string.IsNullOrWhiteSpace(targetUrl))
             {
-                continue;
+                var hadSkinPath = account.SkinPath;
+                if (await DownloadSkinAsync(account, targetUrl).ConfigureAwait(false)
+                    && !hadSkinPath.Equals(account.SkinPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    changed = true;
+                }
             }
 
-            var urlChanged = !targetUrl.Equals(account.SkinUrl, StringComparison.OrdinalIgnoreCase);
-            if (cachedExists && !urlChanged)
+            // 披风与皮肤分开处理：皮肤缺失不能顺带跳过披风
+            if (string.IsNullOrWhiteSpace(account.CapeUrl))
             {
-                continue;
+                if (!string.IsNullOrWhiteSpace(account.CapePath))
+                {
+                    account.CapePath = "";
+                    metadataChanged = true;
+                }
             }
-
-            if (await DownloadSkinAsync(account, targetUrl).ConfigureAwait(false))
+            else
             {
-                changed = true;
+                var hadCapePath = account.CapePath;
+                if (await DownloadCapeAsync(account, account.CapeUrl).ConfigureAwait(false))
+                {
+                    if (!hadCapePath.Equals(account.CapePath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        changed = true;
+                    }
+                }
+                else if (!hadCapePath.Equals(account.CapePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    metadataChanged = true;
+                }
             }
         }
 
@@ -971,6 +1155,8 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         if (!account.CapeUrl.Equals(textures.CapeUrl, StringComparison.Ordinal))
         {
             account.CapeUrl = textures.CapeUrl;
+            // 披风换了（或已取下）：旧缓存不能再显示，等待新贴图下载
+            account.CapePath = "";
             changed = true;
         }
 
@@ -2130,6 +2316,8 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                     {
                         signedIn.SkinUrl = poll.Result.SkinUrl;
                         signedIn.SkinModel = poll.Result.SkinModel;
+                        signedIn.CapeUrl = poll.Result.CapeUrl;
+                        signedIn.CapePath = "";
                     }
 
                     await _services.Accounts.SaveAsync(cts.Token).ConfigureAwait(true);
@@ -2139,15 +2327,14 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                     _toast?.Invoke($"正版登录成功：{poll.Result.UserName}");
                     IsLoginDialogVisible = false;
 
-                    // 登录后自动拉取玩家真实皮肤并刷新首页纸娃娃
-                    if (!string.IsNullOrWhiteSpace(poll.Result.SkinUrl))
+                    // 登录后自动拉取玩家真实皮肤/披风并刷新首页纸娃娃
+                    if (!string.IsNullOrWhiteSpace(poll.Result.SkinUrl) || !string.IsNullOrWhiteSpace(poll.Result.CapeUrl))
                     {
                         var account = _services.Accounts.Accounts
                             .FirstOrDefault(x => x.Uuid.Equals(poll.Result.Uuid, StringComparison.OrdinalIgnoreCase));
                         if (account is not null)
                         {
-                            _ = DownloadSkinAsync(account, poll.Result.SkinUrl)
-                                .ContinueWith(_ => _services.Dispatcher.Post(BuildProfiles), TaskScheduler.Default);
+                            _ = DownloadProfileTexturesAsync(account, poll.Result.SkinUrl, poll.Result.CapeUrl);
                         }
                     }
 

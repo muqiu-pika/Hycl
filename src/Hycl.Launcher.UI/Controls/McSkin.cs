@@ -27,6 +27,10 @@ public class McSkin : Control
     public static readonly StyledProperty<string?> SkinPathProperty =
         AvaloniaProperty.Register<McSkin, string?>(nameof(SkinPath));
 
+    /// <summary>披风贴图本地文件路径（64x32）；空字符串表示当前账号没有披风。</summary>
+    public static readonly StyledProperty<string?> CapePathProperty =
+        AvaloniaProperty.Register<McSkin, string?>(nameof(CapePath));
+
     public static readonly StyledProperty<int> ScaleProperty =
         AvaloniaProperty.Register<McSkin, int>(nameof(Scale), 4);
 
@@ -46,6 +50,7 @@ public class McSkin : Control
     private const int HeadOverlayX = 40, HeadOverlayY = 8;
 
     private Bitmap? _bitmap;
+    private Bitmap? _capeBitmap;
 
     public McSkin()
     {
@@ -64,6 +69,13 @@ public class McSkin : Control
     {
         get => GetValue(SkinPathProperty);
         set => SetValue(SkinPathProperty, value);
+    }
+
+    /// <summary>披风贴图本地文件路径；绑定为空时立即清除上一账号残留的披风。</summary>
+    public string? CapePath
+    {
+        get => GetValue(CapePathProperty);
+        set => SetValue(CapePathProperty, value);
     }
 
     /// <summary>像素放大倍数。</summary>
@@ -103,6 +115,11 @@ public class McSkin : Control
             _bitmap = LoadBitmap();
             InvalidateVisual();
         }
+        else if (change.Property == CapePathProperty)
+        {
+            _capeBitmap = LoadCapeBitmap();
+            InvalidateVisual();
+        }
         else if (change.Property == ScaleProperty
                  || change.Property == ModeProperty
                  || change.Property == IsSlimProperty)
@@ -136,10 +153,40 @@ public class McSkin : Control
             return;
         }
 
+        // 披风挂在背部：先画披风再画身体，身体/四肢自然遮挡住正面视角下的披风，
+        // 只露出两侧与下摆；切换账号时 CapePath 变为空，_capeBitmap 随之清空，不会残留上一账号的披风。
+        if (_capeBitmap is not null)
+        {
+            DrawCape(context, scale);
+        }
+
         foreach (var part in BuildBodyParts())
         {
             DrawPart(context, part, scale, null);
         }
+    }
+
+    /// <summary>
+    /// 披风贴图固定为 64×32：外侧（背面）UV 位于 (1,1) 的 10×16 区域，
+    /// 顶部贴在肩部 y=8，横向以身体中心对齐（x=3），随人偶正面朝向一起绘制。
+    /// </summary>
+    private void DrawCape(DrawingContext context, int scale)
+    {
+        if (_capeBitmap is null)
+        {
+            return;
+        }
+
+        var uv = _capeBitmap.PixelSize.Width / 64.0;
+        if (uv <= 0)
+        {
+            uv = 1d;
+        }
+
+        const int capeX = 1, capeY = 1, capeW = 10, capeH = 16;
+        var source = new Rect(capeX * uv, capeY * uv, capeW * uv, capeH * uv);
+        var destination = new Rect(3 * scale, 8 * scale, capeW * scale, capeH * scale);
+        context.DrawImage(_capeBitmap, source, destination);
     }
 
     /// <summary>一个部件的贴图矩形（X/Y/W/H）、在 16×32 画布中的位置（PlaceX/PlaceY）与是否水平镜像。</summary>
@@ -231,30 +278,7 @@ public class McSkin : Control
         // 本地文件（登录后下载的正版/皮肤站皮肤）优先于内置逻辑名
         if (!string.IsNullOrWhiteSpace(SkinPath))
         {
-            var path = SkinPath;
-            try
-            {
-                var info = new FileInfo(path);
-                if (!info.Exists)
-                {
-                    return null;
-                }
-
-                var cacheKey = $"{path}|{info.LastWriteTimeUtc.Ticks}|{info.Length}";
-                if (BitmapCache.TryGetValue(cacheKey, out var cachedPath))
-                {
-                    return cachedPath;
-                }
-
-                var bitmap = new Bitmap(path);
-                BitmapCache[cacheKey] = bitmap;
-                return bitmap;
-            }
-            catch (Exception)
-            {
-                // 文件可能刚被替换/尚未写好：不缓存失败结果，属性再次变化时可以重试
-                return null;
-            }
+            return LoadFileBitmap(SkinPath!);
         }
 
         var skinKey = SkinKey;
@@ -273,6 +297,39 @@ public class McSkin : Control
             using var stream = AssetLoader.Open(new Uri($"avares://Hycl.Launcher.UI/Assets/skins/{skinKey}.png"));
             var bitmap = new Bitmap(stream);
             BitmapCache[skinKey] = bitmap;
+            return bitmap;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private Bitmap? LoadCapeBitmap()
+        => string.IsNullOrWhiteSpace(CapePath) ? null : LoadFileBitmap(CapePath!);
+
+    /// <summary>
+    /// 从磁盘加载贴图；缓存键包含修改时间与文件大小，重新下载后键会变化。
+    /// 文件可能刚被替换/尚未写好，加载失败不缓存，属性再次变化时可以重试。
+    /// </summary>
+    private static Bitmap? LoadFileBitmap(string path)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists)
+            {
+                return null;
+            }
+
+            var cacheKey = $"{path}|{info.LastWriteTimeUtc.Ticks}|{info.Length}";
+            if (BitmapCache.TryGetValue(cacheKey, out var cachedPath))
+            {
+                return cachedPath;
+            }
+
+            var bitmap = new Bitmap(path);
+            BitmapCache[cacheKey] = bitmap;
             return bitmap;
         }
         catch (Exception)

@@ -8,7 +8,7 @@ namespace Hycl.Launcher.Core.Models;
 /// </summary>
 public partial class PlayerProfileViewModel : ObservableObject
 {
-    public PlayerProfileViewModel(string id, string name, string accountType, string skinKey, bool isMicrosoft = false, bool isActive = false, string accountUuid = "", string skinPath = "", bool isOffline = false, bool isSlim = false)
+    public PlayerProfileViewModel(string id, string name, string accountType, string skinKey, bool isMicrosoft = false, bool isActive = false, string accountUuid = "", string skinPath = "", bool isOffline = false, bool isSlim = false, string capePath = "")
     {
         Id = id;
         Name = name;
@@ -20,6 +20,7 @@ public partial class PlayerProfileViewModel : ObservableObject
         SkinPath = skinPath;
         IsOffline = isOffline;
         IsSlim = isSlim;
+        CapePath = capePath;
     }
 
     public string Id { get; }
@@ -33,6 +34,9 @@ public partial class PlayerProfileViewModel : ObservableObject
 
     /// <summary>本地皮肤文件路径；非空时 UI 优先用它渲染真实皮肤。</summary>
     public string SkinPath { get; }
+
+    /// <summary>本地披风贴图路径；空字符串表示当前账号没有披风（UI 必须据此清除旧披风）。</summary>
+    public string CapePath { get; }
 
     public bool IsMicrosoft { get; }
 

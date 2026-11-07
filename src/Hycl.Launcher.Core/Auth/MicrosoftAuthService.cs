@@ -34,7 +34,8 @@ public sealed record MicrosoftAuthResult(
     string Xuid,
     DateTimeOffset ExpiresAt,
     string SkinUrl,
-    string SkinModel = "");
+    string SkinModel = "",
+    string CapeUrl = "");
 
 /// <summary>正版登录失败（消息已按用户可读组织）。</summary>
 public sealed class MicrosoftAuthException : Exception
@@ -338,9 +339,15 @@ public sealed class MicrosoftAuthService
         var xuid = ExtractXuid(xstsBody);
         var skinUrl = ExtractActiveSkinUrl(profile);
         var skinModel = ExtractActiveSkinModel(profile);
+        var (capeUrl, capeAlias) = ExtractActiveCape(profile);
+        if (capeUrl.Length > 0)
+        {
+            _logger.Info($"正版档案披风：{capeAlias}（{userName}）");
+        }
 
         _logger.Info($"正版登录成功：{userName}（{uuid}）");
-        return new MicrosoftAuthResult(userName, uuid, mcToken, refreshToken, xuid, expiresAt, skinUrl, skinModel);
+        return new MicrosoftAuthResult(
+            userName, uuid, mcToken, refreshToken, xuid, expiresAt, skinUrl, skinModel, capeUrl);
     }
 
     /// <summary>从档案响应的 skins 数组中取当前激活皮肤的贴图 URL。</summary>
@@ -354,7 +361,7 @@ public sealed class MicrosoftAuthService
                 {
                     var state = skin.TryGetProperty("state", out var s) ? s.GetString() : null;
                     var url = skin.TryGetProperty("url", out var u) ? u.GetString() : null;
-                    if (state == "ACTIVE" && !string.IsNullOrWhiteSpace(url))
+                    if (IsActive(state) && !string.IsNullOrWhiteSpace(url))
                     {
                         return url;
                     }
@@ -379,7 +386,7 @@ public sealed class MicrosoftAuthService
                 {
                     var state = skin.TryGetProperty("state", out var s) ? s.GetString() : null;
                     var variant = skin.TryGetProperty("variant", out var v) ? v.GetString() : null;
-                    if (state == "ACTIVE" && variant?.Equals("SLIM", StringComparison.OrdinalIgnoreCase) == true)
+                    if (IsActive(state) && variant?.Equals("SLIM", StringComparison.OrdinalIgnoreCase) == true)
                     {
                         return "slim";
                     }
@@ -392,6 +399,38 @@ public sealed class MicrosoftAuthService
 
         return "";
     }
+
+    /// <summary>
+    /// 从档案响应的 capes 数组中取当前激活披风（state == ACTIVE）的贴图 URL 与名称。
+    /// 未拥有披风或没有激活项时返回空值——不能把 INACTIVE 披风或空 url 当成已装备。
+    /// </summary>
+    private static (string Url, string Alias) ExtractActiveCape(JsonElement profile)
+    {
+        try
+        {
+            if (profile.TryGetProperty("capes", out var capes) && capes.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var cape in capes.EnumerateArray())
+                {
+                    var state = cape.TryGetProperty("state", out var s) ? s.GetString() : null;
+                    var url = cape.TryGetProperty("url", out var u) ? u.GetString() : null;
+                    if (IsActive(state) && !string.IsNullOrWhiteSpace(url))
+                    {
+                        var alias = cape.TryGetProperty("alias", out var a) ? a.GetString() ?? "" : "";
+                        return (url, alias);
+                    }
+                }
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return ("", "");
+    }
+
+    private static bool IsActive(string? state)
+        => state?.Equals("ACTIVE", StringComparison.OrdinalIgnoreCase) == true;
 
     /// <summary>
     /// 从 Mojang sessionserver 读取档案纹理（角色名 / 皮肤 / 披风 / 模型）。

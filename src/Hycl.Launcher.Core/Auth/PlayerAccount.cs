@@ -45,6 +45,9 @@ public sealed class PlayerAccount
     /// <summary>披风贴图 URL（档案接口返回，随「刷新」更新）。</summary>
     public string CapeUrl { get; set; } = "";
 
+    /// <summary>披风贴图本地缓存路径（下载完成后填充，供首页纸娃娃渲染）。</summary>
+    public string CapePath { get; set; } = "";
+
     /// <summary>皮肤模型：slim（Alex）或空（Classic/Steve）。</summary>
     public string SkinModel { get; set; } = "";
 

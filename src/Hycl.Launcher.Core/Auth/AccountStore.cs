@@ -108,7 +108,8 @@ public sealed class AccountStore
             AccessToken = result.AccessToken,
             RefreshToken = result.RefreshToken,
             Xuid = result.Xuid,
-            ExpiresAt = result.ExpiresAt
+            ExpiresAt = result.ExpiresAt,
+            CapeUrl = result.CapeUrl
         };
         Accounts.Add(account);
         SelectedIndex = Accounts.Count - 1;
@@ -124,6 +125,13 @@ public sealed class AccountStore
         account.RefreshToken = result.RefreshToken;
         account.Xuid = result.Xuid;
         account.ExpiresAt = result.ExpiresAt;
+
+        // 披风地址变化时丢弃旧缓存：否则新披风下载前会继续显示上一件披风的贴图
+        if (!account.CapeUrl.Equals(result.CapeUrl, StringComparison.Ordinal))
+        {
+            account.CapeUrl = result.CapeUrl;
+            account.CapePath = "";
+        }
     }
 
     /// <summary>

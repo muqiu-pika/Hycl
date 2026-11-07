@@ -48,6 +48,7 @@
                             </Ellipse>
                             <c:McSkin SkinKey="{Binding ActiveProfile.SkinKey}"
                                       SkinPath="{Binding ActiveProfile.SkinPath}"
+                                      CapePath="{Binding ActiveProfile.CapePath}"
                                       IsSlim="{Binding ActiveProfile.IsSlim}"
                                       Scale="5"
                                       HorizontalAlignment="Center"
