@@ -6,6 +6,7 @@ using Hycl.Launcher.Core.Download;
 using Hycl.Launcher.Core.Game;
 using Hycl.Launcher.Core.Game.Loaders;
 using Hycl.Launcher.Core.Game.Models;
+using Hycl.Launcher.Core.Services;
 
 namespace Hycl.Launcher.Core.ViewModels.Pages;
 
@@ -461,6 +462,8 @@ public partial class InstallWizardViewModel : ObservableObject
             {
                 McGroups.Add(group);
             }
+
+            PerfTrace.Mark($"version_list_done:{versions.Count}:{McGroups.Count}");
         }
         catch (OperationCanceledException) when (cts.Token.IsCancellationRequested)
         {

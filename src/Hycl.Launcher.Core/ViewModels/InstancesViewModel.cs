@@ -5,6 +5,7 @@ using Hycl.Launcher.Core.Config;
 using Hycl.Launcher.Core.Download;
 using Hycl.Launcher.Core.Game;
 using Hycl.Launcher.Core.Game.Comp;
+using Hycl.Launcher.Core.Services;
 
 namespace Hycl.Launcher.Core.ViewModels;
 
@@ -370,6 +371,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
     [RelayCommand]
     public async Task RefreshAsync()
     {
+        var refreshStart = PerfTrace.Now;
         IsRefreshing = true;
         try
         {
@@ -393,6 +395,10 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
             IsRefreshing = false;
             StatusMessage = $"扫描失败：{ex.Message}";
             _services.Logger.Error("扫描实例失败", ex);
+        }
+        finally
+        {
+            PerfTrace.MarkSince("instances_refresh_done", refreshStart);
         }
     }
 

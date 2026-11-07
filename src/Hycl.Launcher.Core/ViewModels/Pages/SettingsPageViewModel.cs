@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using Hycl.Launcher.Core.Config;
 using Hycl.Launcher.Core.Game;
 using Hycl.Launcher.Core.Models;
+using Hycl.Launcher.Core.Services;
 
 namespace Hycl.Launcher.Core.ViewModels.Pages;
 
@@ -327,6 +328,7 @@ public partial class SettingsPageViewModel : ObservableObject
 
         IsLoading = false;
         IsReady = true;
+        PerfTrace.Mark("settings_loaded");
         // 设置页就绪后异步刷新 Java 检测结果（对应 PCL-CE Java 管理的自动扫描）
         _ = RefreshJavaListAsync();
     }

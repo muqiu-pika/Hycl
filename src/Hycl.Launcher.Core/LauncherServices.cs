@@ -101,15 +101,18 @@ public sealed class LauncherServices
         var paths = LauncherPaths.CreateDefault();
         var logger = new LauncherLogger(paths.LogDirectory);
         logger.Info("Hyplay Craft Launcher 启动");
+        PerfTrace.Mark("core_create_begin");
 
         var configStore = new ConfigStore(paths.ConfigFile, logger);
         await configStore.LoadAsync(cancellationToken).ConfigureAwait(false);
+        PerfTrace.Mark("config_loaded");
 
         // 内置 CurseForge 密钥解密自检（失败只降级镜像，不影响启动）
         HyclSecrets.Initialize(configStore.Config, logger);
 
         var accounts = new AccountStore(paths.AccountFile, logger);
         await accounts.LoadAsync(cancellationToken).ConfigureAwait(false);
+        PerfTrace.Mark("accounts_loaded");
         if (accounts.SelectedAccount is { } currentAccount
             && !string.IsNullOrWhiteSpace(currentAccount.Name))
         {
@@ -118,6 +121,7 @@ public sealed class LauncherServices
 
         // 启动时一次性清理上次异常退出遗留的下载临时文件；在创建下载客户端与任何下载逻辑之前完成
         StaleTempCleaner.Run(configStore.Config.EffectiveGameDirectory, logger);
+        PerfTrace.Mark("stale_clean_done");
 
         var javaDetector = new JavaDetector(logger);
         var downloadClient = new DownloadClient(logger, configStore.Config.RetryCount);
@@ -149,6 +153,7 @@ public sealed class LauncherServices
             new Game.Comp.ModrinthClient(compRequester),
             logger);
 
+        PerfTrace.Mark("core_create_done");
         return new LauncherServices(
             paths,
             logger,

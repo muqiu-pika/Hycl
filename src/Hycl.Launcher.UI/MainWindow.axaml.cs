@@ -10,6 +10,7 @@ using Avalonia.Media;
 using Avalonia.Media.Transformation;
 using Avalonia.Styling;
 using Avalonia.Threading;
+using Hycl.Launcher.Core.Services;
 using Hycl.Launcher.Core.ViewModels;
 using Hycl.Launcher.Core.ViewModels.Pages;
 using Hycl.Launcher.UI.Views;
@@ -72,7 +73,9 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
+        PerfTrace.Mark("window_ctor");
         InitializeComponent();
+        PerfTrace.Mark("xaml_loaded");
 
         // 启动层需要铺满整窗（含标题栏），而标题栏与内容分属 Grid 的不同行；
         // 挂到最外层 RootFrame 才能覆盖全部，圆角仍由 Win32 窗口区域裁切。
@@ -89,7 +92,9 @@ public partial class MainWindow : Window
             .CreateAsync(new AvaloniaDispatcher())
             .GetAwaiter()
             .GetResult();
+        PerfTrace.Mark("services_ready");
         _viewModel = new MainViewModel(services);
+        PerfTrace.Mark("vm_ready");
         DataContext = _viewModel;
         _startupAnimationEnabled = services.Config.EnableAnimations;
         _pageHost = this.FindControl<Panel>("PageHost")
@@ -105,6 +110,7 @@ public partial class MainWindow : Window
         _viewModel.CloseRequested += (_, _) => Close();
         _viewModel.MinimizeRequested += (_, _) => WindowState = WindowState.Minimized;
         ShowPage(_viewModel.CurrentPage);
+        PerfTrace.Mark("initial_page_shown");
 
         // 窗口关闭：取消页面切换动画与所有页面级在途任务，关闭文件句柄
         Closing += (_, _) =>
@@ -118,6 +124,7 @@ public partial class MainWindow : Window
         };
 
         // 窗口显示后在后台预热其余页面，避免首次切换标签页时再实例化大页面造成卡顿。
+        Opened += (_, _) => PerfTrace.Mark("window_opened");
         Opened += (_, _) => Dispatcher.UIThread.Post(PrewarmPages, DispatcherPriority.Background);
         Opened += (_, _) => ScheduleWindowRegionUpdate();
         // 启动动画在主窗口内铺满播放，结束后柔和淡出露出界面
@@ -195,7 +202,7 @@ public partial class MainWindow : Window
             previous.ZIndex = 0;
         }
 
-        _ = RunPageSwitchAsync(view, previous, generation, cts.Token);
+        _ = RunPageSwitchAsync(view, previous, generation, cts.Token, PerfTrace.Now);
     }
 
     /// <summary>
@@ -204,7 +211,12 @@ public partial class MainWindow : Window
     /// 2. 旧页彻底隐藏后，新页淡入 + 上移 + 轻微缩放回正（约 180ms 缓出）。
     /// 不做交叉淡入淡出，因此不会出现两层半透明页面叠在一起的拖影。
     /// </summary>
-    private async Task RunPageSwitchAsync(Control view, Control? previous, int generation, CancellationToken token)
+    private async Task RunPageSwitchAsync(
+        Control view,
+        Control? previous,
+        int generation,
+        CancellationToken token,
+        long switchStart)
     {
         try
         {
@@ -231,6 +243,7 @@ public partial class MainWindow : Window
         {
             if (generation == _pageSwitchGeneration)
             {
+                PerfTrace.MarkSince($"page_switch:{view.GetType().Name}", switchStart);
                 view.Opacity = 1;
                 view.RenderTransform = null;
                 if (previous is not null && !ReferenceEquals(previous, _activeView))
@@ -315,6 +328,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void PrewarmPages()
     {
+        PerfTrace.Mark("prewarm_start");
         var pages = new object[]
         {
             _viewModel.Launch, _viewModel.LaunchProgress, _viewModel.Download,
@@ -332,6 +346,7 @@ public partial class MainWindow : Window
         var size = _pageHost.Bounds.Size;
         if (size.Width <= 0 || size.Height <= 0)
         {
+            PerfTrace.Mark("prewarm_done");
             return;
         }
 
@@ -348,6 +363,8 @@ public partial class MainWindow : Window
         {
             child.IsVisible = child == _activeView;
         }
+
+        PerfTrace.Mark("prewarm_done");
     }
 
     private Control GetOrCreateView(object page)
@@ -844,6 +861,7 @@ public partial class MainWindow : Window
         if (backdropFade >= 1)
         {
             _startupFinished = true;
+            PerfTrace.Mark("splash_done");
             overlay.IsVisible = false;
             if (titleBar is not null)
             {

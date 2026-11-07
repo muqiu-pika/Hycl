@@ -6,6 +6,7 @@ using Hycl.Launcher.Core.Auth;
 using Hycl.Launcher.Core.Config;
 using Hycl.Launcher.Core.Game;
 using Hycl.Launcher.Core.Models;
+using Hycl.Launcher.Core.Services;
 
 namespace Hycl.Launcher.Core.ViewModels.Pages;
 
@@ -316,6 +317,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     /// </summary>
     public async Task RefreshInstancesAsync(string? preferredId = null)
     {
+        var refreshStart = PerfTrace.Now;
         CancelAndDisposeRefresh();
         var cts = new CancellationTokenSource();
         _refreshCts = cts;
@@ -374,6 +376,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             }
 
             cts.Dispose();
+            PerfTrace.MarkSince("launch_instances_done", refreshStart);
         }
     }
 

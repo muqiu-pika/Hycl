@@ -129,6 +129,7 @@ public partial class MainViewModel : ObservableObject
         _ = Launch.RefreshInstancesAsync();
         // 启动时补全账号皮肤缓存：SkinPath 已持久化则直接用缓存，缺失才重新拉取
         _ = Launch.RefreshSkinsAsync();
+        PerfTrace.Mark("main_vm_ctor_done");
     }
 
     /// <summary>是否显示右下角悬浮下载按钮：有任务在进行且当前不在下载页。</summary>
@@ -146,6 +147,7 @@ public partial class MainViewModel : ObservableObject
 
     partial void OnSelectedTabIndexChanged(int value)
     {
+        var switchStart = PerfTrace.Now;
         // 离开当前页：取消该页在途的加载/下载，避免后台任务继续跑
         if (_currentPage is IPageLifecycle leaving)
         {
@@ -179,6 +181,7 @@ public partial class MainViewModel : ObservableObject
 
         (CurrentPage as IPageLifecycle)?.Activate();
         OnPropertyChanged(nameof(ShowFloatingDownload));
+        PerfTrace.MarkSince($"tab_ready:{value}", switchStart);
     }
 
     /// <summary>窗口关闭：取消所有页面级在途任务并释放取消令牌。</summary>
