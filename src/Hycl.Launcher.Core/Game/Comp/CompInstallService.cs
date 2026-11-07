@@ -303,217 +303,11 @@ public sealed class CompInstallService
     }
 
     /// <summary>
-    /// 整合包识别结果（对应 PCL-CE ModpackType）。
-    /// <see cref="BaseFolder"/> 是清单在压缩包内所在目录（含末尾 /，根目录为空），
-    /// 用于兼容"压缩包里还套一层文件夹"的常见打包方式。
-    /// </summary>
-    public sealed record ModpackInspection(string Kind, string FormatName, string? SuggestedName, string BaseFolder)
-    {
-        /// <summary>当前实现能直接安装的格式。</summary>
-        public bool IsSupported => Kind is "modrinth" or "curseforge";
-    }
-
-    /// <summary>
-    /// 识别本地整合包（压缩包或已解压文件夹）。
-    /// 支持判断 PCL-CE 的六种格式，但只有 Modrinth / CurseForge 有安装实现。
+    /// 识别本地整合包（压缩包或已解压文件夹）。识别与解析统一由 <see cref="ModpackReader"/> 提供，
+    /// 导入与后续导出共用同一套实现。
     /// </summary>
     public static ModpackInspection InspectModpack(string sourcePath)
-    {
-        if (Directory.Exists(sourcePath))
-        {
-            var folderName = Path.GetFileName(sourcePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-            var rootKind = InspectFolderManifest(sourcePath, out var rootName, out var hasAddons);
-            return rootKind switch
-            {
-                "modrinth" => new ModpackInspection("modrinth", "Modrinth（modrinth.index.json）", rootName ?? folderName, ""),
-                "manifest" => hasAddons
-                    ? new ModpackInspection("mcbbs", "MCBBS（manifest.json + addons）", rootName ?? folderName, "")
-                    : new ModpackInspection("curseforge", "CurseForge（manifest.json）", rootName ?? folderName, ""),
-                "hmcl" => new ModpackInspection("hmcl", "HMCL（modpack.json）", rootName ?? folderName, ""),
-                "mmc" => new ModpackInspection("mmc", "MultiMC（mmc-pack.json）", rootName ?? folderName, ""),
-                "mcbbs" => new ModpackInspection("mcbbs", "MCBBS（mcbbs.packmeta）", rootName ?? folderName, ""),
-                _ => throw new CompException(
-                    "该文件夹中没有可识别的整合包清单（modrinth.index.json / manifest.json 等），请确认选择的是已解压的整合包根目录。")
-            };
-        }
-
-        if (!File.Exists(sourcePath))
-        {
-            throw new CompException($"整合包文件不存在：{sourcePath}");
-        }
-
-        if (Path.GetExtension(sourcePath).Equals(".rar", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new CompException("暂不支持 RAR 格式，请先解压再用文件夹导入（PCL-CE 也需额外组件才能解压 RAR）。");
-        }
-
-        ZipArchive archive;
-        try
-        {
-            archive = ZipFile.OpenRead(sourcePath);
-        }
-        catch (Exception ex) when (ex is InvalidDataException or IOException)
-        {
-            throw new CompException("无法识别该整合包文件：既不是有效的 ZIP，也不是可识别的整合包格式。" + ex.Message);
-        }
-
-        using (archive)
-        {
-            var fileName = Path.GetFileNameWithoutExtension(sourcePath);
-            var entry = FindManifestEntry(archive, out var manifestName);
-            if (entry is null)
-            {
-                return new ModpackInspection("unknown", "未识别的压缩包", fileName, "");
-            }
-
-            var baseFolder = entry.FullName[..(entry.FullName.Length - entry.Name.Length)];
-            var suggested = ReadJsonName(archive, entry) ?? fileName;
-            var hasAddons = false;
-            if (manifestName == "manifest.json")
-            {
-                hasAddons = ReadManifestHasAddons(archive, entry);
-            }
-
-            var (kind, formatName) = manifestName switch
-            {
-                "modrinth.index.json" => ("modrinth", "Modrinth（modrinth.index.json）"),
-                "manifest.json" => hasAddons
-                    ? ("mcbbs", "MCBBS（manifest.json + addons）")
-                    : ("curseforge", "CurseForge（manifest.json）"),
-                "modpack.json" => ("hmcl", "HMCL（modpack.json）"),
-                "mmc-pack.json" => ("mmc", "MultiMC（mmc-pack.json）"),
-                "mcbbs.packmeta" => ("mcbbs", "MCBBS（mcbbs.packmeta）"),
-                "modpack.zip" or "modpack.mrpack" => ("launcher-pack", "启动器整合包（嵌套 modpack.zip）"),
-                _ => ("unknown", "未识别的压缩包")
-            };
-            return new ModpackInspection(kind, formatName, suggested, baseFolder);
-        }
-    }
-
-    /// <summary>不支持的格式给出统一提示，列出当前实现与 PCL-CE 的差距。</summary>
-    private static string UnsupportedModpackMessage(ModpackInspection inspection)
-        => inspection.IsSupported
-            ? ""
-            : $"暂不支持该整合包格式：{inspection.FormatName}。" +
-              "当前实现了 Modrinth（.mrpack / modrinth.index.json）与 CurseForge（manifest.json）；" +
-              "HMCL / MultiMC / MCBBS / 启动器打包（嵌套 modpack.zip）尚无解析实现，" +
-              "可解压后导入其中已展开的 overrides 目录。";
-
-    /// <summary>从已解压的文件夹识别清单（只认根目录，和直接解压的整合包一致）。</summary>
-    private static string InspectFolderManifest(string folder, out string? suggestedName, out bool hasAddons)
-    {
-        suggestedName = null;
-        hasAddons = false;
-        string? ReadName(string file)
-        {
-            try
-            {
-                return JsonNode.Parse(File.ReadAllText(Path.Combine(folder, file)))?["name"]?.GetValue<string>();
-            }
-            catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException)
-            {
-                return null;
-            }
-        }
-
-        if (File.Exists(Path.Combine(folder, "modrinth.index.json")))
-        {
-            suggestedName = ReadName("modrinth.index.json");
-            return "modrinth";
-        }
-
-        if (File.Exists(Path.Combine(folder, "manifest.json")))
-        {
-            suggestedName = ReadName("manifest.json");
-            hasAddons = File.Exists(Path.Combine(folder, "manifest.json"))
-                        && ReadManifestHasAddons(Path.Combine(folder, "manifest.json"));
-            return "manifest";
-        }
-
-        if (File.Exists(Path.Combine(folder, "modpack.json")))
-        {
-            suggestedName = ReadName("modpack.json");
-            return "hmcl";
-        }
-
-        if (File.Exists(Path.Combine(folder, "mmc-pack.json")))
-        {
-            return "mmc";
-        }
-
-        if (File.Exists(Path.Combine(folder, "mcbbs.packmeta")))
-        {
-            return "mcbbs";
-        }
-
-        return "unknown";
-    }
-
-    /// <summary>在压缩包里找优先级最高的清单条目（同格式多层目录时取层数最浅的）。</summary>
-    private static ZipArchiveEntry? FindManifestEntry(ZipArchive archive, out string manifestName)
-    {
-        string[] candidates =
-        [
-            "modrinth.index.json", "manifest.json", "modpack.json",
-            "mmc-pack.json", "mcbbs.packmeta", "modpack.zip", "modpack.mrpack"
-        ];
-        foreach (var candidate in candidates)
-        {
-            var found = archive.Entries
-                .Where(e => e.Name.Equals(candidate, StringComparison.OrdinalIgnoreCase))
-                .OrderBy(e => e.FullName.Count(c => c == '/'))
-                .FirstOrDefault();
-            if (found is not null)
-            {
-                manifestName = candidate;
-                return found;
-            }
-        }
-
-        manifestName = "";
-        return null;
-    }
-
-    private static string? ReadJsonName(ZipArchive archive, ZipArchiveEntry entry)
-    {
-        try
-        {
-            using var stream = entry.Open();
-            var node = JsonNode.Parse(stream);
-            return node?["name"]?.GetValue<string>();
-        }
-        catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException)
-        {
-            return null;
-        }
-    }
-
-    private static bool ReadManifestHasAddons(ZipArchive archive, ZipArchiveEntry entry)
-    {
-        try
-        {
-            using var stream = entry.Open();
-            var node = JsonNode.Parse(stream);
-            return node?["addons"] is JsonArray;
-        }
-        catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException)
-        {
-            return false;
-        }
-    }
-
-    private static bool ReadManifestHasAddons(string path)
-    {
-        try
-        {
-            var node = JsonNode.Parse(File.ReadAllText(path));
-            return node?["addons"] is JsonArray;
-        }
-        catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException)
-        {
-            return false;
-        }
-    }
+        => ModpackReader.InspectModpack(sourcePath);
 
     /// <summary>
     /// 从本地压缩包/文件夹导入整合包（对应 PCL-CE 的"导入整合包"入口）。
@@ -566,7 +360,7 @@ public sealed class CompInstallService
 
             if (!inspection.IsSupported)
             {
-                throw new CompException(UnsupportedModpackMessage(inspection));
+                throw new CompException(inspection.UnsupportedMessage);
             }
 
             reporter.Stage("创建实例");
@@ -625,7 +419,7 @@ public sealed class CompInstallService
             "curseforge" => InstallCurseForgePackAsync(
                 packPath, inspection.BaseFolder, gameDirectory, instanceName, reporter,
                 policy, threads, cancellationToken, downloadAssets),
-            _ => throw new CompException(UnsupportedModpackMessage(inspection))
+            _ => throw new CompException(inspection.UnsupportedMessage)
         };
 
     // ---------- Modrinth .mrpack ----------

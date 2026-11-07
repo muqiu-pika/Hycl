@@ -890,7 +890,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
     /// <summary>先识别格式，再走命名对话框；不支持的格式当场说明原因，不进入命名步骤。</summary>
     private void BeginImport(string path)
     {
-        CompInstallService.ModpackInspection inspection;
+        ModpackInspection inspection;
         try
         {
             inspection = CompInstallService.InspectModpack(path);
@@ -903,7 +903,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
 
         if (!inspection.IsSupported)
         {
-            StatusMessage = $"无法导入：{inspection.FormatName} 暂未实现，当前支持 Modrinth / CurseForge";
+            StatusMessage = $"无法导入：{inspection.UnsupportedMessage}";
             return;
         }
 
