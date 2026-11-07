@@ -46,14 +46,14 @@
                                     </RadialGradientBrush>
                                 </Ellipse.Fill>
                             </Ellipse>
-                            <c:McSkin SkinKey="{Binding ActiveProfile.SkinKey}"
-                                      SkinPath="{Binding ActiveProfile.SkinPath}"
-                                      CapePath="{Binding ActiveProfile.CapePath}"
-                                      IsSlim="{Binding ActiveProfile.IsSlim}"
-                                      Scale="5"
-                                      HorizontalAlignment="Center"
-                                      VerticalAlignment="Bottom"
-                                      Margin="0,0,0,12" />
+                            <c:McSkin3D SkinKey="{Binding ActiveProfile.SkinKey}"
+                                       SkinPath="{Binding ActiveProfile.SkinPath}"
+                                       CapePath="{Binding ActiveProfile.CapePath}"
+                                       IsSlim="{Binding ActiveProfile.IsSlim}"
+                                       AutomationProperties.Name="3D人偶预览"
+                                       ToolTip.Tip="按住并拖动可旋转人偶"
+                                       HorizontalAlignment="Stretch"
+                                       VerticalAlignment="Stretch" />
                         </Panel>
 
                         <TextBlock Text="{Binding PlayerCardName}"

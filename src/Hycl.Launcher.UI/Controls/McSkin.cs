@@ -274,19 +274,29 @@ public class McSkin : Control
     }
 
     private Bitmap? LoadBitmap()
+        => LoadSkinBitmap(SkinPath, SkinKey);
+
+    /// <summary>
+    /// 皮肤贴图解析：本地文件（登录后下载的正版/皮肤站皮肤）优先于内置逻辑名。
+    /// 供 2D 纸娃娃与 3D 预览共用同一份位图缓存，避免重复解码。
+    /// </summary>
+    internal static Bitmap? LoadSkinBitmap(string? skinPath, string? skinKey)
     {
-        // 本地文件（登录后下载的正版/皮肤站皮肤）优先于内置逻辑名
-        if (!string.IsNullOrWhiteSpace(SkinPath))
+        if (!string.IsNullOrWhiteSpace(skinPath))
         {
-            return LoadFileBitmap(SkinPath!);
+            var fromPath = LoadFileBitmap(skinPath!);
+            if (fromPath is not null)
+            {
+                return fromPath;
+            }
         }
 
-        var skinKey = SkinKey;
-        if (string.IsNullOrWhiteSpace(skinKey))
-        {
-            return null;
-        }
+        return string.IsNullOrWhiteSpace(skinKey) ? null : LoadAssetBitmap(skinKey!);
+    }
 
+    /// <summary>按逻辑名加载内置皮肤（Assets/skins/{key}.png），失败返回 null。</summary>
+    internal static Bitmap? LoadAssetBitmap(string skinKey)
+    {
         if (BitmapCache.TryGetValue(skinKey, out var cached))
         {
             return cached;
@@ -312,7 +322,7 @@ public class McSkin : Control
     /// 从磁盘加载贴图；缓存键包含修改时间与文件大小，重新下载后键会变化。
     /// 文件可能刚被替换/尚未写好，加载失败不缓存，属性再次变化时可以重试。
     /// </summary>
-    private static Bitmap? LoadFileBitmap(string path)
+    internal static Bitmap? LoadFileBitmap(string path)
     {
         try
         {
