@@ -10,6 +10,34 @@ using Hycl.Launcher.Core.Services;
 namespace Hycl.Launcher.Core.ViewModels;
 
 /// <summary>
+/// 导入前展示的整合包文件项：required 强制安装（勾选框禁用），optional 由用户勾选。
+/// 对应 PCL-CE 安装前逐个询问「下载 / 跳过」的清单。
+/// </summary>
+public sealed partial class ModpackFileOption : ObservableObject
+{
+    public required long FileId { get; init; }
+
+    /// <summary>展示名（优先 CurseForge displayName，回退文件名）。</summary>
+    public required string Name { get; init; }
+
+    public string FileName { get; init; } = "";
+
+    public string Info { get; init; } = "";
+
+    public bool IsRequired { get; init; }
+
+    public bool CanToggle => !IsRequired;
+
+    public string BadgeText => IsRequired ? "必需" : "可选";
+
+    public bool HasFileName => FileName.Length > 0 && !FileName.Equals(Name, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>勾选状态：required 恒为勾选；optional 默认勾选（与 PCL-CE 默认按钮「下载」一致）。</summary>
+    [ObservableProperty]
+    private bool _isSelected = true;
+}
+
+/// <summary>
 /// 版本管理：实例列表、切换当前实例、实例设置（名称/备注/隔离/内存/JVM/窗口/Java）、
 /// 复制、重命名、删除与目录入口。
 /// </summary>
@@ -33,6 +61,11 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         {
             OnPropertyChanged(nameof(HasSaves));
             OnPropertyChanged(nameof(SavesTitleText));
+        };
+        ModpackFileOptions.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasModpackFileOptions));
+            OnPropertyChanged(nameof(ModpackFileSummary));
         };
         Files = new InstanceFilesViewModel(services);
         Export = new InstanceExportViewModel(services, message => StatusMessage = message);
@@ -75,6 +108,30 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
     private bool _isImportDialog;
 
     private CancellationTokenSource? _importCts;
+
+    /// <summary>导入前可选项清单（CurseForge：required 禁勾，optional 默认勾选）。</summary>
+    public ObservableCollection<ModpackFileOption> ModpackFileOptions { get; } = new();
+
+    public bool HasModpackFileOptions => ModpackFileOptions.Count > 0;
+
+    public string ModpackFileSummary => ModpackFileOptions.Count == 0
+        ? ""
+        : $"共 {ModpackFileOptions.Count} 个文件：必需 {ModpackFileOptions.Count(o => o.IsRequired)} 个（强制安装），可选 {ModpackFileOptions.Count(o => !o.IsRequired)} 个";
+
+    /// <summary>正在拉取清单文件元数据（网络请求期间禁用清单区并给出提示）。</summary>
+    [ObservableProperty]
+    private bool _isLoadingModpackFiles;
+
+    [ObservableProperty]
+    private string _modpackFileLoadError = "";
+
+    public bool HasModpackFileLoadError => ModpackFileLoadError.Length > 0;
+
+    /// <summary>本次导入是否允许用户选择 optional（CurseForge 且有 optional 文件）。</summary>
+    private bool _hasOptionalSelection;
+
+    partial void OnModpackFileLoadErrorChanged(string value)
+        => OnPropertyChanged(nameof(HasModpackFileLoadError));
 
     /// <summary>取消当前整合包导入（会清理临时文件并回滚本次新建的实例目录）。</summary>
     [RelayCommand]
@@ -869,7 +926,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
 
         if (!string.IsNullOrWhiteSpace(path))
         {
-            BeginImport(path);
+            await BeginImportAsync(path).ConfigureAwait(true);
         }
     }
 
@@ -898,12 +955,12 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
 
         if (!string.IsNullOrWhiteSpace(path))
         {
-            BeginImport(path);
+            await BeginImportAsync(path).ConfigureAwait(true);
         }
     }
 
     /// <summary>先识别格式，再走命名对话框；不支持的格式当场说明原因，不进入命名步骤。</summary>
-    private void BeginImport(string path)
+    private async Task BeginImportAsync(string path)
     {
         ModpackInspection inspection;
         try
@@ -922,6 +979,24 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
             return;
         }
 
+        ModpackFileOptions.Clear();
+        ModpackFileLoadError = "";
+        IsLoadingModpackFiles = false;
+        _hasOptionalSelection = false;
+
+        ModpackDefinition? definition = null;
+        if (inspection.Kind == "curseforge")
+        {
+            try
+            {
+                definition = ModpackReader.ParseModpack(path);
+            }
+            catch (Exception ex) when (ex is CompException or IOException or UnauthorizedAccessException)
+            {
+                ModpackFileLoadError = $"无法读取整合包清单：{ex.Message}";
+            }
+        }
+
         _pendingImportPath = path;
         _isImportDialog = true;
         _isRenameDialog = false;
@@ -930,8 +1005,85 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         var detail = string.IsNullOrWhiteSpace(inspection.LoaderLabel)
             ? inspection.FormatName
             : $"{inspection.FormatName}，{inspection.LoaderLabel}";
-        NameDialogHint = $"格式：{detail}。确认后新建实例，并按清单下载所需文件。";
+        NameDialogHint = $"格式：{detail}。确认后新建实例，并按清单下载所需文件。必需文件强制安装，可选文件可在下方取消勾选。";
         IsNameDialogVisible = true;
+
+        // CurseForge：optional 文件需要逐个询问（PCL-CE 的「下载 / 跳过」清单），这里先拉元数据填充勾选列表
+        if (definition is not null && definition.OptionalCurseForgeFileIds.Count > 0)
+        {
+            _hasOptionalSelection = true;
+            await LoadModpackFileOptionsAsync(path, definition).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>拉取 CurseForge 文件元数据并填充勾选清单；失败时保留按 Id 的占位项，仍可取消勾选。</summary>
+    private async Task LoadModpackFileOptionsAsync(string path, ModpackDefinition definition)
+    {
+        IsLoadingModpackFiles = true;
+        ModpackFileLoadError = "";
+        try
+        {
+            var optionalSet = definition.OptionalCurseForgeFileIds.ToHashSet();
+            var requiredIds = definition.CurseForgeFileIds
+                .Where(id => !optionalSet.Contains(id))
+                .Distinct()
+                .ToList();
+            var optionalIds = definition.CurseForgeFileIds
+                .Where(id => optionalSet.Contains(id))
+                .Distinct()
+                .ToList();
+            var ordered = requiredIds.Concat(optionalIds).ToList();
+
+            IReadOnlyList<CompFile> files;
+            try
+            {
+                files = await _services.CompInstall
+                    .GetCurseForgeFileMetadataAsync(ordered, CancellationToken.None)
+                    .ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                ModpackFileLoadError = $"无法读取文件清单（{ex.Message}），文件名不可用，可选文件将按默认勾选安装。";
+                files = [];
+            }
+
+            // 用户可能在等待期间取消对话框或换了另一个整合包，避免回填到错误的清单
+            if (!_isImportDialog || !string.Equals(_pendingImportPath, path, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var metadataById = files.ToDictionary(file => long.Parse(file.Id), file => file);
+            ModpackFileOptions.Clear();
+            foreach (var fileId in ordered)
+            {
+                var required = !optionalSet.Contains(fileId);
+                var file = metadataById.GetValueOrDefault(fileId);
+                var name = file is null
+                    ? $"文件 #{fileId}"
+                    : string.IsNullOrWhiteSpace(file.DisplayName) ? file.FileName : file.DisplayName;
+                var info = file is not null && file.Size > 0
+                    ? InstanceContentService.FormatSize(file.Size)
+                    : "";
+                ModpackFileOptions.Add(new ModpackFileOption
+                {
+                    FileId = fileId,
+                    Name = name,
+                    FileName = file?.FileName ?? "",
+                    Info = info,
+                    IsRequired = required
+                });
+            }
+
+            if (files.Count < ordered.Count && !HasModpackFileLoadError)
+            {
+                ModpackFileLoadError = $"有 {ordered.Count - files.Count} 个文件已从 CurseForge 删除，安装时会跳过。";
+            }
+        }
+        finally
+        {
+            IsLoadingModpackFiles = false;
+        }
     }
 
     /// <summary>整合包名称可能带空格/非法字符，过滤为合法的 versions 目录名。</summary>
@@ -950,7 +1102,18 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
     private async Task ConfirmImportAsync(string name)
     {
         var path = _pendingImportPath;
+        // required 由导入服务强制安装；这里只收集用户勾选的 optional（未提供选择时保持默认全装）
+        IReadOnlyCollection<long>? optionalFileIds = _hasOptionalSelection
+            ? ModpackFileOptions
+                .Where(option => !option.IsRequired && option.IsSelected)
+                .Select(option => option.FileId)
+                .ToList()
+            : null;
         _isImportDialog = false;
+        _hasOptionalSelection = false;
+        ModpackFileOptions.Clear();
+        ModpackFileLoadError = "";
+        IsLoadingModpackFiles = false;
         _pendingImportPath = null;
         if (path is null)
         {
@@ -980,7 +1143,8 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
                             ? value.Stage
                             : $"{value.Stage} · {value.CurrentItem}";
                     }),
-                    cts.Token)
+                    cts.Token,
+                    optionalFileIds: optionalFileIds)
                 .ConfigureAwait(true);
 
             await RefreshAsync().ConfigureAwait(true);
@@ -1049,6 +1213,10 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         NameDialogHint = "";
         _isImportDialog = false;
         _pendingImportPath = null;
+        _hasOptionalSelection = false;
+        ModpackFileOptions.Clear();
+        ModpackFileLoadError = "";
+        IsLoadingModpackFiles = false;
     }
 
     [RelayCommand]
@@ -1066,6 +1234,12 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
 
         if (_isImportDialog)
         {
+            if (IsLoadingModpackFiles)
+            {
+                NameDialogHint = "正在读取可选文件清单，请稍候…";
+                return;
+            }
+
             // 同名冲突由导入服务自动追加序号（26.3 → 26.3-1 …），这里只校验名称格式
             await ConfirmImportAsync(newId).ConfigureAwait(true);
             return;

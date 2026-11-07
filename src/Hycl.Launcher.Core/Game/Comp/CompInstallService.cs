@@ -233,7 +233,8 @@ public sealed class CompInstallService
         int threads,
         IProgress<InstallProgress>? progress = null,
         CancellationToken cancellationToken = default,
-        bool downloadAssets = true)
+        bool downloadAssets = true,
+        IReadOnlyCollection<long>? optionalFileIds = null)
     {
         var reporter = new CompProgress(progress);
         var tempPath = Path.Combine(
@@ -262,6 +263,7 @@ public sealed class CompInstallService
                     reporter,
                     cancellationToken,
                     downloadAssets,
+                    optionalFileIds,
                     depth: 0)
                 .ConfigureAwait(false);
         }
@@ -279,6 +281,25 @@ public sealed class CompInstallService
         => ModpackReader.InspectModpack(sourcePath);
 
     /// <summary>
+    /// 导入前拉取 CurseForge 整合包文件的元数据（文件名、大小、下载地址），
+    /// 供「可选项清单」展示；返回顺序与请求顺序一致，已被删除的文件不返回。
+    /// </summary>
+    public async Task<IReadOnlyList<CompFile>> GetCurseForgeFileMetadataAsync(
+        IEnumerable<long> fileIds,
+        CancellationToken cancellationToken = default)
+    {
+        var ids = fileIds.Distinct().ToList();
+        if (ids.Count == 0)
+        {
+            return [];
+        }
+
+        var files = await _curseForge.GetFilesByIdsAsync(ids, cancellationToken).ConfigureAwait(false);
+        var byId = files.ToDictionary(file => long.Parse(file.Id), file => file);
+        return ids.Where(byId.ContainsKey).Select(id => byId[id]).ToList();
+    }
+
+    /// <summary>
     /// 从本地压缩包/文件夹导入整合包（对应 PCL-CE 的"导入整合包"入口）：
     /// 新建实例 → 安装原版与加载器 → 解压 overrides → 逐项下载清单内容。
     /// 同名实例已存在时自动追加序号；失败或取消会整体回滚本次新建的实例目录。
@@ -291,7 +312,8 @@ public sealed class CompInstallService
         int threads,
         IProgress<InstallProgress>? progress = null,
         CancellationToken cancellationToken = default,
-        bool downloadAssets = true)
+        bool downloadAssets = true,
+        IReadOnlyCollection<long>? optionalFileIds = null)
     {
         var reporter = new CompProgress(progress);
         string? tempZip = null;
@@ -322,6 +344,7 @@ public sealed class CompInstallService
                     reporter,
                     cancellationToken,
                     downloadAssets,
+                    optionalFileIds,
                     depth: 0)
                 .ConfigureAwait(false);
         }
@@ -347,6 +370,7 @@ public sealed class CompInstallService
         CompProgress reporter,
         CancellationToken cancellationToken,
         bool downloadAssets,
+        IReadOnlyCollection<long>? optionalFileIds,
         int depth)
     {
         var inspection = InspectModpack(packPath);
@@ -375,7 +399,7 @@ public sealed class CompInstallService
                     .ConfigureAwait(false);
                 return await ImportPackCoreAsync(
                         innerPath, gameDirectory, desiredName, policy, threads, reporter,
-                        cancellationToken, downloadAssets, depth + 1)
+                        cancellationToken, downloadAssets, optionalFileIds, depth + 1)
                     .ConfigureAwait(false);
             }
             finally
@@ -419,7 +443,8 @@ public sealed class CompInstallService
                 .ConfigureAwait(false);
 
             // 3) 清单文件逐项下载到 mods / resourcepacks / shaderpacks / saves 等目录
-            await InstallPackFilesAsync(definition, instanceDirectory, reporter, cancellationToken)
+            await InstallPackFilesAsync(
+                    definition, instanceDirectory, reporter, optionalFileIds, cancellationToken)
                 .ConfigureAwait(false);
 
             reporter.Stage("安装完成");
@@ -508,11 +533,31 @@ public sealed class CompInstallService
             : $"{name} {definition.LoaderVersion}";
     }
 
+    /// <summary>
+    /// 计算本次实际安装的 CurseForge 文件：required 一律安装，optional 只装用户勾选项；
+    /// <paramref name="optionalFileIds"/> 为 null 表示调用方未提供选择（社区下载入口），保持全部安装。
+    /// </summary>
+    private static IReadOnlyList<long> SelectCurseForgeFileIds(
+        ModpackDefinition definition,
+        IReadOnlyCollection<long>? optionalFileIds)
+    {
+        var optionalSet = definition.OptionalCurseForgeFileIds.ToHashSet();
+        var requiredIds = definition.CurseForgeFileIds.Where(id => !optionalSet.Contains(id));
+        var selectedOptional = optionalFileIds is null
+            ? definition.OptionalCurseForgeFileIds
+            : definition.OptionalCurseForgeFileIds.Intersect(optionalFileIds);
+        return requiredIds
+            .Concat(selectedOptional)
+            .Distinct()
+            .ToList();
+    }
+
     /// <summary>逐项下载清单内容：Modrinth 直链按 path 落盘；CurseForge 按文件元数据判定目录。</summary>
     private async Task InstallPackFilesAsync(
         ModpackDefinition definition,
         string instanceDirectory,
         CompProgress reporter,
+        IReadOnlyCollection<long>? optionalFileIds,
         CancellationToken cancellationToken)
     {
         if (definition.Files.Count > 0)
@@ -544,10 +589,8 @@ public sealed class CompInstallService
             }
         }
 
-        var curseForgeIds = definition.CurseForgeFileIds
-            .Concat(definition.OptionalCurseForgeFileIds)
-            .Distinct()
-            .ToList();
+        // required 强制安装；optional 只装用户勾选的（未提供选择时保持“全部安装”以兼容社区下载入口）
+        var curseForgeIds = SelectCurseForgeFileIds(definition, optionalFileIds);
         if (curseForgeIds.Count == 0)
         {
             return;
