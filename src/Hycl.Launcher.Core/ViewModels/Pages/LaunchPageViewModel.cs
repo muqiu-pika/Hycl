@@ -32,6 +32,12 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     private readonly List<string> _launchLog = new();
     private readonly object _launchLogGate = new();
 
+    /// <summary>
+    /// 账号切换代号：每次真正换到另一个账号时递增。
+    /// 异步刷新/下载回来的结果先核对代号，过期结果直接丢弃，避免旧账号覆盖新账号的界面状态。
+    /// </summary>
+    private int _accountSwitchVersion;
+
     /// <summary>启动页实时日志最多保留的行数（防止长时间加载把内存与界面拖慢）。</summary>
     private const int MaxLaunchLogLines = 600;
 
@@ -64,7 +70,13 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     /// <summary>空档案状态：无论当前在哪个面板，都只显示添加入口。</summary>
     public bool ShowEmptyProfiles => !HasProfiles;
 
+    /// <summary>
+    /// 当前选中的档案。名字/状态是由它派生的绑定属性，
+    /// 必须显式通知，否则切换账号后只有皮肤跟着变、名字仍停在上一个档案。
+    /// </summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PlayerCardName))]
+    [NotifyPropertyChangedFor(nameof(PlayerCardType))]
     private PlayerProfileViewModel? _activeProfile;
 
     /// <summary>左栏当前显示“玩家”面板还是“档案”面板。</summary>
@@ -565,6 +577,9 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             return;
         }
 
+        // 记住本次刷新对应的账号代号；期间切号则所有界面写回都作废（账号对象本身的资料仍会落盘）。
+        var version = _accountSwitchVersion;
+
         IsRefreshingProfile = true;
         ProfileRefreshError = "";
         ProfileRefreshNeedsLogin = false;
@@ -693,6 +708,14 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             }
 
             await _services.Accounts.SaveAsync().ConfigureAwait(true);
+
+            // 切号后旧账号的刷新结果不能再写回界面（名字/状态/提示都归当前选中账号）。
+            if (version != _accountSwitchVersion)
+            {
+                _services.Logger.Info($"资料刷新结果已过期（账号已切换），丢弃：{account.Name}");
+                return;
+            }
+
             _services.Config.UserName = account.Name;
             await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
             BuildProfiles();
@@ -704,9 +727,12 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         }
         catch (Exception ex)
         {
-            ProfileRefreshError = $"刷新失败：{ex.Message}";
             _services.Logger.Error("刷新账号资料失败", ex);
-            _toast?.Invoke(ProfileRefreshError);
+            if (version == _accountSwitchVersion)
+            {
+                ProfileRefreshError = $"刷新失败：{ex.Message}";
+                _toast?.Invoke(ProfileRefreshError);
+            }
         }
         finally
         {
@@ -1271,10 +1297,17 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         }
 
         var index = Profiles.IndexOf(value);
+        var previous = _services.Accounts.SelectedAccount;
         if (index >= 0)
         {
             _services.Accounts.Select(index);
             _ = _services.Accounts.SaveAsync();
+        }
+
+        // 只有真正换了账号才推进代号；BuildProfiles 重建档案列表时选中账号不变，不应打断进行中的刷新。
+        if (_services.Accounts.SelectedAccount != previous)
+        {
+            _accountSwitchVersion++;
         }
 
         _services.Config.UserName = value.Name;

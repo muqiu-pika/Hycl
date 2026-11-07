@@ -14,6 +14,12 @@ public sealed class AccountStore
     private readonly string _filePath;
     private readonly LauncherLogger _logger;
 
+    /// <summary>
+    /// 串行化写入：快速切号会并发触发多次 SaveAsync，共用同一个 .tmp 文件时
+    /// 会出现「临时文件被占用 / 已被移走」并丢掉最后一次选中状态。
+    /// </summary>
+    private readonly SemaphoreSlim _saveGate = new(1, 1);
+
     public AccountStore(string filePath, LauncherLogger logger)
     {
         _filePath = filePath;
@@ -273,6 +279,8 @@ public sealed class AccountStore
 
     public async Task SaveAsync(CancellationToken cancellationToken = default)
     {
+        // 进入临界区后才生成快照：后到的保存一定包含最新的 SelectedIndex/账号数据。
+        await _saveGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_filePath) ?? ".");
@@ -289,6 +297,10 @@ public sealed class AccountStore
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _logger.Error("保存账号失败", ex);
+        }
+        finally
+        {
+            _saveGate.Release();
         }
     }
 
