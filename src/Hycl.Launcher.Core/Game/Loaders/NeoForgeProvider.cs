@@ -147,23 +147,49 @@ public sealed class CleanroomProvider(
             "cleanroom:all",
             async token =>
             {
-                var json = await SourceRace
-                    .GetTextAsync(
-                        client,
-                        "https://api.github.com/repos/CleanroomMC/Cleanroom/releases",
-                        15,
-                        token)
-                    .ConfigureAwait(false);
-                using var document = JsonDocument.Parse(json);
                 var entries = new List<CleanroomEntry>();
-                foreach (var tokenElement in document.RootElement.EnumerateArray())
+                try
                 {
-                    var tag = tokenElement.TryGetProperty("tag_name", out var tagElement)
-                        ? tagElement.GetString()
-                        : null;
-                    if (!string.IsNullOrWhiteSpace(tag))
+                    var json = await SourceRace
+                        .GetTextAsync(
+                            client,
+                            "https://api.github.com/repos/CleanroomMC/Cleanroom/releases",
+                            15,
+                            token)
+                        .ConfigureAwait(false);
+                    using var document = JsonDocument.Parse(json);
+                    foreach (var tokenElement in document.RootElement.EnumerateArray())
                     {
-                        entries.Add(new CleanroomEntry(tag));
+                        var tag = tokenElement.TryGetProperty("tag_name", out var tagElement)
+                            ? tagElement.GetString()
+                            : null;
+                        if (!string.IsNullOrWhiteSpace(tag))
+                        {
+                            entries.Add(new CleanroomEntry(tag));
+                        }
+                    }
+                }
+                catch (Exception ex) when (
+                    ex is HttpRequestException or IOException or TaskCanceledException or DownloadException or JsonException)
+                {
+                    // GitHub 在部分网络不可达时，改用 HMCL 使用的 alist 镜像元数据
+                    var json = await SourceRace
+                        .GetTextAsync(
+                            client,
+                            "https://alist.8mi.tech/d/mirror/HMCL-Metadata/Auto/cleanroom/index.json",
+                            15,
+                            token)
+                        .ConfigureAwait(false);
+                    using var document = JsonDocument.Parse(json);
+                    foreach (var tokenElement in document.RootElement.EnumerateArray())
+                    {
+                        var name = tokenElement.TryGetProperty("name", out var nameElement)
+                            ? nameElement.GetString()
+                            : null;
+                        if (!string.IsNullOrWhiteSpace(name))
+                        {
+                            entries.Add(new CleanroomEntry(name));
+                        }
                     }
                 }
 

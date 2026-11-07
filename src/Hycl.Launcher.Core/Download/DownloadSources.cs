@@ -70,22 +70,39 @@ public static class DownloadSources
     {
         if (original.Contains("maven", StringComparison.Ordinal))
         {
-            var urls = new List<string>();
-            var bmclapiUrl = original
-                .Replace(original[..original.IndexOf("maven", StringComparison.Ordinal)], BmclapiBase + "/")
-                .Replace("maven.fabricmc.net", "maven")
-                .Replace("maven.minecraftforge.net", "maven")
-                .Replace("maven.neoforged.net/releases", "maven");
-            if (policy.PreferMojangForFiles)
+            var mirrors = new List<string>();
+            const string neoForgeRelease = "https://maven.neoforged.net/releases";
+            const string neoForgeRoot = "https://maven.neoforged.net/";
+
+            if (original.StartsWith(neoForgeRelease, StringComparison.Ordinal))
             {
-                urls.Add(original);
-                urls.Add(bmclapiUrl);
+                mirrors.Add(original.Replace(neoForgeRelease, BmclapiBase + "/maven"));
             }
-            else
+            else if (!original.Contains("maven.neoforged.net", StringComparison.Ordinal))
             {
-                urls.Add(bmclapiUrl);
-                urls.Add(original);
+                mirrors.Add(original
+                    .Replace(original[..original.IndexOf("maven", StringComparison.Ordinal)], BmclapiBase + "/")
+                    .Replace("maven.fabricmc.net", "maven")
+                    .Replace("maven.minecraftforge.net", "maven"));
             }
+
+            // 对应 HMCL HMCLDownloadProvider 的额外镜像：NeoForge 官方 ForgeCDN、Maven Central 腾讯镜像
+            if (original.StartsWith(neoForgeRoot, StringComparison.Ordinal))
+            {
+                mirrors.Add(original.Replace(neoForgeRoot, "https://neoforged.forgecdn.net/"));
+            }
+
+            if (original.StartsWith("https://repo1.maven.org/maven2", StringComparison.Ordinal)
+                || original.StartsWith("https://repo.maven.apache.org/maven2", StringComparison.Ordinal))
+            {
+                mirrors.Add(original
+                    .Replace("https://repo1.maven.org/maven2", "https://mirrors.cloud.tencent.com/nexus/repository/maven-public")
+                    .Replace("https://repo.maven.apache.org/maven2", "https://mirrors.cloud.tencent.com/nexus/repository/maven-public"));
+            }
+
+            var urls = policy.PreferMojangForFiles
+                ? new List<string> { original }.Concat(mirrors).ToList()
+                : mirrors.Append(original).ToList();
 
             if (original.Contains("launcher.mojang.com/v1/objects", StringComparison.Ordinal)
                 || original.Contains("client.txt", StringComparison.Ordinal)
