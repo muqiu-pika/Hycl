@@ -119,9 +119,14 @@ public sealed class LauncherServices
             configStore.Config.UserName = currentAccount.Name;
         }
 
-        // 启动时一次性清理上次异常退出遗留的下载临时文件；在创建下载客户端与任何下载逻辑之前完成
-        StaleTempCleaner.Run(configStore.Config.EffectiveGameDirectory, logger);
-        PerfTrace.Mark("stale_clean_done");
+        // 临时文件清理涉及上万文件的目录遍历（实测 0.5s 以上），放到后台执行，不阻塞首帧；
+        // 清理只针对较旧的 .hycl-dl，避免误删刚创建的在途下载临时文件。
+        var gameDirectory = configStore.Config.EffectiveGameDirectory;
+        _ = Task.Run(() =>
+        {
+            StaleTempCleaner.Run(gameDirectory, logger);
+            PerfTrace.Mark("stale_clean_done");
+        });
 
         var javaDetector = new JavaDetector(logger);
         var downloadClient = new DownloadClient(logger, configStore.Config.RetryCount);

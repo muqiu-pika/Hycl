@@ -109,8 +109,6 @@ public partial class MainWindow : Window
         };
         _viewModel.CloseRequested += (_, _) => Close();
         _viewModel.MinimizeRequested += (_, _) => WindowState = WindowState.Minimized;
-        ShowPage(_viewModel.CurrentPage);
-        PerfTrace.Mark("initial_page_shown");
 
         // 窗口关闭：取消页面切换动画与所有页面级在途任务，关闭文件句柄
         Closing += (_, _) =>
@@ -123,12 +121,25 @@ public partial class MainWindow : Window
             _viewModel.Shutdown();
         };
 
-        // 窗口显示后在后台预热其余页面，避免首次切换标签页时再实例化大页面造成卡顿。
+        // 首屏页面在窗口显示后构建：启动层先出帧，页面构建落在启动动画的最短展示窗口内
         Opened += (_, _) => PerfTrace.Mark("window_opened");
-        Opened += (_, _) => Dispatcher.UIThread.Post(PrewarmPages, DispatcherPriority.Background);
+        Opened += (_, _) => Dispatcher.UIThread.Post(CreateInitialPage, DispatcherPriority.Background);
         Opened += (_, _) => ScheduleWindowRegionUpdate();
         // 启动动画在主窗口内铺满播放，结束后柔和淡出露出界面
         Opened += (_, _) => StartStartupAnimation();
+        if (PerfTrace.IsEnabled)
+        {
+            Opened += (_, _) =>
+            {
+                var memoryTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
+                memoryTimer.Tick += (_, _) =>
+                {
+                    memoryTimer.Stop();
+                    PerfTrace.MarkMemory("idle_memory");
+                };
+                memoryTimer.Start();
+            };
+        }
         SizeChanged += (_, _) => ScheduleWindowRegionUpdate();
 
         SetupResizeHandles();
@@ -322,49 +333,18 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 预热全部页面：先把视图挂进 PageHost（获得完整的样式环境），
-    /// 再显式做一次测量/排列，让 DataTemplate、容器与编译期绑定提前落地。
-    /// 仅实例化视图并不能完成这些工作，首次切页时仍要在 UI 线程补做（实测 150~600ms）。
+    /// 首屏页面在窗口显示后才构建：窗口先出帧，页面构建落在启动动画的最短展示窗口内。
     /// </summary>
-    private void PrewarmPages()
+    private void CreateInitialPage()
     {
-        PerfTrace.Mark("prewarm_start");
-        var pages = new object[]
+        if (_activeView is not null)
         {
-            _viewModel.Launch, _viewModel.LaunchProgress, _viewModel.Download,
-            _viewModel.Instances, _viewModel.Settings, _viewModel.Tools
-        };
-        foreach (var page in pages)
-        {
-            var view = GetOrCreateView(page);
-            if (view.Parent is not Panel)
-            {
-                _pageHost.Children.Add(view);
-            }
-        }
-
-        var size = _pageHost.Bounds.Size;
-        if (size.Width <= 0 || size.Height <= 0)
-        {
-            PerfTrace.Mark("prewarm_done");
             return;
         }
 
-        foreach (var child in _pageHost.Children)
-        {
-            child.IsVisible = true;
-        }
-
-        _pageHost.Measure(size);
-        _pageHost.Arrange(new Rect(size));
-
-        // 立即恢复为仅当前页可见，中间不会产生渲染帧。
-        foreach (var child in _pageHost.Children)
-        {
-            child.IsVisible = child == _activeView;
-        }
-
-        PerfTrace.Mark("prewarm_done");
+        var start = PerfTrace.Now;
+        ShowPage(_viewModel.CurrentPage);
+        PerfTrace.MarkSince("initial_page_shown", start);
     }
 
     private Control GetOrCreateView(object page)
@@ -374,6 +354,7 @@ public partial class MainWindow : Window
             return cached;
         }
 
+        var createStart = PerfTrace.Now;
         Control view = page switch
         {
             LaunchPageViewModel => new LaunchPage(),
@@ -384,6 +365,7 @@ public partial class MainWindow : Window
             ToolsPageViewModel => new ToolsPage(),
             _ => throw new NotSupportedException($"未知的页面类型：{page.GetType().Name}"),
         };
+        PerfTrace.MarkSince($"view_create:{page.GetType().Name}", createStart);
         view.DataContext = page;
         _pageCache[page] = view;
         return view;

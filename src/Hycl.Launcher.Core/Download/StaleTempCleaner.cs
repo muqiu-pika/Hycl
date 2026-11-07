@@ -18,6 +18,9 @@ public static class StaleTempCleaner
 
     public readonly record struct Result(int Scanned, int Deleted, int Skipped, int Failed);
 
+    /// <summary>只清理超过该时长未写入的临时文件，避免误删刚创建的在途下载。</summary>
+    private static readonly TimeSpan MinimumAge = TimeSpan.FromMinutes(10);
+
     public static Result Run(string gameDirectory, LauncherLogger logger)
     {
         var scanned = 0;
@@ -73,6 +76,11 @@ public static class StaleTempCleaner
                             {
                                 scanned++;
                                 if (!file.EndsWith(DownloadClient.TempSuffix, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    continue;
+                                }
+
+                                if (DateTime.UtcNow - File.GetLastWriteTimeUtc(file) < MinimumAge)
                                 {
                                     continue;
                                 }

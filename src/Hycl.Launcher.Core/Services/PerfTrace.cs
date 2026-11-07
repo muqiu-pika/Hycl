@@ -19,6 +19,8 @@ public static class PerfTrace
         "HYCL",
         "perf.log");
 
+    public static bool IsEnabled => Enabled;
+
     public static long Now => Clock.ElapsedMilliseconds;
 
     public static void Mark(string name)
@@ -39,6 +41,18 @@ public static class PerfTrace
         }
 
         Write($"{Clock.ElapsedMilliseconds}|{name}|elapsed={Clock.ElapsedMilliseconds - start}");
+    }
+
+    public static void MarkMemory(string name)
+    {
+        if (!Enabled)
+        {
+            return;
+        }
+
+        using var process = Process.GetCurrentProcess();
+        var managed = GC.GetTotalMemory(false);
+        Write($"{Clock.ElapsedMilliseconds}|{name}|gc_mb={managed / 1048576.0:F1}|ws_mb={process.WorkingSet64 / 1048576.0:F1}");
     }
 
     private static void Write(string line)
