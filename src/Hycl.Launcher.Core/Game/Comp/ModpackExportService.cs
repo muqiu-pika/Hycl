@@ -34,15 +34,30 @@ public sealed record ModpackExportOptions
 
     public bool IncludeMods { get; init; } = true;
 
+    /// <summary>整合包重要数据：脚本、KubeJS、defaultconfigs。</summary>
+    public bool IncludePackData { get; init; } = true;
+
+    /// <summary>模组设置：config 与 options.txt（不含 JEI / 帕秋莉 / 地图的个人数据）。</summary>
+    public bool IncludeModConfig { get; init; } = true;
+
+    /// <summary>已绘制的地图：Xaero / JourneyMap / MapWriter 的地图数据与配置。</summary>
+    public bool IncludeMaps { get; init; } = true;
+
+    /// <summary>JEI 个人信息（config/jei）。</summary>
+    public bool IncludeJei { get; init; } = true;
+
+    /// <summary>帕秋莉手册个人信息（config/patchouli 与 patchouli_books）。</summary>
+    public bool IncludePatchouli { get; init; } = true;
+
     public bool IncludeResourcePacks { get; init; } = true;
+
+    /// <summary>勾选的资源包顶层文件/文件夹名（不区分大小写）；null 表示全部。</summary>
+    public IReadOnlySet<string>? SelectedResourcePacks { get; init; }
 
     public bool IncludeShaderPacks { get; init; } = true;
 
     /// <summary>数据包（saves/&lt;世界&gt;/datapacks 下的 zip）。</summary>
     public bool IncludeDataPacks { get; init; } = true;
-
-    /// <summary>配置与脚本（config / defaultconfigs / scripts / kubejs / options.txt）。</summary>
-    public bool IncludeConfig { get; init; } = true;
 
     public bool IncludeSaves { get; init; }
 
@@ -64,6 +79,15 @@ public sealed record ModpackExportResult(
     int OverrideFileCount,
     bool UsedOnlineLookup,
     string? Warning);
+
+/// <summary>导出内容列表中的资源包条目（顶层 zip 或未压缩文件夹）。</summary>
+public sealed record ModpackExportResourcePack(string Name, bool IsDirectory, int FileCount);
+
+/// <summary>导出内容预览：游戏本体的版本/加载器文本、模组数量与资源包清单。</summary>
+public sealed record ModpackExportPreview(
+    string GameTitle,
+    int ModCount,
+    IReadOnlyList<ModpackExportResourcePack> ResourcePacks);
 
 /// <summary>
 /// 整合包导出：识别与清单解析复用 <see cref="ModpackReader"/>，这里只负责反向收集内容、在线反查与打包。
@@ -251,6 +275,68 @@ public sealed class ModpackExportService(
             TryDelete(temporary);
             throw;
         }
+    }
+
+    /// <summary>导出内容列表预览：游戏本体的版本/加载器文本、模组数量与资源包顶层条目。</summary>
+    public async Task<ModpackExportPreview> PreviewAsync(
+        MinecraftInstance instance,
+        string contentRoot,
+        CancellationToken cancellationToken = default)
+    {
+        var meta = await ReadPackMetaAsync(instance, cancellationToken).ConfigureAwait(false);
+        var typeText = instance.Type switch
+        {
+            "release" => "正式版",
+            "snapshot" => "快照",
+            "old_beta" => "旧版 Beta",
+            "old_alpha" => "旧版 Alpha",
+            _ => instance.Type
+        };
+        var title = string.IsNullOrWhiteSpace(typeText)
+            ? $"Minecraft {meta.GameVersion}"
+            : $"{typeText} {meta.GameVersion}";
+        var loaderName = meta.LoaderKind switch
+        {
+            ModpackLoaderKind.Forge => "Forge",
+            ModpackLoaderKind.NeoForge => "NeoForge",
+            ModpackLoaderKind.Fabric => "Fabric",
+            ModpackLoaderKind.Quilt => "Quilt",
+            ModpackLoaderKind.Cleanroom => "Cleanroom",
+            _ => ""
+        };
+        if (loaderName.Length > 0)
+        {
+            title += string.IsNullOrEmpty(meta.LoaderVersion)
+                ? $", {loaderName}"
+                : $", {loaderName} {meta.LoaderVersion}";
+        }
+
+        var mods = Path.Combine(contentRoot, "mods");
+        var modCount = Directory.Exists(mods) ? Directory.EnumerateFiles(mods).Count() : 0;
+        return new ModpackExportPreview(title, modCount, CollectResourcePackEntries(contentRoot));
+    }
+
+    private static IReadOnlyList<ModpackExportResourcePack> CollectResourcePackEntries(string contentRoot)
+    {
+        var directory = Path.Combine(contentRoot, "resourcepacks");
+        if (!Directory.Exists(directory))
+        {
+            return [];
+        }
+
+        var entries = new List<ModpackExportResourcePack>();
+        foreach (var file in Directory.EnumerateFiles(directory))
+        {
+            entries.Add(new ModpackExportResourcePack(Path.GetFileName(file), false, 1));
+        }
+
+        foreach (var folder in Directory.EnumerateDirectories(directory))
+        {
+            var count = Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).Count();
+            entries.Add(new ModpackExportResourcePack(Path.GetFileName(folder), true, count));
+        }
+
+        return entries.OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     private async Task<List<MatchedFile>> FindModrinthMatchesAsync(
@@ -516,6 +602,17 @@ public sealed class ModpackExportService(
             }
         }
 
+        // Prism 的 Fabric / Quilt 实例还需要 Java 中间映射组件，否则启动时无法解析原版类名
+        if (meta.LoaderKind is ModpackLoaderKind.Fabric or ModpackLoaderKind.Quilt)
+        {
+            components.Add(new Dictionary<string, object?>
+            {
+                ["uid"] = "net.fabricmc.intermediary",
+                ["version"] = meta.GameVersion,
+                ["important"] = false
+            });
+        }
+
         var root = new Dictionary<string, object?>
         {
             ["formatVersion"] = 1,
@@ -581,7 +678,11 @@ public sealed class ModpackExportService(
             }
         }
 
-        void AddTree(string directory, string prefix, bool lookupEligible)
+        void AddTree(
+            string directory,
+            string prefix,
+            bool lookupEligible,
+            Func<string, bool>? exclude = null)
         {
             if (!Directory.Exists(directory))
             {
@@ -592,6 +693,11 @@ public sealed class ModpackExportService(
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var relative = Path.GetRelativePath(directory, file).Replace('\\', '/');
+                if (exclude is not null && exclude(relative))
+                {
+                    continue;
+                }
+
                 Add(file, $"{prefix}/{relative}", lookupEligible);
             }
         }
@@ -609,7 +715,11 @@ public sealed class ModpackExportService(
 
         if (options.IncludeResourcePacks)
         {
-            AddPackFolder(Path.Combine(contentRoot, "resourcepacks"), "resourcepacks", Add);
+            AddPackFolder(
+                Path.Combine(contentRoot, "resourcepacks"),
+                "resourcepacks",
+                Add,
+                options.SelectedResourcePacks);
         }
 
         if (options.IncludeShaderPacks)
@@ -645,12 +755,10 @@ public sealed class ModpackExportService(
             }
         }
 
-        if (options.IncludeConfig)
+        if (options.IncludeModConfig)
         {
-            AddTree(Path.Combine(contentRoot, "config"), "config", false);
-            AddTree(Path.Combine(contentRoot, "defaultconfigs"), "defaultconfigs", false);
-            AddTree(Path.Combine(contentRoot, "scripts"), "scripts", false);
-            AddTree(Path.Combine(contentRoot, "kubejs"), "kubejs", false);
+            // 个人数据（JEI / 帕秋莉 / 地图）挂在模组分组的子项上，未勾选时不能混进「模组设置」
+            AddTree(Path.Combine(contentRoot, "config"), "config", false, IsPersonalConfigEntry);
             foreach (var name in new[] { "options.txt", "optionsof.txt" })
             {
                 var file = Path.Combine(contentRoot, name);
@@ -659,6 +767,56 @@ public sealed class ModpackExportService(
                     Add(file, name, false);
                 }
             }
+        }
+
+        if (options.IncludePackData)
+        {
+            AddTree(Path.Combine(contentRoot, "defaultconfigs"), "defaultconfigs", false);
+            AddTree(Path.Combine(contentRoot, "scripts"), "scripts", false);
+            AddTree(Path.Combine(contentRoot, "kubejs"), "kubejs", false);
+        }
+
+        if (options.IncludeMaps)
+        {
+            foreach (var name in new[] { "XaeroWorldMap", "xaero", "journeymap", "mapwriter" })
+            {
+                AddTree(Path.Combine(contentRoot, name), name, false);
+            }
+
+            var configDirectory = Path.Combine(contentRoot, "config");
+            if (Directory.Exists(configDirectory))
+            {
+                foreach (var entry in Directory.EnumerateFileSystemEntries(configDirectory))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var name = Path.GetFileName(entry);
+                    if (!IsMapEntry(name))
+                    {
+                        continue;
+                    }
+
+                    if (Directory.Exists(entry))
+                    {
+                        AddTree(entry, $"config/{name}", false);
+                    }
+                    else
+                    {
+                        Add(entry, $"config/{name}", false);
+                    }
+                }
+            }
+        }
+
+        if (options.IncludeJei)
+        {
+            AddTree(Path.Combine(contentRoot, "config", "jei"), "config/jei", false);
+        }
+
+        if (options.IncludePatchouli)
+        {
+            AddTree(Path.Combine(contentRoot, "patchouli_books"), "patchouli_books", false);
+            AddTree(Path.Combine(contentRoot, "config", "patchouli"), "config/patchouli", false);
+            AddTree(Path.Combine(contentRoot, "config", "patchouli_books"), "config/patchouli_books", false);
         }
 
         if (options.IncludeSaves)
@@ -697,20 +855,41 @@ public sealed class ModpackExportService(
             return Directory.EnumerateFiles(directory);
         }
 
+        static bool IsMapEntry(string name)
+            => name.StartsWith("xaero", StringComparison.OrdinalIgnoreCase)
+               || name.StartsWith("journeymap", StringComparison.OrdinalIgnoreCase)
+               || name.StartsWith("mapwriter", StringComparison.OrdinalIgnoreCase);
+
+        static bool IsPersonalConfigEntry(string relative)
+        {
+            var first = relative.Split('/')[0];
+            return first.Equals("jei", StringComparison.OrdinalIgnoreCase)
+                   || first.StartsWith("patchouli", StringComparison.OrdinalIgnoreCase)
+                   || IsMapEntry(first);
+        }
+
         void AddPackFolder(
             string directory,
             string prefix,
-            Action<string, string, bool> add)
+            Action<string, string, bool> add,
+            IReadOnlySet<string>? selected = null)
         {
             if (!Directory.Exists(directory))
             {
                 return;
             }
 
+            bool IsSelected(string name) => selected is null || selected.Contains(name);
+
             foreach (var file in EnumerateTopFiles(directory))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var name = Path.GetFileName(file);
+                if (!IsSelected(name))
+                {
+                    continue;
+                }
+
                 var enabled = !name.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase);
                 add(file, $"{prefix}/{name}", enabled && name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
             }
@@ -719,6 +898,11 @@ public sealed class ModpackExportService(
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var name = Path.GetFileName(folder);
+                if (!IsSelected(name))
+                {
+                    continue;
+                }
+
                 foreach (var file in Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -749,13 +933,164 @@ public sealed class ModpackExportService(
                     gameVersion = resolved.RootId;
                 }
 
+                // 部分加载器版本 JSON 不写 inheritsFrom（如 Fabric 自建实例），
+                // 此时 RootId 就是实例名，需从实例名里找出真正的原版版本目录。
+                if (instance.Loader != "原版"
+                    && gameVersion.Equals(instance.Id, StringComparison.OrdinalIgnoreCase))
+                {
+                    gameVersion = DeriveGameVersion(instance.Id, versionsDirectory, gameVersion);
+                }
+
                 (loaderKind, loaderVersion) = ModpackReader.DetectLoaderFromLibraries(
                     resolved.Info.Libraries.Select(library => library.Name),
                     gameVersion);
+
+                // 新版本 NeoForge / Forge 的版本 JSON 不再带 net.neoforged:neoforge 库，
+                // 加载器信息只写在版本 id（neoforge-26.3.0.101）或 --fml.*Version 参数里，
+                // 这里按实例记录的加载器类型补一次，避免清单漏掉加载器字段。
+                if (instance.Loader != "原版")
+                {
+                    var raw = await versionResolver
+                        .LoadAsync(versionsDirectory!, instance.Id, cancellationToken)
+                        .ConfigureAwait(false);
+                    var fallback = DetectLoaderFromInstance(
+                        instance.Loader,
+                        raw?.Id,
+                        raw?.Arguments?.Game.Select(entry => entry.Values).ToList(),
+                        gameVersion);
+                    if (fallback.Kind.Length > 0)
+                    {
+                        loaderKind = fallback.Kind;
+                        loaderVersion ??= fallback.Version;
+                    }
+                }
             }
         }
 
         return new PackMeta(gameVersion, loaderKind, loaderVersion);
+    }
+
+    /// <summary>
+    /// 从实例名中挑出真实的原版版本：按 "-" 切分后枚举连续片段，取 versions 目录下存在的最长片段。
+    /// 例如 26.3-fabric 或 fabric-loader-0.20.1-26.3 都能得到 26.3。
+    /// </summary>
+    private static string DeriveGameVersion(string instanceId, string? versionsDirectory, string fallback)
+    {
+        if (versionsDirectory is null || !Directory.Exists(versionsDirectory))
+        {
+            return fallback;
+        }
+
+        var tokens = instanceId.Split('-', StringSplitOptions.RemoveEmptyEntries);
+        var matches = new List<string>();
+        for (var start = 0; start < tokens.Length; start++)
+        {
+            for (var end = start + 1; end <= tokens.Length; end++)
+            {
+                var candidate = string.Join('-', tokens[start..end]);
+                if (candidate.Equals(instanceId, StringComparison.OrdinalIgnoreCase)
+                    || !char.IsAsciiDigit(candidate[0])
+                    || !candidate.Contains('.'))
+                {
+                    continue;
+                }
+
+                if (Directory.Exists(Path.Combine(versionsDirectory, candidate)))
+                {
+                    matches.Add(candidate);
+                }
+            }
+        }
+
+        return matches.OrderByDescending(value => value.Length).FirstOrDefault() ?? fallback;
+    }
+
+    private static (string Kind, string? Version) DetectLoaderFromInstance(
+        string instanceLoader,
+        string? versionJsonId,
+        IReadOnlyList<string[]>? gameArguments,
+        string gameVersion)
+    {
+        var kind = instanceLoader switch
+        {
+            "Forge" => ModpackLoaderKind.Forge,
+            "NeoForge" => ModpackLoaderKind.NeoForge,
+            "Fabric" => ModpackLoaderKind.Fabric,
+            "Quilt" => ModpackLoaderKind.Quilt,
+            "Cleanroom" => ModpackLoaderKind.Cleanroom,
+            _ => ""
+        };
+        if (kind.Length == 0)
+        {
+            return ("", null);
+        }
+
+        var version = ExtractLoaderVersion(versionJsonId, kind, gameVersion)
+                      ?? ReadFmlArgumentVersion(gameArguments, kind);
+        return (kind, version);
+    }
+
+    private static string? ExtractLoaderVersion(string? versionId, string kind, string gameVersion)
+    {
+        var prefixes = kind switch
+        {
+            ModpackLoaderKind.NeoForge => new[] { "neoforge-" },
+            ModpackLoaderKind.Forge => new[] { "forge-" },
+            ModpackLoaderKind.Fabric => new[] { "fabric-loader-", "fabric-" },
+            ModpackLoaderKind.Quilt => new[] { "quilt-loader-", "quilt-" },
+            ModpackLoaderKind.Cleanroom => new[] { "cleanroom-" },
+            _ => []
+        };
+        if (string.IsNullOrWhiteSpace(versionId))
+        {
+            return null;
+        }
+
+        foreach (var prefix in prefixes)
+        {
+            if (!versionId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var value = versionId[prefix.Length..];
+            var suffix = "-" + gameVersion;
+            if (value.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                value = value[..^suffix.Length];
+            }
+
+            return value.Trim();
+        }
+
+        return null;
+    }
+
+    private static string? ReadFmlArgumentVersion(IReadOnlyList<string[]>? gameArguments, string kind)
+    {
+        var key = kind switch
+        {
+            ModpackLoaderKind.NeoForge => "--fml.neoForgeVersion",
+            ModpackLoaderKind.Forge => "--fml.forgeVersion",
+            _ => null
+        };
+        if (key is null || gameArguments is null)
+        {
+            return null;
+        }
+
+        foreach (var values in gameArguments)
+        {
+            for (var index = 0; index + 1 < values.Length; index++)
+            {
+                if (values[index].Equals(key, StringComparison.OrdinalIgnoreCase))
+                {
+                    return values[index + 1];
+                }
+            }
+        }
+
+        return null;
     }
 
     // ------------------------- 打包工具 -------------------------

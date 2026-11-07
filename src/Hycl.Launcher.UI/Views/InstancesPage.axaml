@@ -40,6 +40,12 @@
         <Style Selector="TextBlock.relation-detail.problem">
             <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
         </Style>
+        <Style Selector="Border.export-tree-row">
+            <Setter Property="Padding" Value="2,1" />
+        </Style>
+        <Style Selector="Border.export-tree-row.child">
+            <Setter Property="Margin" Value="22,0,0,0" />
+        </Style>
     </UserControl.Styles>
 
     <Grid ColumnDefinitions="220,*">
@@ -697,15 +703,6 @@
                                 <TextBlock Classes="setting-card-title" Text="导出整合包" />
                                 <Border Classes="setting-card-rule" />
                                 <Grid Classes="setting-row" ColumnDefinitions="170,*">
-                                    <TextBlock Classes="srow-label" Text="导出格式" />
-                                    <c:McComboBox Grid.Column="1"
-                                                  Width="240"
-                                                  HorizontalAlignment="Left"
-                                                  VerticalAlignment="Center"
-                                                  Items="{Binding Export.FormatOptions}"
-                                                  SelectedItem="{Binding Export.SelectedFormatOption, Mode=TwoWay}" />
-                                </Grid>
-                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
                                     <TextBlock Classes="srow-label" Text="整合包名称" />
                                     <TextBox Grid.Column="1"
                                              Classes="stext"
@@ -714,26 +711,64 @@
                                              PlaceholderText="写入清单的整合包名称" />
                                 </Grid>
                                 <Grid Classes="setting-row" ColumnDefinitions="170,*">
-                                    <TextBlock Classes="srow-label" Text="版本号" />
+                                    <TextBlock Classes="srow-label" Text="整合包版本" />
                                     <TextBox Grid.Column="1"
                                              Classes="stext"
                                              VerticalAlignment="Center"
                                              Text="{Binding Export.ExportVersion, Mode=TwoWay}"
                                              PlaceholderText="1.0.0" />
                                 </Grid>
-                                <TextBlock Classes="sline" Margin="0,4,0,6"
-                                           Text="选择要包含的内容（MOD / 资源包 / 光影 / 数据包会先在线反查，命中则写入清单，其余进入 overrides）：" />
-                                <WrapPanel Margin="0,0,0,8">
-                                    <CheckBox Content="模组" Margin="0,2,14,2" IsChecked="{Binding Export.IncludeMods, Mode=TwoWay}" />
-                                    <CheckBox Content="资源包" Margin="0,2,14,2" IsChecked="{Binding Export.IncludeResourcePacks, Mode=TwoWay}" />
-                                    <CheckBox Content="光影包" Margin="0,2,14,2" IsChecked="{Binding Export.IncludeShaderPacks, Mode=TwoWay}" />
-                                    <CheckBox Content="数据包" Margin="0,2,14,2" IsChecked="{Binding Export.IncludeDataPacks, Mode=TwoWay}" />
-                                    <CheckBox Content="配置与脚本" Margin="0,2,14,2" IsChecked="{Binding Export.IncludeConfig, Mode=TwoWay}" />
-                                    <CheckBox Content="存档" Margin="0,2,14,2" IsChecked="{Binding Export.IncludeSaves, Mode=TwoWay}" />
-                                    <CheckBox Content="截图" Margin="0,2,14,2" IsChecked="{Binding Export.IncludeScreenshots, Mode=TwoWay}" />
-                                    <CheckBox Content="投影原理图" Margin="0,2,14,2" IsChecked="{Binding Export.IncludeSchematics, Mode=TwoWay}" />
-                                    <CheckBox Content="服务器列表" Margin="0,2,14,2" IsChecked="{Binding Export.IncludeServers, Mode=TwoWay}" />
-                                </WrapPanel>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="导出格式" />
+                                    <c:McComboBox Grid.Column="1"
+                                                  Width="240"
+                                                  HorizontalAlignment="Left"
+                                                  VerticalAlignment="Center"
+                                                  Items="{Binding Export.FormatOptions}"
+                                                  SelectedItem="{Binding Export.SelectedFormatOption, Mode=TwoWay}" />
+                                </Grid>
+                                <TextBlock Classes="srow-label"
+                                           Margin="0,8,0,6"
+                                           Text="导出内容列表"
+                                           FontWeight="SemiBold" />
+                                <Border BorderThickness="1"
+                                        BorderBrush="{DynamicResource SoftLineBrush}"
+                                        CornerRadius="6"
+                                        Padding="10,8"
+                                        Margin="0,0,0,6">
+                                    <ScrollViewer MaxHeight="300"
+                                                  VerticalScrollBarVisibility="Auto">
+                                        <ItemsControl ItemsSource="{Binding Export.ExportTree}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:ExportTreeItemViewModel">
+                                                    <Border Classes="export-tree-row"
+                                                            Classes.child="{Binding IsChild}">
+                                                        <Grid ColumnDefinitions="Auto,*">
+                                                            <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                                                                      IsEnabled="{Binding IsEnabled}"
+                                                                      VerticalAlignment="Center" />
+                                                            <StackPanel Grid.Column="1"
+                                                                        Orientation="Horizontal"
+                                                                        Spacing="8"
+                                                                        VerticalAlignment="Center">
+                                                                <TextBlock Text="{Binding Title}"
+                                                                           FontSize="12.5"
+                                                                           VerticalAlignment="Center" />
+                                                                <TextBlock Text="{Binding Detail}"
+                                                                           FontSize="11"
+                                                                           Foreground="{DynamicResource Gray2Brush}"
+                                                                           VerticalAlignment="Center"
+                                                                           IsVisible="{Binding HasDetail}" />
+                                                            </StackPanel>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                </Border>
+                                <TextBlock Classes="sline" Margin="0,0,0,6"
+                                           Text="MOD / 资源包 / 光影 / 数据包会先在线反查，命中则写入清单，其余进入 overrides；未勾选的内容不会写进产物。" />
                                 <ProgressBar Height="4"
                                              Margin="0,2,0,6"
                                              Minimum="0"

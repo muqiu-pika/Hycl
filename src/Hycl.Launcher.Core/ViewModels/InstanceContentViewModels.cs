@@ -900,6 +900,57 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
     }
 }
 
+/// <summary>导出内容列表的一行：标题、补充信息与勾选状态（扁平树，用缩进表示层级）。</summary>
+public sealed partial class ExportTreeItemViewModel : ObservableObject
+{
+    public ExportTreeItemViewModel(
+        string title,
+        string? detail = null,
+        bool isChild = false,
+        bool isChecked = true,
+        bool isEnabled = true,
+        string? packName = null,
+        IReadOnlyList<ExportTreeItemViewModel>? children = null)
+    {
+        Title = title;
+        Detail = detail;
+        IsChild = isChild;
+        _isChecked = isChecked;
+        _isEnabled = isEnabled;
+        PackName = packName;
+        Children = children ?? [];
+    }
+
+    public string Title { get; }
+
+    public string? Detail { get; }
+
+    public bool HasDetail => !string.IsNullOrEmpty(Detail);
+
+    public bool IsChild { get; }
+
+    /// <summary>资源包条目对应的顶层文件名/文件夹名；其它行为 null。</summary>
+    public string? PackName { get; }
+
+    public IReadOnlyList<ExportTreeItemViewModel> Children { get; }
+
+    [ObservableProperty]
+    private bool _isChecked;
+
+    [ObservableProperty]
+    private bool _isEnabled;
+
+    partial void OnIsCheckedChanged(bool value)
+    {
+        // 分组（模组 / 资源包）勾选时联动子项：勾选状态与可编辑状态一起同步
+        foreach (var child in Children)
+        {
+            child.IsEnabled = value;
+            child.IsChecked = value;
+        }
+    }
+}
+
 /// <summary>
 /// 导出实例为整合包：选择格式与内容 → 选择保存位置 → 在线反查 → 打包并校验。
 /// 清单里能按项目 ID 还原的内容写入 files[]，其余内容原样进入 overrides。
@@ -908,9 +959,24 @@ public sealed partial class InstanceExportViewModel : ObservableObject
 {
     private readonly LauncherServices _services;
     private readonly Action<string> _notify;
+    private readonly List<ExportTreeItemViewModel> _resourcePackItems = [];
     private MinecraftInstance? _instance;
     private string _contentRoot = "";
     private CancellationTokenSource? _exportCts;
+    private CancellationTokenSource? _previewCts;
+    private ExportTreeItemViewModel? _modsGroup;
+    private ExportTreeItemViewModel? _resourcePacksGroup;
+    private ExportTreeItemViewModel? _packDataItem;
+    private ExportTreeItemViewModel? _modConfigItem;
+    private ExportTreeItemViewModel? _mapsItem;
+    private ExportTreeItemViewModel? _jeiItem;
+    private ExportTreeItemViewModel? _patchouliItem;
+    private ExportTreeItemViewModel? _shaderGroup;
+    private ExportTreeItemViewModel? _dataPackGroup;
+    private ExportTreeItemViewModel? _savesGroup;
+    private ExportTreeItemViewModel? _screenshotsGroup;
+    private ExportTreeItemViewModel? _schematicsGroup;
+    private ExportTreeItemViewModel? _serversGroup;
 
     public InstanceExportViewModel(LauncherServices services, Action<string> notify)
     {
@@ -937,32 +1003,12 @@ public sealed partial class InstanceExportViewModel : ObservableObject
     [ObservableProperty]
     private string _exportVersion = "1.0.0";
 
+    /// <summary>游戏本体一行显示的版本与加载器信息，例如「正式版 1.21.6, NeoForge 26.0.1」。</summary>
     [ObservableProperty]
-    private bool _includeMods = true;
+    private string _gameBodyText = "";
 
-    [ObservableProperty]
-    private bool _includeResourcePacks = true;
-
-    [ObservableProperty]
-    private bool _includeShaderPacks = true;
-
-    [ObservableProperty]
-    private bool _includeDataPacks = true;
-
-    [ObservableProperty]
-    private bool _includeConfig = true;
-
-    [ObservableProperty]
-    private bool _includeSaves;
-
-    [ObservableProperty]
-    private bool _includeScreenshots;
-
-    [ObservableProperty]
-    private bool _includeSchematics;
-
-    [ObservableProperty]
-    private bool _includeServers;
+    /// <summary>「导出内容列表」的扁平化勾选树。</summary>
+    public System.Collections.ObjectModel.ObservableCollection<ExportTreeItemViewModel> ExportTree { get; } = new();
 
     [ObservableProperty]
     private bool _isExporting;
@@ -1011,6 +1057,14 @@ public sealed partial class InstanceExportViewModel : ObservableObject
         StatusMessage = "";
         Progress = 0;
         ProgressText = "";
+        _previewCts?.Cancel();
+        _previewCts?.Dispose();
+        _previewCts = null;
+        BuildExportTree(null);
+        if (instance is not null)
+        {
+            _ = RefreshPreviewAsync();
+        }
     }
 
     partial void OnSelectedFormatOptionChanged(string value)
@@ -1022,6 +1076,149 @@ public sealed partial class InstanceExportViewModel : ObservableObject
     [RelayCommand]
     private void CancelExport() => _exportCts?.Cancel();
 
+    private async Task RefreshPreviewAsync()
+    {
+        var instance = _instance;
+        if (instance is null)
+        {
+            return;
+        }
+
+        var cts = new CancellationTokenSource();
+        _previewCts = cts;
+        try
+        {
+            var preview = await _services.ModpackExport
+                .PreviewAsync(instance, _contentRoot, cts.Token)
+                .ConfigureAwait(true);
+            if (cts.IsCancellationRequested || !ReferenceEquals(_instance, instance))
+            {
+                return;
+            }
+
+            GameBodyText = preview.GameTitle;
+            BuildExportTree(preview);
+        }
+        catch (OperationCanceledException)
+        {
+            // 切换到其它实例/分区：保留已有内容
+        }
+        catch (Exception ex)
+        {
+            _services.Logger.Warn($"读取导出预览失败：{ex.Message}");
+        }
+        finally
+        {
+            if (ReferenceEquals(_previewCts, cts))
+            {
+                _previewCts = null;
+            }
+
+            cts.Dispose();
+        }
+    }
+
+    /// <summary>构建「导出内容列表」：游戏本体 / 模组（含个人数据子项）/ 资源包（按文件）/ 其它分区。</summary>
+    private void BuildExportTree(ModpackExportPreview? preview)
+    {
+        ExportTree.Clear();
+        _resourcePackItems.Clear();
+        _modsGroup = null;
+        _resourcePacksGroup = null;
+
+        if (_instance is null)
+        {
+            GameBodyText = "";
+            return;
+        }
+
+        var gameTitle = preview?.GameTitle ?? GameBodyText;
+        if (string.IsNullOrWhiteSpace(gameTitle))
+        {
+            gameTitle = _instance.Description;
+        }
+
+        // 游戏本体由清单声明，导出时不可去掉，因此勾选框固定勾选且不可编辑
+        ExportTree.Add(new ExportTreeItemViewModel(
+            "游戏本体",
+            gameTitle,
+            isChecked: true,
+            isEnabled: false));
+
+        var packDataItem = new ExportTreeItemViewModel(
+            "整合包重要数据", "脚本、KubeJS、默认配置、数据包", isChild: true);
+        var modConfigItem = new ExportTreeItemViewModel(
+            "模组设置", "config 与 options.txt", isChild: true);
+        var mapsItem = new ExportTreeItemViewModel(
+            "已绘制的地图", "Xaero / JourneyMap / MapWriter", isChild: true);
+        var jeiItem = new ExportTreeItemViewModel(
+            "JEI 个人信息", "config/jei", isChild: true);
+        var patchouliItem = new ExportTreeItemViewModel(
+            "帕秋莉手册个人信息", "patchouli_books", isChild: true);
+        _packDataItem = packDataItem;
+        _modConfigItem = modConfigItem;
+        _mapsItem = mapsItem;
+        _jeiItem = jeiItem;
+        _patchouliItem = patchouliItem;
+
+        var modsGroup = new ExportTreeItemViewModel(
+            "模组",
+            preview is null ? "本实例的全部模组" : $"{preview.ModCount} 个文件",
+            children:
+            [
+                packDataItem,
+                modConfigItem,
+                mapsItem,
+                jeiItem,
+                patchouliItem
+            ]);
+        _modsGroup = modsGroup;
+        ExportTree.Add(modsGroup);
+        foreach (var child in modsGroup.Children)
+        {
+            ExportTree.Add(child);
+        }
+
+        var packChildren = new List<ExportTreeItemViewModel>();
+        if (preview is not null)
+        {
+            foreach (var pack in preview.ResourcePacks)
+            {
+                var detail = pack.IsDirectory ? $"文件夹 · {pack.FileCount} 个文件" : "资源包文件";
+                var item = new ExportTreeItemViewModel(
+                    pack.Name, detail, isChild: true, packName: pack.Name);
+                packChildren.Add(item);
+                _resourcePackItems.Add(item);
+            }
+        }
+
+        var resourcePacksGroup = new ExportTreeItemViewModel(
+            "资源包",
+            packChildren.Count == 0 ? "没有资源包" : $"{packChildren.Count} 项",
+            isEnabled: packChildren.Count > 0,
+            children: packChildren);
+        _resourcePacksGroup = resourcePacksGroup;
+        ExportTree.Add(resourcePacksGroup);
+        foreach (var child in packChildren)
+        {
+            ExportTree.Add(child);
+        }
+
+        _shaderGroup = AddSimpleGroup("光影包", "shaderpacks", isChecked: true);
+        _dataPackGroup = AddSimpleGroup("数据包", "存档内的 datapacks", isChecked: true);
+        _savesGroup = AddSimpleGroup("存档", "saves 下的全部世界", isChecked: false);
+        _screenshotsGroup = AddSimpleGroup("截图", "screenshots", isChecked: false);
+        _schematicsGroup = AddSimpleGroup("投影原理图", "schematics", isChecked: false);
+        _serversGroup = AddSimpleGroup("服务器列表", "servers.dat", isChecked: false);
+    }
+
+    private ExportTreeItemViewModel AddSimpleGroup(string title, string detail, bool isChecked)
+    {
+        var item = new ExportTreeItemViewModel(title, detail, isChecked: isChecked);
+        ExportTree.Add(item);
+        return item;
+    }
+
     [RelayCommand]
     private async Task ExportAsync()
     {
@@ -1031,9 +1228,24 @@ public sealed partial class InstanceExportViewModel : ObservableObject
         }
 
         var name = ExportName.Trim();
-        if (name.Length == 0 || InstanceNameValidator.ValidateName(name) is not null)
+        if (name.Length == 0)
         {
-            StatusMessage = "导出名称包含非法字符，请修改后重试。";
+            StatusMessage = "请填写整合包名称。";
+            _notify(StatusMessage);
+            return;
+        }
+
+        if (InstanceNameValidator.ValidateName(name) is not null)
+        {
+            StatusMessage = "整合包名称包含非法字符，请修改后重试。";
+            _notify(StatusMessage);
+            return;
+        }
+
+        var version = ExportVersion.Trim();
+        if (version.Length == 0)
+        {
+            StatusMessage = "请填写整合包版本。";
             _notify(StatusMessage);
             return;
         }
@@ -1057,31 +1269,35 @@ public sealed partial class InstanceExportViewModel : ObservableObject
             target += extension;
         }
 
-        var version = ExportVersion.Trim();
-        if (version.Length == 0)
-        {
-            version = "1.0.0";
-            ExportVersion = version;
-        }
-
         var author = string.IsNullOrWhiteSpace(_services.Config.UserName)
             ? "Hycl"
             : _services.Config.UserName;
+        var modsChecked = _modsGroup?.IsChecked ?? true;
+        var resourcePacksChecked = _resourcePacksGroup?.IsChecked ?? true;
         var options = new ModpackExportOptions
         {
             Format = Format,
             Name = name,
             Version = version,
             Author = author,
-            IncludeMods = IncludeMods,
-            IncludeResourcePacks = IncludeResourcePacks,
-            IncludeShaderPacks = IncludeShaderPacks,
-            IncludeDataPacks = IncludeDataPacks,
-            IncludeConfig = IncludeConfig,
-            IncludeSaves = IncludeSaves,
-            IncludeScreenshots = IncludeScreenshots,
-            IncludeSchematics = IncludeSchematics,
-            IncludeServers = IncludeServers
+            IncludeMods = modsChecked,
+            IncludePackData = modsChecked && (_packDataItem?.IsChecked ?? true),
+            IncludeModConfig = modsChecked && (_modConfigItem?.IsChecked ?? true),
+            IncludeMaps = modsChecked && (_mapsItem?.IsChecked ?? true),
+            IncludeJei = modsChecked && (_jeiItem?.IsChecked ?? true),
+            IncludePatchouli = modsChecked && (_patchouliItem?.IsChecked ?? true),
+            IncludeResourcePacks = resourcePacksChecked,
+            SelectedResourcePacks = resourcePacksChecked
+                ? new HashSet<string>(
+                    _resourcePackItems.Where(item => item.IsChecked).Select(item => item.PackName!),
+                    StringComparer.OrdinalIgnoreCase)
+                : null,
+            IncludeShaderPacks = _shaderGroup?.IsChecked ?? true,
+            IncludeDataPacks = _dataPackGroup?.IsChecked ?? true,
+            IncludeSaves = _savesGroup?.IsChecked ?? false,
+            IncludeScreenshots = _screenshotsGroup?.IsChecked ?? false,
+            IncludeSchematics = _schematicsGroup?.IsChecked ?? false,
+            IncludeServers = _serversGroup?.IsChecked ?? false
         };
 
         IsExporting = true;
