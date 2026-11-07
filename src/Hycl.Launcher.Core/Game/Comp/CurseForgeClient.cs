@@ -146,6 +146,28 @@ public sealed class CurseForgeClient(CompRequester requester)
         [JsonPropertyName("fileIds")] public List<long> FileIds { get; set; } = [];
     }
 
+    private sealed class CurseForgeFingerprintsRequest
+    {
+        [JsonPropertyName("fingerprints")] public List<uint> Fingerprints { get; set; } = [];
+    }
+
+    private sealed class CurseForgeFingerprintResponse
+    {
+        [JsonPropertyName("data")] public CurseForgeFingerprintData? Data { get; set; }
+    }
+
+    private sealed class CurseForgeFingerprintData
+    {
+        [JsonPropertyName("exactMatches")] public List<CurseForgeFingerprintMatch>? ExactMatches { get; set; }
+    }
+
+    private sealed class CurseForgeFingerprintMatch
+    {
+        [JsonPropertyName("id")] public long Id { get; set; }
+
+        [JsonPropertyName("file")] public CurseForgeFileJson? File { get; set; }
+    }
+
     // ---------- API ----------
 
     /// <summary>
@@ -239,6 +261,41 @@ public sealed class CurseForgeClient(CompRequester requester)
             .Where(f => f is not null)
             .Cast<CompFile>()
             .ToList();
+    }
+
+    /// <summary>
+    /// 按 CurseForge 指纹（MurmurHash2）批量反查文件（POST /v1/fingerprints/{gameId}，导出整合包时用）。
+    /// 响应不直接回传指纹，因此返回文件列表，由调用方按 sha1 对齐（BuildFile 的 Hash 即 sha1）。
+    /// </summary>
+    public async Task<IReadOnlyList<CompFile>> LookupFingerprintsAsync(
+        IReadOnlyCollection<uint> fingerprints,
+        CancellationToken cancellationToken = default)
+    {
+        var results = new List<CompFile>();
+        var distinct = fingerprints.Distinct().ToList();
+        foreach (var batch in distinct.Chunk(100))
+        {
+            var body = JsonSerializer.Serialize(new CurseForgeFingerprintsRequest { Fingerprints = batch.ToList() });
+            var response = await requester
+                .PostJsonAsync<CurseForgeFingerprintResponse>(
+                    $"{ApiBase}/v1/fingerprints/{GameId}", body, cancellationToken, requester.CurseForgeHeaders)
+                .ConfigureAwait(false);
+            foreach (var match in response.Data?.ExactMatches ?? [])
+            {
+                if (match.File is null)
+                {
+                    continue;
+                }
+
+                var file = BuildFile(match.File, CompResourceType.Mod);
+                if (file is not null)
+                {
+                    results.Add(file);
+                }
+            }
+        }
+
+        return results;
     }
 
     // ---------- 映射 ----------

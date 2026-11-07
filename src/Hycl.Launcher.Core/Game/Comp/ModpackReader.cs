@@ -175,6 +175,80 @@ public static class ModpackReader
         return Parse(source, detected, Path.GetFileNameWithoutExtension(sourcePath));
     }
 
+    /// <summary>
+    /// 从版本 JSON 的 libraries 名称反推加载器种类与版本（导出整合包时使用）。
+    /// 与清单解析共用同一套版本规范化，避免两个方向写出不同版本字符串。
+    /// 优先级：Cleanroom → Forge 系 → Quilt → Fabric。
+    /// </summary>
+    public static (string Kind, string? Version) DetectLoaderFromLibraries(
+        IEnumerable<string> libraryNames,
+        string gameVersion)
+    {
+        string? cleanroom = null;
+        string? forge = null;
+        string? neoForge = null;
+        string? quilt = null;
+        string? fabric = null;
+        foreach (var raw in libraryNames)
+        {
+            var parts = raw.Split(':');
+            if (parts.Length < 3)
+            {
+                continue;
+            }
+
+            var group = parts[0];
+            var artifact = parts[1];
+            var version = parts[2];
+            if (group.Equals("net.minecraftforge", StringComparison.OrdinalIgnoreCase)
+                && artifact.Equals("forge", StringComparison.OrdinalIgnoreCase))
+            {
+                // 与 ParseMmc 一致：Forge 组件版本以 0. 开头代表 Cleanroom
+                if (version.StartsWith("0.", StringComparison.Ordinal))
+                {
+                    cleanroom = version;
+                }
+                else
+                {
+                    forge = version;
+                }
+            }
+            else if (group.Equals("net.neoforged", StringComparison.OrdinalIgnoreCase)
+                     && artifact.Equals("neoforge", StringComparison.OrdinalIgnoreCase))
+            {
+                neoForge = version;
+            }
+            else if (group.Equals("net.fabricmc", StringComparison.OrdinalIgnoreCase)
+                     && artifact.Equals("fabric-loader", StringComparison.OrdinalIgnoreCase))
+            {
+                fabric = version;
+            }
+            else if (group.Equals("org.quiltmc", StringComparison.OrdinalIgnoreCase)
+                     && artifact.Equals("quilt-loader", StringComparison.OrdinalIgnoreCase))
+            {
+                quilt = version;
+            }
+            else if (group.Equals("com.cleanroommc", StringComparison.OrdinalIgnoreCase)
+                     && artifact.Equals("cleanroom", StringComparison.OrdinalIgnoreCase))
+            {
+                cleanroom = version;
+            }
+        }
+
+        if (cleanroom is not null)
+        {
+            return (ModpackLoaderKind.Cleanroom, NormalizeLoaderVersion(cleanroom, gameVersion));
+        }
+
+        return ParseLoaderMap(new Dictionary<string, string?>
+        {
+            [ModpackLoaderKind.Forge] = forge,
+            [ModpackLoaderKind.NeoForge] = neoForge,
+            [ModpackLoaderKind.Quilt] = quilt,
+            [ModpackLoaderKind.Fabric] = fabric
+        }, gameVersion);
+    }
+
     /// <summary>把嵌套启动器整合包（modpack.zip / modpack.mrpack）提取到指定文件。</summary>
     public static Task ExtractNestedAsync(
         string sourcePath,

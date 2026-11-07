@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Hycl.Launcher.Core.Game;
+using Hycl.Launcher.Core.Game.Comp;
 
 namespace Hycl.Launcher.Core.ViewModels;
 
@@ -202,13 +203,17 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
     }
 }
 
-/// <summary>导出实例为 zip：勾选内容 → 选择保存位置 → 逐文件写包。</summary>
+/// <summary>
+/// 导出实例为整合包：选择格式与内容 → 选择保存位置 → 在线反查 → 打包并校验。
+/// 清单里能按项目 ID 还原的内容写入 files[]，其余内容原样进入 overrides。
+/// </summary>
 public sealed partial class InstanceExportViewModel : ObservableObject
 {
     private readonly LauncherServices _services;
     private readonly Action<string> _notify;
     private MinecraftInstance? _instance;
     private string _contentRoot = "";
+    private CancellationTokenSource? _exportCts;
 
     public InstanceExportViewModel(LauncherServices services, Action<string> notify)
     {
@@ -219,8 +224,21 @@ public sealed partial class InstanceExportViewModel : ObservableObject
     /// <summary>由 UI 层注入的保存文件选择器（取消返回 null）。</summary>
     public Func<string?, Task<string?>>? SaveFilePicker { get; set; }
 
+    public IReadOnlyList<string> FormatOptions { get; } =
+    [
+        "Modrinth（.mrpack）",
+        "CurseForge（manifest.json）",
+        "MultiMC / Prism（.zip）"
+    ];
+
+    [ObservableProperty]
+    private string _selectedFormatOption = "Modrinth（.mrpack）";
+
     [ObservableProperty]
     private string _exportName = "";
+
+    [ObservableProperty]
+    private string _exportVersion = "1.0.0";
 
     [ObservableProperty]
     private bool _includeMods = true;
@@ -232,19 +250,22 @@ public sealed partial class InstanceExportViewModel : ObservableObject
     private bool _includeShaderPacks = true;
 
     [ObservableProperty]
-    private bool _includeSaves = true;
-
-    [ObservableProperty]
-    private bool _includeScreenshots = false;
-
-    [ObservableProperty]
-    private bool _includeSchematics = true;
-
-    [ObservableProperty]
-    private bool _includeServers = true;
+    private bool _includeDataPacks = true;
 
     [ObservableProperty]
     private bool _includeConfig = true;
+
+    [ObservableProperty]
+    private bool _includeSaves;
+
+    [ObservableProperty]
+    private bool _includeScreenshots;
+
+    [ObservableProperty]
+    private bool _includeSchematics;
+
+    [ObservableProperty]
+    private bool _includeServers;
 
     [ObservableProperty]
     private bool _isExporting;
@@ -253,9 +274,37 @@ public sealed partial class InstanceExportViewModel : ObservableObject
     private double _progress;
 
     [ObservableProperty]
+    private string _progressText = "";
+
+    [ObservableProperty]
     private string _statusMessage = "";
 
-    public string SuggestedFileName => $"{ExportName}.zip";
+    private ModpackExportFormat Format => SelectedFormatOption switch
+    {
+        "CurseForge（manifest.json）" => ModpackExportFormat.CurseForge,
+        "MultiMC / Prism（.zip）" => ModpackExportFormat.MultiMc,
+        _ => ModpackExportFormat.Modrinth
+    };
+
+    public string SuggestedFileName
+    {
+        get
+        {
+            var name = string.IsNullOrWhiteSpace(ExportName) ? "instance" : ExportName.Trim();
+            foreach (var invalid in Path.GetInvalidFileNameChars())
+            {
+                name = name.Replace(invalid, '-');
+            }
+
+            name = name.Trim().TrimEnd('.');
+            if (name.Length == 0)
+            {
+                name = "instance";
+            }
+
+            return $"{name}.{(Format == ModpackExportFormat.Modrinth ? "mrpack" : "zip")}";
+        }
+    }
 
     public void Configure(MinecraftInstance? instance, string contentRoot)
     {
@@ -264,7 +313,17 @@ public sealed partial class InstanceExportViewModel : ObservableObject
         ExportName = instance is null ? "" : $"{instance.Id}-导出";
         StatusMessage = "";
         Progress = 0;
+        ProgressText = "";
     }
+
+    partial void OnSelectedFormatOptionChanged(string value)
+        => OnPropertyChanged(nameof(SuggestedFileName));
+
+    partial void OnExportNameChanged(string value)
+        => OnPropertyChanged(nameof(SuggestedFileName));
+
+    [RelayCommand]
+    private void CancelExport() => _exportCts?.Cancel();
 
     [RelayCommand]
     private async Task ExportAsync()
@@ -295,45 +354,76 @@ public sealed partial class InstanceExportViewModel : ObservableObject
             return;
         }
 
-        if (!target.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+        var extension = Format == ModpackExportFormat.Modrinth ? ".mrpack" : ".zip";
+        if (!target.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
         {
-            target += ".zip";
+            target += extension;
         }
+
+        var version = ExportVersion.Trim();
+        if (version.Length == 0)
+        {
+            version = "1.0.0";
+            ExportVersion = version;
+        }
+
+        var author = string.IsNullOrWhiteSpace(_services.Config.UserName)
+            ? "Hycl"
+            : _services.Config.UserName;
+        var options = new ModpackExportOptions
+        {
+            Format = Format,
+            Name = name,
+            Version = version,
+            Author = author,
+            IncludeMods = IncludeMods,
+            IncludeResourcePacks = IncludeResourcePacks,
+            IncludeShaderPacks = IncludeShaderPacks,
+            IncludeDataPacks = IncludeDataPacks,
+            IncludeConfig = IncludeConfig,
+            IncludeSaves = IncludeSaves,
+            IncludeScreenshots = IncludeScreenshots,
+            IncludeSchematics = IncludeSchematics,
+            IncludeServers = IncludeServers
+        };
 
         IsExporting = true;
         Progress = 0;
-        StatusMessage = "正在导出…";
+        ProgressText = "准备导出…";
+        StatusMessage = "";
+        _exportCts = new CancellationTokenSource();
         try
         {
-            var options = new InstanceExportOptions(
-                IncludeMods,
-                IncludeResourcePacks,
-                IncludeShaderPacks,
-                IncludeSaves,
-                IncludeScreenshots,
-                IncludeSchematics,
-                IncludeServers,
-                IncludeConfig);
-            var report = new Progress<double>(value => Progress = value);
-            await InstanceContentService.ExportAsync(
-                _instance.Directory,
-                _contentRoot,
-                target,
-                options,
-                report,
-                CancellationToken.None).ConfigureAwait(true);
+            var report = new Progress<ModpackExportProgress>(value =>
+            {
+                Progress = value.Percent;
+                ProgressText = value.Stage;
+            });
+            var result = await _services.ModpackExport
+                .ExportAsync(_instance, _contentRoot, target, options, report, _exportCts.Token)
+                .ConfigureAwait(true);
             Progress = 100;
-            StatusMessage = $"已导出：{target}";
-            _notify($"实例已导出：{Path.GetFileName(target)}");
+            ProgressText = "导出完成";
+            StatusMessage = $"已导出：{result.OutputPath}（清单 {result.ManifestFileCount} 项，overrides {result.OverrideFileCount} 项）"
+                            + (result.Warning is null ? "" : $" {result.Warning}");
+            _notify($"整合包已导出：{Path.GetFileName(result.OutputPath)}");
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        catch (OperationCanceledException)
+        {
+            StatusMessage = "已取消导出。";
+            ProgressText = "";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or CompException)
         {
             StatusMessage = $"导出失败：{ex.Message}";
-            _services.Logger.Error("导出实例失败", ex);
+            ProgressText = "";
+            _services.Logger.Error("导出整合包失败", ex);
             _notify(StatusMessage);
         }
         finally
         {
+            _exportCts?.Dispose();
+            _exportCts = null;
             IsExporting = false;
         }
     }

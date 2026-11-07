@@ -26,6 +26,7 @@ public sealed class LauncherServices
         Game.Comp.CompRequester compRequester,
         Game.Comp.CompInstallService compInstall,
         Game.Comp.CompDependencyResolver compDependencies,
+        Game.Comp.ModpackExportService modpackExport,
         InstanceManager instances,
         LaunchService launch,
         SystemService system,
@@ -46,6 +47,7 @@ public sealed class LauncherServices
         CompRequester = compRequester;
         CompInstall = compInstall;
         CompDependencies = compDependencies;
+        ModpackExport = modpackExport;
         Instances = instances;
         Launch = launch;
         System = system;
@@ -81,6 +83,8 @@ public sealed class LauncherServices
     public Game.Comp.CompInstallService CompInstall { get; }
 
     public Game.Comp.CompDependencyResolver CompDependencies { get; }
+
+    public Game.Comp.ModpackExportService ModpackExport { get; }
 
     public InstanceManager Instances { get; }
 
@@ -150,6 +154,7 @@ public sealed class LauncherServices
         // 社区资源（Modrinth / CurseForge）
         var compRequester = new Game.Comp.CompRequester(downloadClient, configStore.Config, logger);
         var curseForge = new Game.Comp.CurseForgeClient(compRequester);
+        var compModrinth = new Game.Comp.ModrinthClient(compRequester);
         var compInstall = new Game.Comp.CompInstallService(
             compRequester,
             curseForge,
@@ -159,8 +164,9 @@ public sealed class LauncherServices
             logger);
         var compDependencies = new Game.Comp.CompDependencyResolver(
             curseForge,
-            new Game.Comp.ModrinthClient(compRequester),
+            compModrinth,
             logger);
+        var modpackExport = new Game.Comp.ModpackExportService(compModrinth, curseForge, versionResolver, logger);
 
         PerfTrace.Mark("core_create_done");
         return new LauncherServices(
@@ -177,6 +183,7 @@ public sealed class LauncherServices
             compRequester,
             compInstall,
             compDependencies,
+            modpackExport,
             instances,
             launch,
             system,

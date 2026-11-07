@@ -128,7 +128,7 @@ public partial class InstancesPage : UserControl
         return files.Count > 0 ? files[0].TryGetLocalPath() : null;
     }
 
-    /// <summary>选择导出压缩包的保存位置。</summary>
+    /// <summary>选择整合包导出的保存位置（Modrinth .mrpack 或 CurseForge / MultiMC .zip）。</summary>
     private async Task<string?> PickExportSaveAsync(string? suggestedName)
     {
         var top = TopLevel.GetTopLevel(this);
@@ -137,13 +137,22 @@ public partial class InstancesPage : UserControl
             return null;
         }
 
+        var suggested = string.IsNullOrWhiteSpace(suggestedName) ? "instance.zip" : suggestedName;
+        var extension = Path.GetExtension(suggested).TrimStart('.').ToLowerInvariant();
+        if (extension.Length == 0)
+        {
+            extension = "zip";
+        }
+
         var file = await top.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
-            Title = "导出实例",
-            SuggestedFileName = string.IsNullOrWhiteSpace(suggestedName) ? "instance.zip" : suggestedName,
-            DefaultExtension = "zip",
+            Title = "导出整合包",
+            SuggestedFileName = suggested,
+            DefaultExtension = extension,
             FileTypeChoices =
             [
+                new FilePickerFileType("整合包") { Patterns = ["*.mrpack", "*.zip"] },
+                new FilePickerFileType("Modrinth 整合包") { Patterns = ["*.mrpack"] },
                 new FilePickerFileType("Zip 压缩包") { Patterns = ["*.zip"] }
             ]
         });

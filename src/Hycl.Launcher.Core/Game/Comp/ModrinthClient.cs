@@ -4,6 +4,16 @@ using Hycl.Launcher.Core.Download;
 
 namespace Hycl.Launcher.Core.Game.Comp;
 
+/// <summary>按 SHA-1 反查到的 Modrinth 版本文件（导出清单用）。</summary>
+public sealed record ModrinthHashMatch(
+    string ProjectId,
+    string VersionId,
+    string FileName,
+    long Size,
+    string Sha1,
+    string? Sha512,
+    string DownloadUrl);
+
 /// <summary>
 /// Modrinth 客户端：搜索 / 项目详情 / 文件列表（对应 PCL-CE Comp 模块的 Modrinth 分支）。
 /// 全部请求经 <see cref="CompRequester"/> 的镜像阶梯（api.modrinth.com ↔ mod.mcimirror.top/modrinth）。
@@ -231,6 +241,53 @@ public sealed class ModrinthClient(CompRequester requester)
         return files
             .OrderByDescending(f => f.ReleaseDate ?? DateTimeOffset.MinValue)
             .ToList();
+    }
+
+    /// <summary>
+    /// 按 SHA-1 批量反查版本文件（POST /v2/version_files，导出整合包时用）。
+    /// 返回字典的键是请求里的 sha1；只有响应中能对上 sha1 的文件才会返回。
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, ModrinthHashMatch>> LookupBySha1Async(
+        IReadOnlyCollection<string> sha1Hashes,
+        CancellationToken cancellationToken = default)
+    {
+        var result = new Dictionary<string, ModrinthHashMatch>(StringComparer.OrdinalIgnoreCase);
+        var hashes = sha1Hashes
+            .Where(hash => !string.IsNullOrWhiteSpace(hash))
+            .Select(hash => hash.Trim().ToLowerInvariant())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        foreach (var batch in hashes.Chunk(100))
+        {
+            var body = JsonSerializer.Serialize(new { hashes = batch, algorithm = "sha1" });
+            var response = await requester.PostJsonAsync<Dictionary<string, ModrinthVersionJson>>(
+                    $"{ApiBase}/v2/version_files", body, cancellationToken)
+                .ConfigureAwait(false);
+            foreach (var (hash, version) in response ?? [])
+            {
+                // 一个版本可能有多个文件，必须选择 sha1 真正对上的那个，避免把附加文件当成主文件
+                var file = version.Files?
+                    .FirstOrDefault(f => f.Hashes is not null
+                                         && f.Hashes.TryGetValue("sha1", out var sha1)
+                                         && sha1.Equals(hash, StringComparison.OrdinalIgnoreCase));
+                if (file?.Url is null)
+                {
+                    continue;
+                }
+
+                result[hash] = new ModrinthHashMatch(
+                    version.ProjectId ?? "",
+                    version.Id ?? "",
+                    file.Filename ?? "",
+                    file.Size,
+                    file.Hashes?["sha1"] ?? hash,
+                    file.Hashes?.GetValueOrDefault("sha512"),
+                    file.Url);
+            }
+        }
+
+        return result;
     }
 
     private CompFile? BuildFile(ModrinthVersionJson version, CompResourceType type)
