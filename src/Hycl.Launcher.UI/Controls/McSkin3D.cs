@@ -67,9 +67,10 @@ public class McSkin3D : Control
     private Bitmap? _skinBitmap;
     private Bitmap? _capeBitmap;
 
-    private double _yaw = -0.35;
+    // 初始朝向固定为正视前方（yaw/pitch 均为 0），且不持久化：每次冷启动都从正面开始。
+    private double _yaw;
     private double _pitch;
-    private double _targetYaw = -0.35;
+    private double _targetYaw;
     private double _targetPitch;
 
     private bool _dragging;
@@ -132,7 +133,28 @@ public class McSkin3D : Control
             || change.Property == IsSlimProperty)
         {
             ReloadModel();
+            // 换皮肤 / 切账号 / 披风变化后回到正视前方，避免带上一次拖拽的角度。
+            ResetOrientation();
             InvalidateVisual();
+        }
+    }
+
+    /// <summary>
+    /// 朝向复位到正视前方（yaw=0、pitch=0）。仅在控件内部使用，不写入任何配置，
+    /// 因此冷启动永远是正面，切换账号或重新加载皮肤也会回到正面。
+    /// </summary>
+    private void ResetOrientation()
+    {
+        _yaw = 0;
+        _targetYaw = 0;
+        _pitch = 0;
+        _targetPitch = 0;
+
+        // 正在拖拽时保留动画计时器，避免打断当前手势；其余情况停止缓动。
+        if (!_dragging)
+        {
+            _timer.Stop();
+            _lastTick = 0;
         }
     }
 
