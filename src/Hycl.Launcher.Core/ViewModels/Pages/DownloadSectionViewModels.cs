@@ -170,6 +170,14 @@ public partial class InstallTaskViewModel : ObservableObject
             displayName,
             async (progress, token) =>
             {
+                // 与 PCL-CE 一致：同名实例已存在时阻止安装，不覆盖旧实例
+                var nameError = InstanceNameValidator.ValidateCollision(
+                    _services.Config.EffectiveGameDirectory, summary.Id);
+                if (nameError is not null)
+                {
+                    throw new DownloadException(nameError);
+                }
+
                 await _services.Installer.InstallVanillaAsync(
                         _services.Config.EffectiveGameDirectory,
                         summary,
@@ -202,7 +210,27 @@ public partial class InstallTaskViewModel : ObservableObject
     {
         await RunAsync(
             displayName,
-            (progress, token) => _services.LoaderInstall.InstallAsync(plan, progress, token))
+            async (progress, token) =>
+            {
+                // 与 PCL-CE FolderNameValidator 一致：非法名称或同名实例已存在时阻止安装。
+                // 原版计划实际写入 versions/<GameVersion>，其余加载器写入 versions/<TargetName>。
+                var targetNameError = InstanceNameValidator.ValidateName(plan.TargetName);
+                if (targetNameError is not null)
+                {
+                    throw new DownloadException(targetNameError);
+                }
+
+                var effectiveName = plan.Kind.Equals("vanilla", StringComparison.OrdinalIgnoreCase)
+                    ? plan.GameVersion
+                    : plan.TargetName;
+                var collisionError = InstanceNameValidator.ValidateCollision(plan.GameDirectory, effectiveName);
+                if (collisionError is not null)
+                {
+                    throw new DownloadException(collisionError);
+                }
+
+                return await _services.LoaderInstall.InstallAsync(plan, progress, token).ConfigureAwait(true);
+            })
             .ConfigureAwait(true);
     }
 

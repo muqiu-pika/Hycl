@@ -516,9 +516,10 @@ public sealed class CompInstallService
         bool downloadAssets = true)
     {
         var instanceDirectory = Path.Combine(gameDirectory, "versions", instanceName);
-        if (Directory.Exists(instanceDirectory))
+        var nameError = InstanceNameValidator.Validate(gameDirectory, instanceName);
+        if (nameError is not null)
         {
-            throw new CompException($"同名实例已存在：{instanceName}，请换一个名称或先删除旧实例。");
+            throw new CompException(nameError);
         }
 
         var reporter = new CompProgress(progress);

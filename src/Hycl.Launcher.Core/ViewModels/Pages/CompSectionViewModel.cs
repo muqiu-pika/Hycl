@@ -1617,25 +1617,15 @@ public partial class CompSectionViewModel : ObservableObject
 
     private async Task ConfirmModpackSaveAsync(CompFileItemViewModel item)
     {
+        var nameError = InstanceNameValidator.Validate(
+            _services.Config.EffectiveGameDirectory, InstanceName);
+        if (nameError is not null)
+        {
+            SaveHint = nameError;
+            return;
+        }
+
         var name = InstanceName.Trim();
-        if (name.Length == 0)
-        {
-            SaveHint = "请输入实例名称";
-            return;
-        }
-
-        if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || name.Contains("..", StringComparison.Ordinal))
-        {
-            SaveHint = "实例名称包含非法字符";
-            return;
-        }
-
-        if (Directory.Exists(Path.Combine(_services.Config.EffectiveGameDirectory, "versions", name)))
-        {
-            SaveHint = "同名实例已存在，请换一个名称";
-            return;
-        }
-
         IsSaveDialogVisible = false;
         _pendingFile = null;
         SaveHint = "";

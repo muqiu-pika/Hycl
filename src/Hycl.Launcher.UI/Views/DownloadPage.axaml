@@ -200,34 +200,40 @@
                                         BorderThickness="1"
                                         CornerRadius="10"
                                         Padding="10,9">
-                                    <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="12">
-                                        <Button Classes="back-btn"
-                                                MinHeight="0"
-                                                Margin="0"
-                                                VerticalAlignment="Center"
-                                                Command="{Binding Wizard.BackToMcListCommand}">
-                                            <c:HyclIcon Kind="chevron-left" Width="15" Height="15" />
-                                        </Button>
-                                        <c:BlockIcon Grid.Column="1"
-                                                     Kind="grass-block"
-                                                     Width="30"
-                                                     Height="30"
-                                                     VerticalAlignment="Center" />
-                                        <TextBox Grid.Column="2"
-                                                 MinHeight="30"
-                                                 Padding="2,3"
-                                                 FontSize="14"
-                                                 MaxLength="70"
-                                                 VerticalAlignment="Center"
-                                                 PlaceholderText="版本名称"
-                                                 Text="{Binding Wizard.TargetName, Mode=TwoWay}" />
-                                        <TextBlock Grid.Column="3"
-                                                   FontSize="12.5"
-                                                   VerticalAlignment="Center"
-                                                   Foreground="{DynamicResource Gray2Brush}">
-                                            <Run Text="{Binding Wizard.SelectedLoaderName}" />
-                                        </TextBlock>
-                                    </Grid>
+                                    <StackPanel Spacing="6">
+                                        <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="12">
+                                            <Button Classes="back-btn"
+                                                    MinHeight="0"
+                                                    Margin="0"
+                                                    VerticalAlignment="Center"
+                                                    Command="{Binding Wizard.BackToMcListCommand}">
+                                                <c:HyclIcon Kind="chevron-left" Width="15" Height="15" />
+                                            </Button>
+                                            <c:BlockIcon Grid.Column="1"
+                                                         Kind="grass-block"
+                                                         Width="30"
+                                                         Height="30"
+                                                         VerticalAlignment="Center" />
+                                            <TextBox Grid.Column="2"
+                                                     MinHeight="30"
+                                                     Padding="2,3"
+                                                     FontSize="14"
+                                                     MaxLength="70"
+                                                     VerticalAlignment="Center"
+                                                     PlaceholderText="版本名称"
+                                                     Text="{Binding Wizard.TargetName, Mode=TwoWay}" />
+                                            <TextBlock Grid.Column="3"
+                                                       FontSize="12.5"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource Gray2Brush}">
+                                                <Run Text="{Binding Wizard.SelectedLoaderName}" />
+                                            </TextBlock>
+                                        </Grid>
+                                        <TextBlock FontSize="12.5"
+                                                   Foreground="{DynamicResource ErrorBrush}"
+                                                   Text="{Binding Wizard.TargetNameError}"
+                                                   IsVisible="{Binding Wizard.TargetNameError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                    </StackPanel>
                                 </Border>
 
                                 <Panel>

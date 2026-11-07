@@ -880,19 +880,23 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
     [RelayCommand]
     private async Task ConfirmNameDialogAsync()
     {
-        var newId = NameDialogText.Trim();
-        if (!InstanceManager.IsValidInstanceId(newId))
+        var rawName = NameDialogText;
+        var nameError = InstanceNameValidator.ValidateName(rawName);
+        if (nameError is not null)
         {
-            NameDialogHint = "实例名称不能为空，且不能包含 / \\ : * ? \" < > | .. 等字符";
+            NameDialogHint = nameError;
             return;
         }
 
+        var newId = rawName.Trim();
+
         if (_isImportDialog)
         {
-            if (Instances.Any(x => x.Id.Equals(newId, StringComparison.OrdinalIgnoreCase))
-                || Directory.Exists(Path.Combine(_services.Config.EffectiveGameDirectory, "versions", newId)))
+            var collisionError = InstanceNameValidator.ValidateCollision(
+                _services.Config.EffectiveGameDirectory, newId);
+            if (collisionError is not null)
             {
-                NameDialogHint = "同名实例已存在，请换一个名称";
+                NameDialogHint = collisionError;
                 return;
             }
 

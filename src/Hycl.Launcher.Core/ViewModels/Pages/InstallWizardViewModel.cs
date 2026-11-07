@@ -370,6 +370,10 @@ public partial class InstallWizardViewModel : ObservableObject
     [ObservableProperty]
     private string _targetName = "";
 
+    /// <summary>实例名校验错误（非法字符 / 与现有实例重名），非空时阻止开始安装。</summary>
+    [ObservableProperty]
+    private string _targetNameError = "";
+
     [ObservableProperty]
     private string _selectedLoaderName = "原版";
 
@@ -1362,6 +1366,12 @@ public partial class InstallWizardViewModel : ObservableObject
         IsLoaderLoading = false;
     }
 
+    /// <summary>用户改名后立即清掉旧的校验提示，重新点击安装时再校验。</summary>
+    partial void OnTargetNameChanged(string value)
+    {
+        TargetNameError = "";
+    }
+
     [RelayCommand]
     private async Task StartInstallAsync()
     {
@@ -1373,6 +1383,22 @@ public partial class InstallWizardViewModel : ObservableObject
         var choice = _selectedLoaderItem?.Payload as LoaderChoice;
         var kind = choice?.Kind?.ToLowerInvariant() ?? "vanilla";
         var targetName = string.IsNullOrWhiteSpace(TargetName) ? SelectedMcId : TargetName;
+
+        // 与 PCL-CE FolderNameValidator 一致：非法名称或 versions 下已有同名实例时阻止安装，
+        // 保持向导打开并提示换名，绝不覆盖已有实例。
+        TargetNameError = "";
+        var nameError = InstanceNameValidator.ValidateName(targetName);
+        var effectiveName = kind == "vanilla" ? SelectedMcId : targetName;
+        var collisionError = InstanceNameValidator.ValidateCollision(
+            _services.Config.EffectiveGameDirectory, effectiveName);
+        var validationError = nameError ?? collisionError;
+        if (validationError is not null)
+        {
+            TargetNameError = validationError;
+            _toast?.Invoke(validationError);
+            return;
+        }
+
         var companionModSlugs = new List<string>();
         if (kind == "fabric" && _fabricApiCard?.HasSelection == true)
         {
