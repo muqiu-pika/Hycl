@@ -163,6 +163,34 @@ public partial class InstallTaskViewModel : ObservableObject
     [ObservableProperty]
     private double _progressPercent;
 
+    /// <summary>总体进度：按已完成阶段与文件数加权估算，随阶段推进不会回退。</summary>
+    [ObservableProperty]
+    private double _overallProgressPercent;
+
+    /// <summary>当前阶段在整条安装链路中的序号与已完成阶段数，例如「第 3 步 · 已完成 2 步」。</summary>
+    [ObservableProperty]
+    private string _stepCounterText = "";
+
+    /// <summary>当前这一步自身的完成比例，例如「本步 47%」。</summary>
+    [ObservableProperty]
+    private string _stepProgressText = "";
+
+    /// <summary>当前正在下载的文件名 / 文件计数 / 剩余项数等细粒度信息。</summary>
+    [ObservableProperty]
+    private string _currentDetailText = "";
+
+    /// <summary>本次安装已耗时（每秒刷新）。</summary>
+    [ObservableProperty]
+    private string _elapsedText = "";
+
+    /// <summary>本次任务已出现的安装步骤（动态生成，已完成 / 当前 / 失败）。</summary>
+    public ObservableCollection<LaunchStepItemViewModel> Steps { get; } = new();
+
+    private string _currentStage = "";
+    private int _expectedSteps = 2;
+    private DateTime _installStartedAt = DateTime.UtcNow;
+    private Timer? _elapsedTimer;
+
     /// <summary>最近一次安装/下载的失败原因（成功或开始时清空），供详情页就地提示。</summary>
     [ObservableProperty]
     private string _errorText = "";
@@ -189,7 +217,8 @@ public partial class InstallTaskViewModel : ObservableObject
                         targetName: targetName)
                     .ConfigureAwait(true);
                 return targetName;
-            }).ConfigureAwait(true);
+            },
+            expectedSteps: 5).ConfigureAwait(true);
     }
 
     public async Task RunFabricAsync(string gameVersion, string displayName)
@@ -209,7 +238,8 @@ public partial class InstallTaskViewModel : ObservableObject
                         token,
                         targetName)
                     .ConfigureAwait(true);
-            }).ConfigureAwait(true);
+            },
+            expectedSteps: 6).ConfigureAwait(true);
     }
 
     /// <summary>执行完整的加载器安装计划（主加载器 + 附属内容 + 前置 Mod）。</summary>
@@ -232,7 +262,8 @@ public partial class InstallTaskViewModel : ObservableObject
                         plan.GameDirectory, plan.TargetName)
                 };
                 return await _services.LoaderInstall.InstallAsync(plan, progress, token).ConfigureAwait(true);
-            })
+            },
+            expectedSteps: EstimatePlanSteps(plan))
             .ConfigureAwait(true);
     }
 
@@ -248,7 +279,8 @@ public partial class InstallTaskViewModel : ObservableObject
                     instanceId,
                     _services.Config.IsInstanceIsolated(instanceId),
                     progress,
-                    token))
+                    token),
+            expectedSteps: 3)
             .ConfigureAwait(true);
     }
 
@@ -258,7 +290,8 @@ public partial class InstallTaskViewModel : ObservableObject
         await RunAsync(
             $"{file.DisplayName}（{sectionTitle}）",
             (progress, token) => _services.CompInstall
-                .InstallFileToDirectoryAsync(file, targetDirectory, progress, token))
+                .InstallFileToDirectoryAsync(file, targetDirectory, progress, token),
+            expectedSteps: 3)
             .ConfigureAwait(true);
     }
 
@@ -297,7 +330,8 @@ public partial class InstallTaskViewModel : ObservableObject
                 return await _services.CompInstall
                     .InstallFileToDirectoryAsync(mainFile, targetDirectory, progress, token)
                     .ConfigureAwait(true);
-            }).ConfigureAwait(true);
+            },
+            expectedSteps: 3 + dependencies.Count).ConfigureAwait(true);
     }
 
     /// <summary>安装整合包（下载 → 解析 → 资源落盘 → 自动安装原版与加载器）。</summary>
@@ -312,7 +346,8 @@ public partial class InstallTaskViewModel : ObservableObject
                 DownloadPolicy.FromConfig(_services.Config),
                 _services.Config.DownloadThreads,
                 progress,
-                token))
+                token),
+            expectedSteps: 10)
             .ConfigureAwait(true);
     }
 
@@ -337,13 +372,39 @@ public partial class InstallTaskViewModel : ObservableObject
                 progress,
                 token,
                 optionalFileIds: optionalFileIds),
-            progressSink).ConfigureAwait(true);
+            progressSink,
+            expectedSteps: 10).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// 按安装计划估算阶段数（准备 + 主链 + 附属内容），让「总体进度」在单原版、单加载器
+    /// 等常见组合下不会因为固定按 8~10 步估算而长期停在半途。
+    /// </summary>
+    private static int EstimatePlanSteps(LoaderInstallPlan plan)
+    {
+        // 准备中 + 原版 4 步（获取版本 / 客户端 / 依赖库 / 完成）；加载器 6 步
+        var steps = string.Equals(plan.Kind, LoaderInstallService.VanillaKind, StringComparison.OrdinalIgnoreCase)
+            ? 5
+            : 6;
+        if (plan.OptiFine is not null)
+        {
+            steps += 2;
+        }
+
+        if (plan.LiteLoader is not null)
+        {
+            steps += 1;
+        }
+
+        steps += plan.CompanionModSlugs.Count * 2;
+        return Math.Max(steps, 2);
     }
 
     private async Task<InstallRunResult> RunAsync(
         string displayName,
         Func<IProgress<InstallProgress>, CancellationToken, Task<string>> action,
-        Action<InstallProgress>? progressSink = null)
+        Action<InstallProgress>? progressSink = null,
+        int expectedSteps = 2)
     {
         if (IsInstalling)
         {
@@ -360,14 +421,19 @@ public partial class InstallTaskViewModel : ObservableObject
         StageText = "准备中";
         TransferText = "";
         ProgressPercent = 0;
+        OverallProgressPercent = 0;
         ErrorText = "";
+        ResetSteps(expectedSteps);
+        _installStartedAt = DateTime.UtcNow;
+        ElapsedText = "已用 00:00";
+        StartElapsedTimer(generation);
         try
         {
             var progress = new Progress<InstallProgress>(
                 value => _services.Dispatcher.Post(() =>
                 {
                     // 取消/新一轮任务后，丢弃仍在队列中的旧进度，避免遮罩文字“复活”
-                    if (generation == _runGeneration && !cts.IsCancellationRequested)
+                    if (generation == _runGeneration && !cts.IsCancellationRequested && IsInstalling)
                     {
                         ApplyProgress(value);
                         progressSink?.Invoke(value);
@@ -378,6 +444,10 @@ public partial class InstallTaskViewModel : ObservableObject
             var installedId = await actionTask.ConfigureAwait(true);
             StageText = "安装完成";
             ProgressPercent = 100;
+            OverallProgressPercent = 100;
+            StepProgressText = "";
+            CurrentDetailText = "";
+            CompleteAllSteps();
             ErrorText = "";
             _toast?.Invoke($"安装完成：{installedId}");
             // 安装新实例后自动选定该实例（对应 PCL-CE ToolDownloadAutoSelectVersion）
@@ -394,12 +464,18 @@ public partial class InstallTaskViewModel : ObservableObject
         {
             StageText = "已取消";
             TransferText = "";
+            StepProgressText = "";
+            CurrentDetailText = "";
+            MarkActiveStepFailed();
             ErrorText = "";
             return new InstallRunResult(null, true, null);
         }
         catch (Exception ex)
         {
             StageText = "安装失败";
+            StepProgressText = "";
+            CurrentDetailText = "";
+            MarkActiveStepFailed();
             ErrorText = ex.Message;
             _toast?.Invoke($"安装失败：{ex.Message}");
             _services.Logger.Error("安装失败", ex);
@@ -411,26 +487,137 @@ public partial class InstallTaskViewModel : ObservableObject
             {
                 _cts = null;
                 _actionTask = null;
+                StopElapsedTimer();
                 IsInstalling = false;
                 // 未成功的任务不把进度停在半途，回到可再次发起的状态
                 ProgressPercent = StageText == "安装完成" ? 100 : 0;
+                if (StageText != "安装完成")
+                {
+                    OverallProgressPercent = 0;
+                }
             }
 
             cts.Dispose();
         }
     }
 
+    /// <summary>新一轮任务开始：清空旧步骤，先进「准备中」。</summary>
+    private void ResetSteps(int expectedSteps)
+    {
+        _expectedSteps = Math.Max(expectedSteps, 2);
+        _currentStage = "准备中";
+        Steps.Clear();
+        AddStep("准备中");
+        StepCounterText = "第 1 步 · 已完成 0 步";
+        StepProgressText = "";
+        CurrentDetailText = "";
+    }
+
+    private void AddStep(string title)
+    {
+        Steps.Add(new LaunchStepItemViewModel(Steps.Count + 1, title)
+        {
+            Status = LaunchStepStatus.Active
+        });
+        StepCounterText = $"第 {Steps.Count} 步 · 已完成 {Steps.Count - 1} 步";
+    }
+
+    /// <summary>当前步骤结束：标记为已完成，供总体进度按步数推进。</summary>
+    private void CompleteActiveStep()
+    {
+        if (Steps.Count > 0 && Steps[^1].Status != LaunchStepStatus.Completed)
+        {
+            Steps[^1].Status = LaunchStepStatus.Completed;
+        }
+    }
+
+    private void CompleteAllSteps()
+    {
+        foreach (var step in Steps)
+        {
+            step.Status = LaunchStepStatus.Completed;
+        }
+
+        StepCounterText = $"共 {Steps.Count} 步 · 已完成 {Steps.Count} 步";
+    }
+
+    private void MarkActiveStepFailed()
+    {
+        if (Steps.Count > 0 && Steps[^1].Status == LaunchStepStatus.Active)
+        {
+            Steps[^1].Status = LaunchStepStatus.Failed;
+        }
+    }
+
+    private void StartElapsedTimer(int generation)
+    {
+        StopElapsedTimer();
+        _elapsedTimer = new Timer(
+            _ => _services.Dispatcher.Post(() =>
+            {
+                if (generation == _runGeneration && IsInstalling)
+                {
+                    ElapsedText = FormatElapsed(DateTime.UtcNow - _installStartedAt);
+                }
+            }),
+            null,
+            TimeSpan.Zero,
+            TimeSpan.FromSeconds(1));
+    }
+
+    private void StopElapsedTimer()
+    {
+        _elapsedTimer?.Dispose();
+        _elapsedTimer = null;
+    }
+
+    private static string FormatElapsed(TimeSpan elapsed)
+    {
+        var totalSeconds = Math.Max(0, (int)elapsed.TotalSeconds);
+        var minutes = totalSeconds / 60;
+        var seconds = totalSeconds % 60;
+        return $"已用 {minutes:00}:{seconds:00}";
+    }
+
     private void ApplyProgress(InstallProgress progress)
     {
+        // 阶段切换：上一阶段标记完成，新阶段追加到步骤列表并保持高亮
+        if (!string.IsNullOrEmpty(progress.Stage) && !string.Equals(progress.Stage, _currentStage, StringComparison.Ordinal))
+        {
+            CompleteActiveStep();
+            _currentStage = progress.Stage;
+            AddStep(progress.Stage);
+        }
+
         StageText = progress.Stage;
-        ProgressPercent = Math.Clamp(progress.Percentage * 100, 0, 100);
+        // 单个大文件下载时文件数长期停在 0/1，用字节比例让「本步进度」持续可见
+        var byteFraction = progress.BytesTotal > 0
+            ? progress.BytesDone / progress.BytesTotal
+            : 0;
+        var stageFraction = Math.Clamp(Math.Max(progress.Percentage, byteFraction), 0, 1);
+        ProgressPercent = stageFraction * 100;
+        StepProgressText = $"本步 {ProgressPercent:0}%";
+
         var files = progress.FilesTotal > 0
             ? $"{progress.FilesDone}/{progress.FilesTotal} 个文件"
             : "";
         var bytes = progress.BytesTotal > 0
-            ? $" · {FormatBytes(progress.BytesDone)} / {FormatBytes(progress.BytesTotal)}"
+            ? $"{FormatBytes(progress.BytesDone)} / {FormatBytes(progress.BytesTotal)}"
             : "";
-        TransferText = files + bytes;
+        var remaining = progress.FilesTotal > 0
+            ? $"剩余 {Math.Max(0, progress.FilesTotal - progress.FilesDone)} 项"
+            : "";
+        TransferText = string.Join(" · ", new[] { files, bytes }.Where(x => x.Length > 0));
+
+        var detail = string.Join(" · ", new[] { progress.CurrentItem, files, remaining }
+            .Where(x => !string.IsNullOrWhiteSpace(x)));
+        CurrentDetailText = detail.Length > 0 ? detail : "正在处理本地文件…";
+
+        // 总体进度 = (已完成步骤数 + 当前步骤比例) / 预期步骤数；
+        // 阶段数超出预期时（例如原版缺失多跑了安装阶段）按实际出现的步骤数收口
+        var totalSteps = Math.Max(_expectedSteps, Steps.Count);
+        var overall = (Steps.Count - 1 + stageFraction) / totalSteps * 100;
+        OverallProgressPercent = Math.Max(OverallProgressPercent, Math.Clamp(overall, 0, 100));
     }
 
     private static string FormatBytes(double bytes)

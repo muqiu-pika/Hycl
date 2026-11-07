@@ -1386,37 +1386,92 @@
                             CornerRadius="8"
                             Padding="14,8"
                             IsVisible="{Binding Install.IsInstalling}">
-                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
-                            <c:HyclIcon Kind="download"
+                        <Grid ColumnDefinitions="Auto,*,Auto,Auto"
+                              RowDefinitions="Auto,Auto,Auto,Auto"
+                              ColumnSpacing="12"
+                              RowSpacing="6">
+                            <c:HyclIcon Grid.RowSpan="2"
+                                        Kind="download"
                                         Width="15"
                                         Height="15"
                                         Foreground="{DynamicResource PrimaryBrush}"
                                         VerticalAlignment="Center" />
-                            <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+                            <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
                                 <TextBlock FontSize="12.5"
-                                           Foreground="{DynamicResource TextBrush}">
+                                           Foreground="{DynamicResource TextBrush}"
+                                           TextTrimming="CharacterEllipsis">
                                     <Run Text="{Binding Install.InstallingName}" />
                                     <Run Text=" — " />
                                     <Run Text="{Binding Install.StageText}" />
                                 </TextBlock>
-                                <ProgressBar Value="{Binding Install.ProgressPercent}"
-                                             Maximum="100"
-                                             Height="5" />
                                 <TextBlock FontSize="11"
                                            Foreground="{DynamicResource Gray2Brush}"
-                                           Text="{Binding Install.TransferText}" />
+                                           TextTrimming="CharacterEllipsis">
+                                    <Run Text="{Binding Install.StepCounterText}" />
+                                    <Run Text=" · " />
+                                    <Run Text="{Binding Install.StepProgressText}" />
+                                    <Run Text=" · " />
+                                    <Run Text="{Binding Install.ElapsedText}" />
+                                </TextBlock>
                             </StackPanel>
                             <TextBlock Grid.Column="2"
                                        FontSize="12"
                                        VerticalAlignment="Center"
                                        Foreground="{DynamicResource Gray2Brush}"
-                                       Text="{Binding Install.ProgressPercent, StringFormat={}{0:0}%}" />
+                                       Text="{Binding Install.OverallProgressPercent, StringFormat={}{0:0}%}" />
                             <Button Grid.Column="3"
                                     Classes="mc-btn danger"
                                     Padding="10,3"
                                     FontSize="12"
                                     Command="{Binding CancelInstallCommand}"
                                     Content="取消" />
+
+                            <ProgressBar Grid.Row="1"
+                                         Grid.Column="1"
+                                         Grid.ColumnSpan="3"
+                                         Value="{Binding Install.OverallProgressPercent}"
+                                         Maximum="100"
+                                         Height="6" />
+
+                            <TextBlock Grid.Row="2"
+                                       Grid.ColumnSpan="4"
+                                       FontSize="11"
+                                       Foreground="{DynamicResource Gray2Brush}"
+                                       Text="{Binding Install.CurrentDetailText}"
+                                       TextTrimming="CharacterEllipsis" />
+
+                            <ItemsControl Grid.Row="3"
+                                          Grid.ColumnSpan="4"
+                                          ItemsSource="{Binding Install.Steps}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel Orientation="Horizontal" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:LaunchStepItemViewModel">
+                                        <StackPanel Orientation="Horizontal"
+                                                    Spacing="4"
+                                                    Margin="0,2,14,0">
+                                            <TextBlock Classes="step-marker"
+                                                       Classes.done="{Binding IsCompleted}"
+                                                       Classes.active="{Binding IsActive}"
+                                                       Classes.failed="{Binding IsFailed}"
+                                                       Text="{Binding Marker}"
+                                                       FontSize="11"
+                                                       VerticalAlignment="Center" />
+                                            <TextBlock Classes="step-title"
+                                                       Classes.done="{Binding IsCompleted}"
+                                                       Classes.active="{Binding IsActive}"
+                                                       Classes.failed="{Binding IsFailed}"
+                                                       Classes.pending="{Binding IsPending}"
+                                                       Text="{Binding Title}"
+                                                       FontSize="11"
+                                                       VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
                         </Grid>
                     </Border>
 
