@@ -1272,8 +1272,17 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
                 return;
             }
 
-            // 同名冲突由导入服务自动追加序号（26.3 → 26.3-1 …），这里只校验名称格式
-            await ConfirmImportAsync(newId).ConfigureAwait(true);
+            // 与「下载新版本」一致：开始前先把重名实例按既有规则编号（26.3 → 26.3-1 …），
+            // 让用户看到最终名称，而不是导入完成后才从状态栏得知被改名。
+            var effectiveName = InstanceNameValidator.GetAvailableName(
+                _services.Config.EffectiveGameDirectory, newId);
+            if (!effectiveName.Equals(newId, StringComparison.Ordinal))
+            {
+                NameDialogText = effectiveName;
+                StatusMessage = $"已存在同名实例 {newId}，将导入为 {effectiveName}";
+            }
+
+            await ConfirmImportAsync(effectiveName).ConfigureAwait(true);
             return;
         }
 
