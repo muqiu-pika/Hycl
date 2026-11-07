@@ -131,10 +131,6 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     [ObservableProperty]
     private bool _isLaunchProgressVisible;
 
-    /// <summary>启动页实时日志是否展开（默认收起，失败页固定展示）。</summary>
-    [ObservableProperty]
-    private bool _isLaunchLogExpanded;
-
     /// <summary>启动页日志文本（按固定节流刷新，避免每一行都触发界面重排）。</summary>
     [ObservableProperty]
     private string _launchLogText = "";
@@ -1585,7 +1581,6 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         LatestCrashReportPath = null;
         IsCrashBannerVisible = false;
         ResetLaunchSteps();
-        IsLaunchLogExpanded = false;
         IsLaunchProgressVisible = true;
         StopLaunchTicker();
         _launchWatch = Stopwatch.StartNew();
@@ -1600,7 +1595,6 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     {
         StopLaunchTicker();
         IsLaunchProgressVisible = false;
-        IsLaunchLogExpanded = false;
     }
 
     /// <summary>启动被取消（令牌/账号准备失败）：停表并回到启动页，不生成失败页。</summary>
@@ -1608,7 +1602,6 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     {
         StopLaunchTicker();
         IsLaunchProgressVisible = false;
-        IsLaunchLogExpanded = false;
     }
 
     /// <summary>展示结构化的启动失败页，并把完整日志快照固定下来供复制。</summary>
@@ -1804,7 +1797,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                     LaunchElapsedText = $"{watch.Elapsed.TotalSeconds:0.0} 秒";
                 }
 
-                if (IsLaunchLogExpanded || IsLaunchFailed)
+                if (IsLaunchFailed)
                 {
                     LaunchLogText = string.Join(Environment.NewLine, SnapshotLaunchLog());
                 }
@@ -1837,15 +1830,11 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         }
     }
 
-    [RelayCommand]
-    private void ToggleLaunchLog() => IsLaunchLogExpanded = !IsLaunchLogExpanded;
-
     /// <summary>失败页 / 启动页的「返回启动页」：保留日志，只切回启动页。</summary>
     [RelayCommand]
     private void ReturnToLaunchPage()
     {
         IsLaunchProgressVisible = false;
-        IsLaunchLogExpanded = false;
     }
 
     /// <summary>失败页的「重新启动」：清掉失败状态后重新走完整启动流程。</summary>

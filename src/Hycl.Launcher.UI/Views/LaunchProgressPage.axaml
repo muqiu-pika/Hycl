@@ -120,36 +120,6 @@
                                MaxWidth="320" />
                 </Grid>
 
-                <Button Classes="action-btn"
-                        HorizontalAlignment="Center"
-                        Margin="0,14,0,0"
-                        Command="{Binding Launch.ToggleLaunchLogCommand}">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <c:HyclIcon Kind="list" Width="15" Height="15" />
-                        <TextBlock Text="实时日志（点击展开/收起）" FontSize="12.5" VerticalAlignment="Center" />
-                    </StackPanel>
-                </Button>
-
-                <Border Background="{DynamicResource Gray8Brush}"
-                        BorderBrush="{DynamicResource Gray6Brush}"
-                        BorderThickness="1"
-                        CornerRadius="8"
-                        Padding="12,10"
-                        Margin="0,10,0,0"
-                        IsVisible="{Binding Launch.IsLaunchLogExpanded}">
-                    <ScrollViewer Height="200" VerticalScrollBarVisibility="Auto">
-                        <TextBox Text="{Binding Launch.LaunchLogText}"
-                                 IsReadOnly="True"
-                                 AcceptsReturn="True"
-                                 TextWrapping="NoWrap"
-                                 Background="Transparent"
-                                 BorderThickness="0"
-                                 Padding="0"
-                                 FontFamily="Consolas, Cascadia Code, monospace"
-                                 FontSize="12"
-                                 Foreground="{DynamicResource Gray2Brush}" />
-                    </ScrollViewer>
-                </Border>
             </StackPanel>
         </ScrollViewer>
 
