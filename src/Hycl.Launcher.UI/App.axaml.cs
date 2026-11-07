@@ -29,16 +29,26 @@ public partial class App : Application
 
             // 启动即为主窗口本身：不再弹独立加载窗，启动动画在主窗口内铺满播放
             Dispatcher.UIThread.InvokeAsync(
-                () =>
+                async () =>
                 {
                     PerfTrace.Mark("window_create_begin");
                     var main = new MainWindow();
                     desktop.MainWindow = main;
+                    // 关闭启动动画时没有启动层遮挡，若先出帧会看到空白内容区；
+                    // 这条路径保持优化前的观感：先备好服务/页面并在 Show 前构建首屏。
+                    if (!main.StartupAnimationDisabled)
+                    {
+                        PerfTrace.Mark("window_show_begin");
+                        main.Show();
+                        PerfTrace.Mark("window_show_returned");
+                        _ = AttachServicesAsync(main);
+                        return;
+                    }
+
+                    await AttachServicesAsync(main).ConfigureAwait(true);
                     PerfTrace.Mark("window_show_begin");
                     main.Show();
                     PerfTrace.Mark("window_show_returned");
-                    // 服务创建放在首帧之后：配置/账号读取与页面 VM 构造都在启动层展示期内完成。
-                    AttachServicesAsync(main);
                 },
                 DispatcherPriority.Background);
         }
@@ -47,7 +57,7 @@ public partial class App : Application
     }
 
     /// <summary>窗口先出首帧，再异步创建 Core 服务并接入页面 ViewModel（落在启动层展示期内）。</summary>
-    private static async void AttachServicesAsync(MainWindow main)
+    private static async Task AttachServicesAsync(MainWindow main)
     {
         var services = await Core.LauncherServices
             .CreateAsync(new AvaloniaDispatcher())

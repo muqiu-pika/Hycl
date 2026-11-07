@@ -92,6 +92,12 @@ public partial class MainWindow : Window
         _pageHost = this.FindControl<Panel>("PageHost")
             ?? throw new InvalidOperationException("缺少 PageHost 容器");
 
+        // 首帧前只读一个开关：关闭启动动画的用户不会看到静态启动层（与优化前一致）。
+        // 正式配置加载仍在首帧之后，这里只流式解析 config.json 的 enableAnimations。
+        var prefStart = PerfTrace.Now;
+        _startupAnimationEnabled = LauncherPaths.ReadEnableAnimationsFlag();
+        PerfTrace.MarkSince("prefs_read", prefStart);
+
         // 窗口关闭：取消页面切换动画与所有页面级在途任务，关闭文件句柄
         Closing += (_, _) =>
         {
@@ -135,6 +141,9 @@ public partial class MainWindow : Window
         };
     }
 
+    /// <summary>用户是否关闭了启动动画（首帧前已读取，供 App 决定是否先备好服务再 Show）。</summary>
+    internal bool StartupAnimationDisabled => !_startupAnimationEnabled;
+
     /// <summary>
     /// 窗口已显示后接入 Core 服务与页面 ViewModel（App 在 <see cref="Window.Show"/> 之后调用）。
     /// 这段工作落在启动层展示期内，不再挡在首帧前。
@@ -172,7 +181,16 @@ public partial class MainWindow : Window
         ViewModelReady?.Invoke(vm);
         PerfTrace.Mark("window_ctor_done");
 
-        Dispatcher.UIThread.Post(CreateInitialPage, DispatcherPriority.Background);
+        // 关闭启动动画时窗口还没 Show：直接同步构建首屏，首帧即为完整界面；
+        // 播放启动动画时放到下一轮，避免挡住启动层动画。
+        if (StartupAnimationDisabled)
+        {
+            CreateInitialPage();
+        }
+        else
+        {
+            Dispatcher.UIThread.Post(CreateInitialPage, DispatcherPriority.Background);
+        }
     }
 
     /// <summary>立即收起启动层并恢复标题栏/内容区透明度（用于关闭启动动画的场景）。</summary>
@@ -767,6 +785,7 @@ public partial class MainWindow : Window
                 overlay.IsVisible = false;
             }
 
+            PerfTrace.Mark("splash_skipped");
             return;
         }
 
