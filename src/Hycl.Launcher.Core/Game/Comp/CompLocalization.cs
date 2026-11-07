@@ -46,6 +46,32 @@ public static class CompLocalization
         "1.21.4", "1.21.5", "1.21.6", "1.21.7", "1.21.8", "1.21.9", "1.21.10", "1.21.11"
     ];
 
+    /// <summary>正式版版本标识（1.21 / 1.20.6 / 1.0）；排除快照、预发布与 CurseForge 的 Client/Server 伪版本。</summary>
+    private static readonly Regex ReleaseGameVersionPattern = new(@"^\d+(\.\d+)+$", RegexOptions.Compiled);
+
+    private static volatile IReadOnlyList<string> _releaseGameVersions = KnownGameVersions;
+
+    /// <summary>
+    /// 筛选用正式版全集：静态基线 + 版本清单动态合并。
+    /// 新版本发布后由版本清单自动补入，无需改动代码（对应 PCL-CE 把最高 Drop 插入筛选的做法）。
+    /// </summary>
+    public static IReadOnlyList<string> ReleaseGameVersions => _releaseGameVersions;
+
+    /// <summary>是否为正式版版本号（如 1.21、1.20.6）；快照（23w31a）、预发布（1.21-pre1）均返回 false。</summary>
+    public static bool IsReleaseGameVersion(string? version)
+        => !string.IsNullOrWhiteSpace(version) && ReleaseGameVersionPattern.IsMatch(version);
+
+    /// <summary>把版本清单里的正式版并入筛选全集（去重并按版本号降序）。</summary>
+    public static void MergeReleaseGameVersions(IEnumerable<string> versions)
+    {
+        _releaseGameVersions = _releaseGameVersions
+            .Concat(versions)
+            .Where(IsReleaseGameVersion)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(version => version, VersionComparer)
+            .ToList();
+    }
+
     /// <summary>CurseForge 分类数字 Id → 中文（对照 PCL-CE CurseForgeCategoryLangKeys + zh-CN.xaml）。</summary>
     private static readonly Dictionary<long, string> CurseForgeCategories = new()
     {

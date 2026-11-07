@@ -424,7 +424,7 @@ public partial class CompSectionViewModel : ObservableObject
             var versions = _detailFiles
                 .SelectMany(file => file.GameVersions)
                 .Select(CompLocalization.GameVersionName)
-                .Where(version => version.Length > 0 && version.Any(char.IsDigit))
+                .Where(CompLocalization.IsReleaseGameVersion)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderByDescending(version => version, CompLocalization.VersionComparer)
                 .ToList();
@@ -1654,13 +1654,13 @@ public partial class CompSectionViewModel : ObservableObject
     }
 
 
-    /// <summary>重建版本筛选选项：静态全集 + 传入的本机版本，按版本号降序，保持当前选中项。</summary>
+    /// <summary>重建版本筛选选项：正式版全集（静态基线 + 版本清单动态补入）+ 本机实例版本，按版本号降序，保持当前选中项。</summary>
     private void RebuildGameVersionOptions(IEnumerable<string>? extra = null)
     {
         var selected = SelectedGameVersion;
-        var versions = CompLocalization.KnownGameVersions
+        var versions = CompLocalization.ReleaseGameVersions
             .Concat(extra ?? [])
-            .Where(version => !string.IsNullOrWhiteSpace(version))
+            .Where(CompLocalization.IsReleaseGameVersion)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(version => version, CompLocalization.VersionComparer)
             .ToList();
@@ -1691,11 +1691,40 @@ public partial class CompSectionViewModel : ObservableObject
             var instances = await _services.Instances
                 .ScanAsync(_services.Config.EffectiveGameDirectory)
                 .ConfigureAwait(true);
+            await LoadReleaseVersionsAsync().ConfigureAwait(true);
             RebuildGameVersionOptions(instances.Select(instance => instance.GameVersion));
         }
         catch
         {
             // 筛选选项只是增强信息，扫描失败不应影响搜索
+        }
+    }
+
+    /// <summary>版本清单只取一次（多个分区共用同一份正式版列表）。</summary>
+    private static Task<IReadOnlyList<string>>? _releaseVersionsTask;
+
+    private Task<IReadOnlyList<string>> LoadReleaseVersionsAsync()
+        => _releaseVersionsTask ??= FetchReleaseVersionsAsync();
+
+    /// <summary>从版本清单取正式版版本号并并入筛选全集；失败时保留静态基线，不影响搜索。</summary>
+    private async Task<IReadOnlyList<string>> FetchReleaseVersionsAsync()
+    {
+        try
+        {
+            var versions = await _services.Installer
+                .GetVersionListAsync(DownloadPolicy.FromConfig(_services.Config))
+                .ConfigureAwait(true);
+            var releases = versions
+                .Where(version => version.Type == "release" && CompLocalization.IsReleaseGameVersion(version.Id))
+                .Select(version => version.Id)
+                .ToList();
+            CompLocalization.MergeReleaseGameVersions(releases);
+            return releases;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _services.Logger.Warn($"获取正式版版本列表失败（筛选仅使用静态基线）：{ex.Message}");
+            return [];
         }
     }
 
