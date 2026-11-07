@@ -22,7 +22,7 @@ public partial class MainWindow : Window
     /// <summary>页面视图缓存：同一页面只创建一次，切换标签页时复用（对应 PCL-CE 的页面单例）。</summary>
     private readonly Dictionary<object, Control> _pageCache = new();
 
-    private readonly MainViewModel _viewModel;
+    private MainViewModel? _viewModel;
 
     private readonly Panel _pageHost;
 
@@ -43,19 +43,19 @@ public partial class MainWindow : Window
 
     private bool _startupFinished;
 
-    /// <summary>是否播放启动动画（设置-个性化「启动动画」，启动时读取一次）。</summary>
-    private readonly bool _startupAnimationEnabled;
+    /// <summary>是否播放启动动画（设置-个性化「启动动画」，服务就绪后确认）。</summary>
+    private bool _startupAnimationEnabled = true;
 
     private double _startupDismissAt;
 
     /// <summary>启动层最短展示时长（秒），避免窗口构造太快时动画一闪而过。</summary>
     private const double StartupMinShowSeconds = 1.6;
 
-    /// <summary>退场第一段：启动层自身图标与文字淡出时长。</summary>
-    private const double StartupContentFadeSeconds = 0.26;
+    /// <summary>退场第一段：启动层自身图标与文字淡出时长（实测原 0.26s，缩短后整体退场更快）。</summary>
+    private const double StartupContentFadeSeconds = 0.18;
 
     /// <summary>退场第二段：启动层背景淡出、界面内容浮现时长。</summary>
-    private const double StartupBackdropFadeSeconds = 0.42;
+    private const double StartupBackdropFadeSeconds = 0.22;
 
     private bool _startupBackdropFading;
 
@@ -87,28 +87,10 @@ public partial class MainWindow : Window
             rootFrame.Children.Add(startupOverlay);
         }
 
-        // UI 层只负责把视图绑定到 Core 层的 ViewModel，不写业务逻辑
-        var services = Core.LauncherServices
-            .CreateAsync(new AvaloniaDispatcher())
-            .GetAwaiter()
-            .GetResult();
-        PerfTrace.Mark("services_ready");
-        _viewModel = new MainViewModel(services);
-        PerfTrace.Mark("vm_ready");
-        DataContext = _viewModel;
-        _startupAnimationEnabled = services.Config.EnableAnimations;
+        // 首帧只搭骨架：服务与页面 ViewModel 在窗口显示后再接入（AttachServices），
+        // 避免配置读取/VM 构造挡在首帧前。
         _pageHost = this.FindControl<Panel>("PageHost")
             ?? throw new InvalidOperationException("缺少 PageHost 容器");
-
-        _viewModel.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName == nameof(MainViewModel.CurrentPage))
-            {
-                ShowPage(_viewModel.CurrentPage);
-            }
-        };
-        _viewModel.CloseRequested += (_, _) => Close();
-        _viewModel.MinimizeRequested += (_, _) => WindowState = WindowState.Minimized;
 
         // 窗口关闭：取消页面切换动画与所有页面级在途任务，关闭文件句柄
         Closing += (_, _) =>
@@ -118,7 +100,7 @@ public partial class MainWindow : Window
             _pageSwitchCts = null;
             _startupTimer?.Stop();
             _startupTimer = null;
-            _viewModel.Shutdown();
+            _viewModel?.Shutdown();
         };
 
         // 首屏页面在窗口显示后构建：启动层先出帧，页面构建落在启动动画的最短展示窗口内
@@ -151,9 +133,72 @@ public partial class MainWindow : Window
                 UpdateFrameForState();
             }
         };
+    }
 
-        // 构造完成：通知外部（App）应用持久化主题等跨切面配置
-        ViewModelReady?.Invoke(_viewModel);
+    /// <summary>
+    /// 窗口已显示后接入 Core 服务与页面 ViewModel（App 在 <see cref="Window.Show"/> 之后调用）。
+    /// 这段工作落在启动层展示期内，不再挡在首帧前。
+    /// </summary>
+    internal void AttachServices(Core.LauncherServices services)
+    {
+        if (_viewModel is not null)
+        {
+            return;
+        }
+
+        var vm = new MainViewModel(services);
+        PerfTrace.Mark("vm_ready");
+        _viewModel = vm;
+        DataContext = vm;
+
+        // 用户在设置里关闭「启动动画」：启动层已按默认开始播放，立即收起并恢复界面
+        if (!services.Config.EnableAnimations)
+        {
+            _startupAnimationEnabled = false;
+            StopStartupAnimation();
+        }
+
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainViewModel.CurrentPage))
+            {
+                ShowPage(vm.CurrentPage);
+            }
+        };
+        vm.CloseRequested += (_, _) => Close();
+        vm.MinimizeRequested += (_, _) => WindowState = WindowState.Minimized;
+
+        // 通知外部（App）应用持久化主题等跨切面配置
+        ViewModelReady?.Invoke(vm);
+        PerfTrace.Mark("window_ctor_done");
+
+        Dispatcher.UIThread.Post(CreateInitialPage, DispatcherPriority.Background);
+    }
+
+    /// <summary>立即收起启动层并恢复标题栏/内容区透明度（用于关闭启动动画的场景）。</summary>
+    private void StopStartupAnimation()
+    {
+        _startupTimer?.Stop();
+        _startupTimer = null;
+        _startupFinished = true;
+
+        var overlay = this.FindControl<Panel>("StartupOverlay");
+        if (overlay is not null)
+        {
+            overlay.IsVisible = false;
+        }
+
+        var titleBar = this.FindControl<Border>("TitleBar");
+        if (titleBar is not null)
+        {
+            titleBar.Opacity = 1;
+        }
+
+        var contentArea = this.FindControl<Grid>("ContentArea");
+        if (contentArea is not null)
+        {
+            contentArea.Opacity = 1;
+        }
     }
 
     /// <summary>切换到指定页面；视图实例只创建一次并复用，切换只做可见性翻转。</summary>
@@ -338,12 +383,13 @@ public partial class MainWindow : Window
     /// </summary>
     private void CreateInitialPage()
     {
-        if (_activeView is not null)
+        if (_activeView is not null || _viewModel is null)
         {
             return;
         }
 
         var start = PerfTrace.Now;
+        PerfTrace.Mark("initial_page_begin");
         ShowPage(_viewModel.CurrentPage);
         PerfTrace.MarkSince("initial_page_shown", start);
     }

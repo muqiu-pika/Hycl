@@ -99,7 +99,9 @@ public sealed class LauncherServices
         CancellationToken cancellationToken = default)
     {
         var paths = LauncherPaths.CreateDefault();
+        PerfTrace.Mark("paths_ready");
         var logger = new LauncherLogger(paths.LogDirectory);
+        PerfTrace.Mark("logger_ready");
         logger.Info("Hyplay Craft Launcher 启动");
         PerfTrace.Mark("core_create_begin");
 
@@ -109,6 +111,7 @@ public sealed class LauncherServices
 
         // 内置 CurseForge 密钥解密自检（失败只降级镜像，不影响启动）
         HyclSecrets.Initialize(configStore.Config, logger);
+        PerfTrace.Mark("secrets_checked");
 
         var accounts = new AccountStore(paths.AccountFile, logger);
         await accounts.LoadAsync(cancellationToken).ConfigureAwait(false);

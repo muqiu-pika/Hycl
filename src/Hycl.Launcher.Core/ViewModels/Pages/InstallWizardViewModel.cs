@@ -455,14 +455,20 @@ public partial class InstallWizardViewModel : ObservableObject
                 .GetVersionListAsync(DownloadPolicy.FromConfig(config), cts.Token)
                 .ConfigureAwait(true);
             cts.Token.ThrowIfCancellationRequested();
+            PerfTrace.Mark("mc_list_fetched");
             _cachedVersions = versions;
             _cachedSource = (config.VersionListSource, config.FileSource);
+            // 1116 条版本的分组与条目 VM 构造实测占 UI 线程 230~280ms：移到后台线程，
+            // 只把最终 4 个分组对象在 UI 线程加入集合。
+            var groups = await Task.Run(() => BuildGroups(versions), cts.Token).ConfigureAwait(true);
+            cts.Token.ThrowIfCancellationRequested();
             McGroups.Clear();
-            foreach (var group in BuildGroups(versions))
+            foreach (var group in groups)
             {
                 McGroups.Add(group);
             }
 
+            PerfTrace.Mark("mc_groups_built");
             PerfTrace.Mark($"version_list_done:{versions.Count}:{McGroups.Count}");
         }
         catch (OperationCanceledException) when (cts.Token.IsCancellationRequested)

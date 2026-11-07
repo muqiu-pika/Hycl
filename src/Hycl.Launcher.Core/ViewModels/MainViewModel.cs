@@ -53,11 +53,16 @@ public partial class MainViewModel : ObservableObject
     public MainViewModel(LauncherServices services)
     {
         Launch = new LaunchPageViewModel(services, ShowToast);
+        PerfTrace.Mark("launch_vm_ctor_done");
         LaunchProgress = new LaunchProgressViewModel(Launch);
         Download = new DownloadPageViewModel(services, ShowToast);
+        PerfTrace.Mark("download_vm_ctor_done");
         Instances = new InstancesViewModel(services);
+        PerfTrace.Mark("instances_vm_ctor_done");
         Settings = new SettingsPageViewModel(services, ShowToast);
+        PerfTrace.Mark("settings_vm_ctor_done");
         Tools = new ToolsPageViewModel();
+        PerfTrace.Mark("tools_vm_ctor_done");
         _currentPage = Launch;
 
         // 启动开始/成功返回时在启动页与独立启动中页面之间切换（仍走 PageHost 的串行淡入淡出）
