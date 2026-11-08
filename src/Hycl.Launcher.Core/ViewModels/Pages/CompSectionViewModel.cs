@@ -1159,7 +1159,9 @@ public partial class CompSectionViewModel : ObservableObject
         if (item.File.Type == CompResourceType.ModPack)
         {
             IsModpackSave = true;
-            InstanceName = SuggestedInstanceName(item);
+            // 预填最终可用的实例名（已存在同名整合包实例时直接显示 -1/-2）
+            InstanceName = InstanceNameValidator.GetAvailableName(
+                _services.Config.EffectiveGameDirectory, SuggestedInstanceName(item));
             SaveDirectory = Path.Combine(_services.Config.EffectiveGameDirectory, "versions", InstanceName.Trim());
             IsSaveDialogVisible = true;
             return;
@@ -1667,6 +1669,15 @@ public partial class CompSectionViewModel : ObservableObject
         }
 
         var name = InstanceName.Trim();
+        // 与其它入口同一套规则：重名时按最小可用序号落盘，并把最终名称回显到输入框，避免显示名与实例名不一致。
+        var effectiveName = InstanceNameValidator.GetAvailableName(
+            _services.Config.EffectiveGameDirectory, name);
+        if (!effectiveName.Equals(name, StringComparison.Ordinal))
+        {
+            InstanceName = effectiveName;
+            _toast?.Invoke($"已存在同名实例 {name}，将安装为 {effectiveName}");
+        }
+
         IsSaveDialogVisible = false;
         _pendingFile = null;
         SaveHint = "";
@@ -1674,7 +1685,7 @@ public partial class CompSectionViewModel : ObservableObject
         _installingItem = item;
         try
         {
-            await _install.RunCompModpackAsync(item.File, name).ConfigureAwait(true);
+            await _install.RunCompModpackAsync(item.File, effectiveName).ConfigureAwait(true);
         }
         finally
         {

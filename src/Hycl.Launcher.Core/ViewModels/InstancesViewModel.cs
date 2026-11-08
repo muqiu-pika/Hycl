@@ -1034,7 +1034,9 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         _isImportDialog = true;
         _isRenameDialog = false;
         NameDialogTitle = "导入整合包";
-        NameDialogText = SanitizeInstanceName(inspection.SuggestedName, Path.GetFileNameWithoutExtension(path));
+        NameDialogText = InstanceNameValidator.GetAvailableName(
+            _services.Config.EffectiveGameDirectory,
+            SanitizeInstanceName(inspection.SuggestedName, Path.GetFileNameWithoutExtension(path)));
         var detail = string.IsNullOrWhiteSpace(inspection.LoaderLabel)
             ? inspection.FormatName
             : $"{inspection.FormatName}，{inspection.LoaderLabel}";

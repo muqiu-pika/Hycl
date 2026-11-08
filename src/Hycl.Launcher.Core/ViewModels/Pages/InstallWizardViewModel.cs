@@ -672,7 +672,7 @@ public partial class InstallWizardViewModel : ObservableObject
 
         _selectedMc = summary;
         SelectedMcId = summary.Id;
-        TargetName = summary.Id;
+        TargetName = SuggestAvailableName(summary.Id);
         SelectedLoaderName = "原版";
         _selectedLoaderItem = null;
         _selectedLoaderCardTitle = "";
@@ -1076,7 +1076,7 @@ public partial class InstallWizardViewModel : ObservableObject
         SelectedLoaderName = item.Title;
         var choice = item.Payload as LoaderChoice;
         var kind = choice?.Kind ?? "";
-        TargetName = $"{SelectedMcId}-{kind}";
+        TargetName = SuggestAvailableName($"{SelectedMcId}-{kind}");
 
         // 已选 OptiFine 与新选的 Forge 不适配时清除 OptiFine（对应 PCL-CE Forge_Selected）
         if (choice?.Payload is ForgeEntry forge
@@ -1106,7 +1106,7 @@ public partial class InstallWizardViewModel : ObservableObject
             _selectedLoaderItem = null;
             _selectedLoaderCardTitle = "";
             SelectedLoaderName = "原版";
-            TargetName = SelectedMcId;
+            TargetName = SuggestAvailableName(SelectedMcId);
         }
 
         RefreshCompanionAvailability();
@@ -1375,6 +1375,10 @@ public partial class InstallWizardViewModel : ObservableObject
         IsLoaderLoading = false;
     }
 
+    /// <summary>预填名称：直接给出最终可用的编号名（26.3 已存在则显示 26.3-1）。</summary>
+    private string SuggestAvailableName(string baseName)
+        => InstanceNameValidator.GetAvailableName(_services.Config.EffectiveGameDirectory, baseName);
+
     /// <summary>用户改名后立即清掉旧的校验提示，重新点击安装时再校验。</summary>
     partial void OnTargetNameChanged(string value)
     {
@@ -1407,7 +1411,9 @@ public partial class InstallWizardViewModel : ObservableObject
             _services.Config.EffectiveGameDirectory, targetName);
         if (!effectiveName.Equals(targetName, StringComparison.Ordinal))
         {
-            // 不把自动编号写回 TargetName：否则同一选择再装一次会以 26.3-1 为基名，叠成 26.3-1-1。
+            // 把最终名称写回输入框：界面上看到的名字与实际创建的实例必须一致；
+            // GetAvailableName 会剥离尾部 -N，因此再次安装不会叠成 26.3-1-1。
+            TargetName = effectiveName;
             _toast?.Invoke($"已存在同名实例 {targetName}，将安装为 {effectiveName}");
         }
 
