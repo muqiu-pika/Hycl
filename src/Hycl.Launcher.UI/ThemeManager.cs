@@ -1,6 +1,5 @@
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Markup.Xaml;
 using Avalonia.Styling;
 
 namespace Hycl.Launcher.UI;
@@ -27,7 +26,9 @@ public static class ThemeManager
         var variant = isDark ? ThemeVariant.Dark : ThemeVariant.Light;
         application.RequestedThemeVariant = variant;
 
-        // 替换合并字典中的 Colors 条目（以特征键识别），触发 DynamicResource 全量刷新
+        // 替换合并字典中的 Colors 条目（以特征键识别），触发 DynamicResource 全量刷新。
+        // 用 XAML 编译器生成的类型化字典实例（ColorsLight/ColorsDark）替代运行时 URI 加载，
+        // 后者带 RequiresUnreferencedCode 注解，裁剪发布下过不了 0 警告门槛。
         var merged = application.Resources.MergedDictionaries;
         for (var i = 0; i < merged.Count; i++)
         {
@@ -36,9 +37,7 @@ public static class ThemeManager
                 continue;
             }
 
-            var source = new Uri(
-                $"avares://Hycl.Launcher.UI/Styles/Colors.{(isDark ? "Dark" : "Light")}.axaml");
-            merged[i] = (ResourceDictionary)AvaloniaXamlLoader.Load(source);
+            merged[i] = isDark ? new Styles.ColorsDark() : new Styles.ColorsLight();
             break;
         }
 

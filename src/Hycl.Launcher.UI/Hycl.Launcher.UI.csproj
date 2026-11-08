@@ -12,7 +12,9 @@
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets/hycl.ico</ApplicationIcon>
-    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <!-- 运行时内置 COM 激活（ComActivator）与裁剪不兼容；Hycl 只通过 ComImport 消费 COM，
+         不向 COM 暴露托管类，Avalonia 的 Win32 互操作也不依赖该开关。 -->
+    <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
   </PropertyGroup>
 
   <ItemGroup>
@@ -28,13 +30,18 @@
   </ItemGroup>
 
   <!--
-    单文件发布时启用压缩与 ReadyToRun（均只在 PublishSingleFile=true 时生效，不影响日常构建）：
+    单文件发布时启用压缩、ReadyToRun 与裁剪（均只在 PublishSingleFile=true 时生效，不影响日常构建）：
     - EnableCompressionInSingleFile：exe 从 101.6MB 降到 ~64MB（含 R2R），启动耗时实测无差异；
-    - PublishReadyToRun：预编译托管代码，可见首帧从 ~2.9s 提前到 ~1.1s（win-x64 实测）。
+    - PublishReadyToRun：预编译托管代码，可见首帧从 ~2.9s 提前到 ~1.1s（win-x64 实测）；
+    - PublishTrimmed：JSON 已全部改为 source-gen（Serialization/JsonContexts.cs + 各类内嵌套 context），
+      裁剪后自包含单文件降至 ~35MB。
+    framework-dependent 发布需在命令行显式关闭以上三项：压缩/裁剪不支持非自包含，
+    R2R 在 framework-dependent 单文件下实测随机 coreclr fail-fast（0xc0000602，自包含不受影响）。
   -->
   <PropertyGroup Condition="'$(PublishSingleFile)' == 'true'">
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <PublishReadyToRun>true</PublishReadyToRun>
+    <PublishTrimmed>true</PublishTrimmed>
   </PropertyGroup>
 
   <ItemGroup>

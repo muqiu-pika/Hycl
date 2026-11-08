@@ -1,5 +1,6 @@
 <ResourceDictionary xmlns="https://github.com/avaloniaui"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    x:Class="Hycl.Launcher.UI.Styles.ColorsLight">
 
     <!-- 浅色主题画刷（运行时由 ThemeManager 按配置整体替换） -->
     <SolidColorBrush x:Key="TextBrush" Color="#343D4A" />
