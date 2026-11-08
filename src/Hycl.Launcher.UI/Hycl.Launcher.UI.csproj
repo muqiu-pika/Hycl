@@ -30,4 +30,17 @@
     <ProjectReference Include="..\Hycl.Launcher.Core\Hycl.Launcher.Core.csproj" />
   </ItemGroup>
 
+  <!--
+    单文件发布时第三方原生符号（libSkiaSharp.pdb / libHarfBuzzSharp.pdb）默认仍会被拷到发布目录，
+    在发布文件列表阶段剔除 .pdb，保证发布产物只有单个 exe。
+  -->
+  <Target Name="Hycl_ExcludeNativeSymbolsFromSingleFilePublish"
+          Condition="'$(PublishSingleFile)' == 'true'"
+          AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="'%(ResolvedFileToPublish.Extension)' == '.pdb'" />
+    </ItemGroup>
+  </Target>
+
 </Project>
