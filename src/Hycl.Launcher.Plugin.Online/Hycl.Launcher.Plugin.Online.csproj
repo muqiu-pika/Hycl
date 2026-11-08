@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Hycl.Launcher.Plugin.Online</RootNamespace>
+    <AssemblyName>Hycl.Online</AssemblyName>
+    <Product>Hyplay Craft Launcher</Product>
+    <Description>Hycl 联机插件（陶瓦联机，基于 Terracotta）；以插件包形式从 Hycl-online 分发</Description>
+    <!-- 插件 UI 是 Avalonia 控件：版本必须与主程序 Hycl.Launcher.UI 的 Avalonia 保持一致（12.1.4） -->
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.4" />
+    <!-- 与主程序一致：卡片 ViewModel 使用源生成 MVVM -->
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Hycl.Launcher.PluginContract\Hycl.Launcher.PluginContract.csproj" />
+  </ItemGroup>
+
+</Project>

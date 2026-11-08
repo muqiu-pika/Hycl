@@ -10,6 +10,8 @@ namespace Hycl.Launcher.Core.ViewModels;
 /// </summary>
 public partial class MainViewModel : ObservableObject
 {
+    private readonly LauncherServices _services;
+
     private int _toastVersion;
 
     public IReadOnlyList<TabItemViewModel> Tabs { get; } =
@@ -64,6 +66,7 @@ public partial class MainViewModel : ObservableObject
 
     public MainViewModel(LauncherServices services)
     {
+        _services = services;
         Launch = new LaunchPageViewModel(services, ShowToast);
         PerfTrace.Mark("launch_vm_ctor_done");
         LaunchProgress = new LaunchProgressViewModel(Launch);
@@ -79,8 +82,11 @@ public partial class MainViewModel : ObservableObject
         PerfTrace.Mark("instances_vm_ctor_done");
         Settings = new SettingsPageViewModel(services, ShowToast);
         PerfTrace.Mark("settings_vm_ctor_done");
-        Tools = new ToolsPageViewModel();
+        Tools = new ToolsPageViewModel(services, ShowToast);
         PerfTrace.Mark("tools_vm_ctor_done");
+
+        // 插件加载（本地 IO + 反射，个别失败不影响其余）：卡片就绪后工具页自动出现
+        _ = _services.Plugins.LoadInstalledAsync();
         _currentPage = Launch;
 
         // 启动开始/成功返回时在启动页与独立启动中页面之间切换（仍走 PageHost 的串行淡入淡出）
@@ -284,7 +290,7 @@ public partial class MainViewModel : ObservableObject
         PerfTrace.MarkSince($"tab_ready:{value}", switchStart);
     }
 
-    /// <summary>窗口关闭：取消所有页面级在途任务并释放取消令牌。</summary>
+    /// <summary>窗口关闭：取消所有页面级在途任务并释放取消令牌；插件退出清理（限时）。</summary>
     public void Shutdown()
     {
         if (CurrentPage is IPageLifecycle lifecycle)
@@ -294,6 +300,7 @@ public partial class MainViewModel : ObservableObject
 
         Launch.CancelPending();
         Download.Shutdown();
+        _services.Plugins.ShutdownAll(TimeSpan.FromSeconds(3));
     }
 
     /// <summary>显示轻提示（1.6 秒后自动消失）。</summary>

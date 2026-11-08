@@ -5,6 +5,8 @@ using Hycl.Launcher.Core.Game.Comp;
 using Hycl.Launcher.Core.Game.Loaders;
 using Hycl.Launcher.Core.Game.Models;
 using Hycl.Launcher.Core.Game.Mods;
+using Hycl.Launcher.Core.Plugins;
+using Hycl.Launcher.PluginContract;
 
 namespace Hycl.Launcher.Core.Serialization;
 
@@ -35,6 +37,9 @@ internal sealed partial class HyclJsonContext : JsonSerializerContext;
 [JsonSerializable(typeof(ModrinthIndexRoot))]
 [JsonSerializable(typeof(CurseForgeManifestRoot))]
 [JsonSerializable(typeof(MmcPackRoot))]
+// 插件系统：Hycl-online 清单 + 插件包内 plugin.json
+[JsonSerializable(typeof(HyclOnlineManifest))]
+[JsonSerializable(typeof(PluginPackageManifest))]
 internal sealed partial class NetJsonContext : JsonSerializerContext;
 
 /// <summary>modrinth.index.json 根结构：字段名与 Modrinth 规范严格一致（camelCase 命名策略即满足）。</summary>

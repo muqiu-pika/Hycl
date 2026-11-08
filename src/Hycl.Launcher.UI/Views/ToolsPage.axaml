@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:Hycl.Launcher.UI.Controls;assembly=Hycl.Launcher.UI"
              xmlns:vm="clr-namespace:Hycl.Launcher.Core.ViewModels.Pages;assembly=Hycl.Launcher.Core"
              x:Class="Hycl.Launcher.UI.Views.ToolsPage"
              x:DataType="vm:ToolsPageViewModel"
@@ -8,13 +9,77 @@
     <Grid RowDefinitions="Auto,*">
         <TextBlock Classes="page-heading" Text="工具" Margin="22,18,18,0" />
 
-        <!-- 空状态：当前没有可用工具，不保留任何旧卡片或占位功能 -->
-        <TextBlock Grid.Row="1"
-                   Text="暂无工具"
-                   FontSize="13"
-                   Foreground="{DynamicResource Gray3Brush}"
-                   HorizontalAlignment="Center"
-                   VerticalAlignment="Center"
-                   Margin="0,0,0,32" />
+        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="22,14,22,20" Spacing="14">
+
+                <!-- 插件中心 -->
+                <c:McCard Title="插件中心">
+                    <StackPanel Spacing="10">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0" Text="{Binding ManifestStatusText}"
+                                       FontSize="12" Foreground="{DynamicResource Gray2Brush}"
+                                       TextWrapping="Wrap" VerticalAlignment="Center" />
+                            <Button Grid.Column="1" Classes="action-btn" Content="刷新"
+                                    Command="{Binding RefreshCommand}" IsEnabled="{Binding !IsBusy}" />
+                        </Grid>
+
+                        <TextBlock Text="插件清单源不可达，当前仅显示本机已安装插件。"
+                                   FontSize="12" Foreground="{DynamicResource ErrorDarkBrush}"
+                                   IsVisible="{Binding IsManifestOffline}" />
+
+                        <ItemsControl ItemsSource="{Binding Catalog}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:PluginListRowViewModel">
+                                    <Border Background="{DynamicResource SurfaceBrush}"
+                                            BorderBrush="{DynamicResource CardBorderBrush}"
+                                            BorderThickness="1" CornerRadius="8" Padding="14,12" Margin="0,0,0,8">
+                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                            <StackPanel Grid.Column="0" Spacing="4">
+                                                <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                                                    <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="Bold"
+                                                               Foreground="{DynamicResource TextBrush}" VerticalAlignment="Center" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding StateText}" FontSize="11.5"
+                                                               Margin="10,0,0,0" VerticalAlignment="Center"
+                                                               Foreground="{DynamicResource Gray3Brush}" />
+                                                    <TextBlock Grid.Column="3" Text="需重启启动器"
+                                                               FontSize="11" Margin="0,0,10,0" VerticalAlignment="Center"
+                                                               Foreground="{DynamicResource ErrorDarkBrush}"
+                                                               IsVisible="{Binding RestartRequired}" />
+                                                </Grid>
+                                                <TextBlock Text="{Binding Description}" FontSize="12"
+                                                           Foreground="{DynamicResource Gray2Brush}" TextWrapping="Wrap" />
+                                                <ProgressBar Minimum="0" Maximum="100" Value="{Binding Percent}"
+                                                             Height="4" CornerRadius="2"
+                                                             Foreground="{DynamicResource PrimaryDeepBrush}"
+                                                             IsVisible="{Binding IsInstalling}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                <Button Classes="mc-btn" Content="{Binding ButtonText}"
+                                                        Command="{Binding $parent[UserControl].((vm:ToolsPageViewModel)DataContext).InstallCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        IsVisible="{Binding ShowInstallButton}"
+                                                        IsEnabled="{Binding !IsInstalling}" />
+                                                <Button Classes="mc-btn danger" Content="卸载"
+                                                        Command="{Binding $parent[UserControl].((vm:ToolsPageViewModel)DataContext).UninstallCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        IsVisible="{Binding ShowUninstallButton}"
+                                                        IsEnabled="{Binding $parent[UserControl].((vm:ToolsPageViewModel)DataContext).IsBusy, Converter={x:Static BoolConverters.Not}}" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <TextBlock Text="插件由 Hycl-online 仓库分发，下载包经 SHA-256 校验后安装到启动器数据目录。"
+                                   FontSize="11.5" Foreground="{DynamicResource Gray3Brush}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </c:McCard>
+
+                <!-- 已加载插件的动态工具卡 -->
+                <ItemsControl ItemsSource="{Binding PluginCards}" Margin="0,0,0,-4" />
+
+            </StackPanel>
+        </ScrollViewer>
     </Grid>
 </UserControl>

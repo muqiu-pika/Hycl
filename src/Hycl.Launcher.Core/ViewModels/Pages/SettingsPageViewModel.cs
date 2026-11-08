@@ -232,6 +232,7 @@ public partial class SettingsPageViewModel : ObservableObject
     private ToggleRowViewModel? _closeAfterLaunchRow;
     private ToggleRowViewModel? _showOutputRow;
     private ToggleRowViewModel? _animationsRow;
+    private TextRowViewModel? _onlineManifestUrlRow;
 
     public SettingsPageViewModel(LauncherServices services, Action<string>? toast = null)
     {
@@ -563,9 +564,13 @@ public partial class SettingsPageViewModel : ObservableObject
 
         _sections["联机与局域网"] = new SettingsSectionViewModel("联机与局域网",
         [
-            new SettingCardViewModel("局域网",
+            new SettingCardViewModel("联机插件",
             [
-                new TextLineRowViewModel("联机与局域网穿透功能尚未迁移到当前 Core，暂不可用。")
+                new TextLineRowViewModel("联机功能以插件形式提供：工具页 → 插件中心 → 安装「陶瓦联机」。插件包由 Hycl-online 仓库分发，SHA-256 校验后安装。"),
+                _onlineManifestUrlRow = new TextRowViewModel(
+                    "插件清单源地址",
+                    "留空使用默认源（Hycl-online raw 直链 + 镜像）",
+                    config.OnlineManifestUrl),
             ]),
         ]);
 
@@ -1336,6 +1341,11 @@ public partial class SettingsPageViewModel : ObservableObject
         }
 
         gameSettings.Normalize();
+
+        if (_onlineManifestUrlRow is not null)
+        {
+            config.OnlineManifestUrl = _onlineManifestUrlRow.Text?.Trim() ?? "";
+        }
 
         await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
     }

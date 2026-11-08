@@ -1,0 +1,133 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Hycl.Launcher.Plugin.Online;assembly=Hycl.Online"
+             x:Class="Hycl.Launcher.Plugin.Online.Views.OnlineToolCard"
+             x:DataType="vm:OnlineToolCardViewModel"
+             x:CompileBindings="True">
+
+    <!-- 陶瓦联机工具卡：插件自带控件，样式全部走主程序全局主题令牌与 mc-btn 等全局 class -->
+    <Border Background="{DynamicResource CardBrush}"
+            BorderBrush="{DynamicResource SoftLineBrush}"
+            BorderThickness="1"
+            CornerRadius="10"
+            Padding="18,14,18,16">
+        <Grid RowDefinitions="Auto,Auto,*">
+
+            <!-- 头部：图标 + 标题 + 状态 + 上游链接 -->
+            <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,10">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <Path Data="M17 16h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1zM3 16h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1zM10 2h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1zM6 16v-3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v3M12 12V8"
+                          Width="20" Height="20" Stretch="Uniform"
+                          Stroke="{DynamicResource PrimaryDeepBrush}" StrokeThickness="2"
+                          StrokeJoin="Round" StrokeLineCap="Round" VerticalAlignment="Center" />
+                    <StackPanel Orientation="Vertical" Spacing="2" VerticalAlignment="Center">
+                        <TextBlock Text="陶瓦联机" FontSize="14" FontWeight="Bold" Foreground="{DynamicResource TextBrush}" />
+                        <TextBlock Text="{Binding InstallStatusText}" FontSize="12" Foreground="{DynamicResource Gray2Brush}" />
+                    </StackPanel>
+                </StackPanel>
+                <Button Grid.Column="2" Classes="action-btn" Command="{Binding OpenUpstreamCommand}"
+                        Content="项目主页" VerticalAlignment="Center" />
+            </Grid>
+
+            <TextBlock Grid.Row="1" Text="{Binding PlatformUnsupportedText}"
+                       FontSize="12.5" Foreground="{DynamicResource ErrorDarkBrush}"
+                       TextWrapping="Wrap" Margin="0,0,0,10"
+                       IsVisible="{Binding PlatformUnsupportedText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+            <!-- 主体：未安装 → 安装区；已就绪 → 会话区 -->
+            <Grid Grid.Row="2" RowDefinitions="Auto,Auto,*">
+
+                <!-- 安装区 -->
+                <StackPanel Grid.Row="0" Spacing="10" IsVisible="{Binding !IsBinaryReady}">
+                    <TextBlock FontSize="12.5" Foreground="{DynamicResource Gray2Brush}" TextWrapping="Wrap"
+                               Text="陶瓦联机（Terracotta）是独立开源联机项目（基于 EasyTier，AGPL-3.0）：下载官方工具并校验后，创建/加入房间即可与好友联机，连接效果取决于双方网络。" />
+                    <ProgressBar Minimum="0" Maximum="100" Value="{Binding DownloadPercent}"
+                                 Height="4" CornerRadius="2"
+                                 Foreground="{DynamicResource PrimaryDeepBrush}"
+                                 IsVisible="{Binding IsInstalling}" />
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <Button Classes="mc-btn primary-soft" Content="{Binding InstallButtonText}"
+                                Command="{Binding InstallCommand}"
+                                IsEnabled="{Binding !IsInstalling}" />
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- 会话区 -->
+                <StackPanel Grid.Row="1" Spacing="12" IsVisible="{Binding IsBinaryReady}">
+                    <TextBlock Text="{Binding PhaseText}" FontSize="13" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextBrush}" />
+
+                    <TextBlock Text="{Binding ErrorText}" FontSize="12.5" Foreground="{DynamicResource ErrorDarkBrush}"
+                               TextWrapping="Wrap" IsVisible="{Binding ErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+                    <!-- 就绪区：房间码 / 游戏地址 -->
+                    <StackPanel Spacing="8"
+                                IsVisible="{Binding RoomCode, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                        <TextBlock Text="房间码（发给好友）" FontSize="12" Foreground="{DynamicResource Gray2Brush}" />
+                        <Grid ColumnDefinitions="*,Auto" >
+                            <TextBlock Grid.Column="0" Text="{Binding RoomCode}" FontSize="20" FontWeight="Bold"
+                                       FontFamily="Consolas" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource PrimaryDeepBrush}" />
+                            <Button Grid.Column="1" Classes="mc-btn" Content="复制" Command="{Binding CopyRoomCommand}" />
+                        </Grid>
+                    </StackPanel>
+                    <StackPanel Spacing="8"
+                                IsVisible="{Binding GameAddress, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                        <TextBlock Text="在游戏中 → 多人游戏 → 直接连接，粘贴此地址" FontSize="12" Foreground="{DynamicResource Gray2Brush}" />
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0" Text="{Binding GameAddress}" FontSize="20" FontWeight="Bold"
+                                       FontFamily="Consolas" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource PrimaryDeepBrush}" />
+                            <Button Grid.Column="1" Classes="mc-btn" Content="复制" Command="{Binding CopyAddressCommand}" />
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- 建房 / 加入表单 -->
+                    <StackPanel Spacing="10" IsVisible="{Binding !IsBusy}">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="创建房间" FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" />
+                            <TextBlock Text="先在游戏中对局域网开放世界，再点击创建，把房间码发给好友。"
+                                       FontSize="12" Foreground="{DynamicResource Gray2Brush}" TextWrapping="Wrap" />
+                            <Button Classes="mc-btn primary-soft" Content="创建房间 →" Command="{Binding CreateRoomCommand}" />
+                        </StackPanel>
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="加入房间" FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" />
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                <TextBox Grid.Column="0" Text="{Binding JoinCodeInput}"
+                                         PlaceholderText="U/XXXX-XXXX-XXXX-XXXX"
+                                         FontFamily="Consolas" FontSize="13"
+                                         Background="{DynamicResource SurfaceBrush}"
+                                         BorderBrush="{DynamicResource CardBorderBrush}"
+                                         Foreground="{DynamicResource TextBrush}" />
+                                <Button Grid.Column="1" Classes="mc-btn" Content="加入房间"
+                                        Command="{Binding JoinRoomCommand}" />
+                            </Grid>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <Button Classes="mc-btn danger" Content="停止联机"
+                            Command="{Binding StopCommand}"
+                            IsVisible="{Binding IsBusy}" />
+                </StackPanel>
+
+                <!-- 日志 -->
+                <Expander Grid.Row="2" Header="连接日志" IsExpanded="False" Margin="0,12,0,0">
+                    <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="7" Padding="10"
+                            MaxHeight="180">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding Logs}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding}" FontSize="11.5" FontFamily="Consolas"
+                                                   Foreground="{DynamicResource Gray2Brush}"
+                                                   TextWrapping="Wrap" Margin="0,1" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Border>
+                </Expander>
+            </Grid>
+        </Grid>
+    </Border>
+</UserControl>

@@ -15,6 +15,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Hycl.Launcher.PluginContract\Hycl.Launcher.PluginContract.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- BMCLAPI headless Forge/NeoForge/Cleanroom 安装引导器（仅 com.bangbang93.ForgeInstaller.class） -->
     <EmbeddedResource Include="Download\Resources\forge-installer.jar" />
     <!-- PCL-CE 内置的 MC 百科模组译名数据库（GZip + Protobuf，Apache-2.0），用于社区资源中文标题 -->

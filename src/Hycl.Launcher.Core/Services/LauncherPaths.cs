@@ -15,6 +15,8 @@ public sealed class LauncherPaths
         Directory.CreateDirectory(DataDirectory);
         Directory.CreateDirectory(LogDirectory);
         Directory.CreateDirectory(CacheDirectory);
+        Directory.CreateDirectory(PluginsDirectory);
+        Directory.CreateDirectory(PluginsDataDirectory);
     }
 
     public string ExecutableDirectory { get; }
@@ -28,6 +30,12 @@ public sealed class LauncherPaths
     public string LogDirectory => Path.Combine(DataDirectory, "logs");
 
     public string CacheDirectory => Path.Combine(DataDirectory, "cache");
+
+    /// <summary>已安装插件包（plugins/&lt;id&gt;/plugin.json + 程序集）。</summary>
+    public string PluginsDirectory => Path.Combine(DataDirectory, "plugins");
+
+    /// <summary>插件持久数据（plugins-data/&lt;id&gt;/，工具二进制等；不参与缓存清理）。</summary>
+    public string PluginsDataDirectory => Path.Combine(DataDirectory, "plugins-data");
 
     public static LauncherPaths CreateDefault()
     {

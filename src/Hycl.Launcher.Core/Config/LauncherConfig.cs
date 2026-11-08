@@ -114,6 +114,12 @@ public sealed class LauncherConfig
 
     public bool EnableAnimations { get; set; } = true;
 
+    /// <summary>
+    /// 插件清单（Hycl-online online.json）源地址；空 = 使用内置默认源
+    /// （HyclOnlineDefaults.DefaultManifestUrls，raw 直链 + ghproxy 镜像）。
+    /// </summary>
+    public string OnlineManifestUrl { get; set; } = "";
+
     /// <summary>全局游戏内设置：实例首次启动且选择「跟随全局」时写入 options.txt。</summary>
     public GameSettingsConfig GameSettings { get; set; } = new();
 
@@ -178,6 +184,7 @@ public sealed class LauncherConfig
         }
 
         DownloadSource = null;
+        OnlineManifestUrl = OnlineManifestUrl?.Trim() ?? "";
         if (Theme is not ("light" or "dark"))
         {
             Theme = "light";

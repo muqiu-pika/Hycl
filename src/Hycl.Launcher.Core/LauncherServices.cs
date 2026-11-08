@@ -32,6 +32,7 @@ public sealed class LauncherServices
         SystemService system,
         Auth.MicrosoftAuthService microsoftAuth,
         Auth.AuthlibAuthService authlibAuth,
+        Plugins.PluginManager plugins,
         IAppDispatcher dispatcher)
     {
         Paths = paths;
@@ -53,6 +54,7 @@ public sealed class LauncherServices
         System = system;
         MicrosoftAuth = microsoftAuth;
         AuthlibAuth = authlibAuth;
+        Plugins = plugins;
         Dispatcher = dispatcher;
     }
 
@@ -95,6 +97,8 @@ public sealed class LauncherServices
     public Auth.MicrosoftAuthService MicrosoftAuth { get; }
 
     public Auth.AuthlibAuthService AuthlibAuth { get; }
+
+    public Plugins.PluginManager Plugins { get; }
 
     public IAppDispatcher Dispatcher { get; }
 
@@ -168,6 +172,11 @@ public sealed class LauncherServices
             logger);
         var modpackExport = new Game.Comp.ModpackExportService(compModrinth, curseForge, versionResolver, logger);
 
+        // 插件系统：清单拉取 + 安装/加载（工具页插件中心与动态工具卡的数据源）
+        var pluginManifests = new Plugins.PluginManifestClient(downloadClient, configStore.Config, logger);
+        var plugins = new Plugins.PluginManager(
+            logger, paths, downloadClient, accounts, configStore.Config, system, dispatcher, pluginManifests);
+
         PerfTrace.Mark("core_create_done");
         return new LauncherServices(
             paths,
@@ -189,6 +198,7 @@ public sealed class LauncherServices
             system,
             microsoftAuth,
             authlibAuth,
+            plugins,
             dispatcher);
     }
 }
