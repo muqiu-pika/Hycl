@@ -179,8 +179,9 @@ public partial class CompSectionViewModel : ObservableObject
             CategoryOptions.Add(category.Label);
         }
 
+        // 只建静态基线；实例扫描 + 正式版清单的网络拉取推迟到 Attach()（首次进入下载页），
+        // 避免启动期后台跑一次完整版本清单请求（1100+ 条 + UVMC 合并，实测 2~3s）。
         RebuildGameVersionOptions();
-        _ = RefreshGameVersionOptionsAsync();
     }
 
     private void OnInstallPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -208,6 +209,9 @@ public partial class CompSectionViewModel : ObservableObject
 
         _attached = true;
         _install.PropertyChanged += _installWatcher;
+
+        // 进入下载页才做筛选全集的网络增强（正式版清单进程内只取一次，失败回退静态基线）
+        _ = RefreshGameVersionOptionsAsync();
 
         // 上次离开页面时搜索结果被取消且列表仍为空：重新发起一次，保证再次进入能自动加载
         if (_searchInterrupted && Results.Count == 0)
