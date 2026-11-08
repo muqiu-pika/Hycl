@@ -2,6 +2,7 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using Hycl.Launcher.Core.Download;
 using Hycl.Launcher.Core.Services;
 
@@ -61,7 +62,7 @@ public sealed class AuthlibProfileSelectionRequiredException : AuthlibException
 /// authenticate / refresh / validate 三接口 + 站点 meta 探测 + authlib-injector.jar 下载。
 /// 协议为公开规范，启动器不持有任何密钥；账号密码只在登录瞬间使用，不落盘。
 /// </summary>
-public sealed class AuthlibAuthService
+public sealed partial class AuthlibAuthService
 {
     private static readonly HttpClient _http = CreateClient();
 
@@ -152,6 +153,7 @@ public sealed class AuthlibAuthService
         var root = await PostAsync(
                 server.ApiRoot + "/authserver/authenticate",
                 new AuthlibAuthenticateBody(new AuthlibAgent("Minecraft", 1), username, password, clientToken),
+                AuthlibJsonContext.Default.AuthlibAuthenticateBody,
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -208,6 +210,7 @@ public sealed class AuthlibAuthService
         var bound = await PostAsync(
                 apiRoot.TrimEnd('/') + "/authserver/refresh",
                 new AuthlibRefreshBody(accessToken, clientToken, new AuthlibProfileRef(profile.Id, profile.Name)),
+                AuthlibJsonContext.Default.AuthlibRefreshBody,
                 cancellationToken)
             .ConfigureAwait(false);
         var boundToken = StringOrThrow(bound, "accessToken");
@@ -240,7 +243,9 @@ public sealed class AuthlibAuthService
             using var request = new HttpRequestMessage(HttpMethod.Post, apiRoot.TrimEnd('/') + "/authserver/validate")
             {
                 Content = new StringContent(
-                    JsonSerializer.Serialize(new AuthlibValidateBody(accessToken, clientToken)),
+                    JsonSerializer.Serialize(
+                        new AuthlibValidateBody(accessToken, clientToken),
+                        AuthlibJsonContext.Default.AuthlibValidateBody),
                     Encoding.UTF8,
                     "application/json")
             };
@@ -263,6 +268,7 @@ public sealed class AuthlibAuthService
         var root = await PostAsync(
                 account.Server.TrimEnd('/') + "/authserver/refresh",
                 new AuthlibRefreshBody(account.AccessToken, account.ClientToken, null),
+                AuthlibJsonContext.Default.AuthlibRefreshBody,
                 cancellationToken)
             .ConfigureAwait(false);
         var accessToken = StringOrThrow(root, "accessToken");
@@ -593,7 +599,11 @@ public sealed class AuthlibAuthService
         return response;
     }
 
-    private static async Task<JsonElement> PostAsync(string url, object body, CancellationToken cancellationToken)
+    private static async Task<JsonElement> PostAsync<T>(
+        string url,
+        T body,
+        JsonTypeInfo<T> typeInfo,
+        CancellationToken cancellationToken)
     {
         string text;
         int statusCode;
@@ -604,7 +614,7 @@ public sealed class AuthlibAuthService
                 Content = new StringContent(
                     // 关键：Yggdrasil 规范字段名为小写 camelCase，且 agent 必须是对象；
                     // 记录类型上的 JsonPropertyName 保证序列化形态与规范一致。
-                    JsonSerializer.Serialize(body),
+                    JsonSerializer.Serialize(body, typeInfo),
                     Encoding.UTF8,
                     "application/json")
             };
@@ -735,4 +745,14 @@ public sealed class AuthlibAuthService
     private sealed record AuthlibValidateBody(
         [property: JsonPropertyName("accessToken")] string AccessToken,
         [property: JsonPropertyName("clientToken")] string ClientToken);
+
+    /// <summary>
+    /// Yggdrasil 请求体的 source-gen 元数据：私有 record 经嵌套 context 收录，支持裁剪。
+    /// 所有字段均带 [JsonPropertyName]，输出形态与反射序列化一致。
+    /// </summary>
+    [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+    [JsonSerializable(typeof(AuthlibAuthenticateBody))]
+    [JsonSerializable(typeof(AuthlibRefreshBody))]
+    [JsonSerializable(typeof(AuthlibValidateBody))]
+    private sealed partial class AuthlibJsonContext : JsonSerializerContext;
 }

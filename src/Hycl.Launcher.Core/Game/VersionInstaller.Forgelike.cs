@@ -6,6 +6,7 @@ using Hycl.Launcher.Core.Download;
 using Hycl.Launcher.Core.Game.Loaders;
 using Hycl.Launcher.Core.Game.Models;
 using Hycl.Launcher.Core.Java;
+using Hycl.Launcher.Core.Serialization;
 
 namespace Hycl.Launcher.Core.Game;
 
@@ -195,7 +196,7 @@ public partial class VersionInstaller
                      ?? throw new DownloadException("install_profile.json 解析失败");
         }
 
-        var info = JsonSerializer.Deserialize<VersionInfo>(merged.ToJsonString(JsonOptions), JsonOptions)
+        var info = JsonSerializer.Deserialize(merged.ToJsonString(JsonOptions), NetJsonContext.Default.VersionInfo)
                    ?? throw new DownloadException("install_profile.json 解析失败");
         var environment = RuleEnvironment.Current(false);
         var libs = LibraryResolver.CollectLibraries(info, environment, request.Policy).ToList();
@@ -479,9 +480,9 @@ public partial class VersionInstaller
 
         // 下载该版本 json 声明的库（版本目录里的 json 已写好）
         var writtenJsonPath = Path.Combine(request.GameDirectory, "versions", request.TargetName, request.TargetName + ".json");
-        var writtenInfo = JsonSerializer.Deserialize<VersionInfo>(
+        var writtenInfo = JsonSerializer.Deserialize(
             await File.ReadAllTextAsync(writtenJsonPath, cancellationToken).ConfigureAwait(false),
-            JsonOptions);
+            NetJsonContext.Default.VersionInfo);
         if (writtenInfo is not null)
         {
             var environment = RuleEnvironment.Current(false);

@@ -1,18 +1,15 @@
 using System.Text.Json;
+using Hycl.Launcher.Core.Serialization;
 using Hycl.Launcher.Core.Services;
 
 namespace Hycl.Launcher.Core.Config;
 
 /// <summary>
 /// 配置读写：JSON 持久化，写入采用临时文件替换，避免半截文件。
+/// 序列化走 <see cref="HyclJsonContext"/>（source-gen，裁剪安全），输出与历史 Web+缩进格式一致。
 /// </summary>
 public sealed class ConfigStore
 {
-    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
-    {
-        WriteIndented = true
-    };
-
     private readonly string _filePath;
     private readonly LauncherLogger _logger;
     private readonly SemaphoreSlim _saveLock = new(1, 1);
@@ -39,7 +36,7 @@ public sealed class ConfigStore
         try
         {
             var json = await File.ReadAllTextAsync(_filePath, cancellationToken).ConfigureAwait(false);
-            var loaded = JsonSerializer.Deserialize<LauncherConfig>(json, SerializerOptions);
+            var loaded = JsonSerializer.Deserialize(json, HyclJsonContext.Default.LauncherConfig);
             Config = loaded ?? LauncherConfig.CreateDefault();
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
@@ -59,7 +56,7 @@ public sealed class ConfigStore
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_filePath) ?? ".");
             var tempFile = _filePath + ".tmp";
-            var json = JsonSerializer.Serialize(Config, SerializerOptions);
+            var json = JsonSerializer.Serialize(Config, HyclJsonContext.Default.LauncherConfig);
             await File.WriteAllTextAsync(tempFile, json, cancellationToken).ConfigureAwait(false);
             File.Move(tempFile, _filePath, true);
         }

@@ -6,6 +6,7 @@ using Hycl.Launcher.Core.Download;
 using Hycl.Launcher.Core.Game.Loaders;
 using Hycl.Launcher.Core.Game.Models;
 using Hycl.Launcher.Core.Java;
+using Hycl.Launcher.Core.Serialization;
 
 namespace Hycl.Launcher.Core.Game;
 
@@ -98,9 +99,9 @@ public partial class VersionInstaller
             var versionJsonPath = Path.Combine(request.GameDirectory, "versions", installedName, installedName + ".json");
             if (File.Exists(versionJsonPath))
             {
-                var info = JsonSerializer.Deserialize<VersionInfo>(
+                var info = JsonSerializer.Deserialize(
                     await File.ReadAllTextAsync(versionJsonPath, cancellationToken).ConfigureAwait(false),
-                    JsonOptions);
+                    NetJsonContext.Default.VersionInfo);
                 if (info is not null)
                 {
                     var libraries = LibraryResolver.CollectLibraries(info, RuleEnvironment.Current(false), request.Policy);

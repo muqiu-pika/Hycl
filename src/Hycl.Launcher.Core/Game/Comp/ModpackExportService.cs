@@ -2,7 +2,9 @@ using System.IO.Compression;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Hycl.Launcher.Core.Game;
+using Hycl.Launcher.Core.Serialization;
 using Hycl.Launcher.Core.Services;
 
 namespace Hycl.Launcher.Core.Game.Comp;
@@ -115,7 +117,8 @@ public sealed class ModpackExportService(
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        TypeInfoResolver = NetJsonContext.Default
     };
 
     public async Task<ModpackExportResult> ExportAsync(
@@ -473,7 +476,7 @@ public sealed class ModpackExportService(
             }
         }
 
-        var files = new List<object>();
+        var files = new List<ModrinthIndexFile>();
         foreach (var match in matches)
         {
             if (string.IsNullOrEmpty(match.DownloadUrl) || string.IsNullOrEmpty(match.Sha1))
@@ -487,26 +490,26 @@ public sealed class ModpackExportService(
                 hashes["sha512"] = match.Sha512;
             }
 
-            files.Add(new Dictionary<string, object?>
+            files.Add(new ModrinthIndexFile
             {
-                ["path"] = match.Candidate.RelativePath,
-                ["hashes"] = hashes,
-                ["downloads"] = new[] { match.DownloadUrl },
-                ["fileSize"] = match.Size
+                Path = match.Candidate.RelativePath,
+                Hashes = hashes,
+                Downloads = [match.DownloadUrl],
+                FileSize = match.Size
             });
         }
 
-        var root = new Dictionary<string, object?>
+        var root = new ModrinthIndexRoot
         {
-            ["formatVersion"] = 1,
-            ["game"] = "minecraft",
-            ["versionId"] = options.Version,
-            ["name"] = options.Name,
-            ["summary"] = $"{options.Name} · Minecraft {meta.GameVersion}",
-            ["files"] = files,
-            ["dependencies"] = dependencies
+            FormatVersion = 1,
+            Game = "minecraft",
+            VersionId = options.Version,
+            Name = options.Name,
+            Summary = $"{options.Name} · Minecraft {meta.GameVersion}",
+            Files = files,
+            Dependencies = dependencies
         };
-        return JsonSerializer.Serialize(root, JsonOptions);
+        return JsonSerializer.Serialize(root, GetTypeInfo<ModrinthIndexRoot>());
     }
 
     /// <summary>CurseForge manifest.json：projectID / fileID / modLoaders 等字段大小写按官方规范。</summary>
@@ -515,7 +518,7 @@ public sealed class ModpackExportService(
         PackMeta meta,
         IReadOnlyList<MatchedFile> matches)
     {
-        var modLoaders = new List<object>();
+        var modLoaders = new List<CurseForgeModLoader>();
         var prefix = meta.LoaderKind switch
         {
             ModpackLoaderKind.Forge => "forge",
@@ -526,14 +529,14 @@ public sealed class ModpackExportService(
         };
         if (prefix.Length > 0 && !string.IsNullOrEmpty(meta.LoaderVersion))
         {
-            modLoaders.Add(new Dictionary<string, object?>
+            modLoaders.Add(new CurseForgeModLoader
             {
-                ["id"] = $"{prefix}-{meta.LoaderVersion}",
-                ["primary"] = true
+                Id = $"{prefix}-{meta.LoaderVersion}",
+                Primary = true
             });
         }
 
-        var files = new List<object>();
+        var files = new List<CurseForgeManifestFile>();
         foreach (var match in matches)
         {
             if (!long.TryParse(match.ProjectId, out var projectId)
@@ -542,42 +545,42 @@ public sealed class ModpackExportService(
                 continue;
             }
 
-            files.Add(new Dictionary<string, object?>
+            files.Add(new CurseForgeManifestFile
             {
-                ["projectID"] = projectId,
-                ["fileID"] = fileId,
-                ["required"] = true
+                ProjectID = projectId,
+                FileID = fileId,
+                Required = true
             });
         }
 
-        var root = new Dictionary<string, object?>
+        var root = new CurseForgeManifestRoot
         {
-            ["manifestType"] = "minecraftModpack",
-            ["manifestVersion"] = 1,
-            ["name"] = options.Name,
-            ["version"] = options.Version,
-            ["author"] = options.Author,
-            ["minecraft"] = new Dictionary<string, object?>
+            ManifestType = "minecraftModpack",
+            ManifestVersion = 1,
+            Name = options.Name,
+            Version = options.Version,
+            Author = options.Author,
+            Minecraft = new CurseForgeManifestMinecraft
             {
-                ["version"] = meta.GameVersion,
-                ["modLoaders"] = modLoaders
+                Version = meta.GameVersion,
+                ModLoaders = modLoaders
             },
-            ["files"] = files,
-            ["overrides"] = "overrides"
+            Files = files,
+            Overrides = "overrides"
         };
-        return JsonSerializer.Serialize(root, JsonOptions);
+        return JsonSerializer.Serialize(root, GetTypeInfo<CurseForgeManifestRoot>());
     }
 
     /// <summary>mmc-pack.json：组件 uid 与导入侧 ParseMmc 的映射完全一致。</summary>
     private static string BuildMmcPack(PackMeta meta)
     {
-        var components = new List<object>
+        var components = new List<MmcComponent>
         {
-            new Dictionary<string, object?>
+            new()
             {
-                ["uid"] = "net.minecraft",
-                ["version"] = meta.GameVersion,
-                ["important"] = true
+                Uid = "net.minecraft",
+                Version = meta.GameVersion,
+                Important = true
             }
         };
         if (!string.IsNullOrEmpty(meta.LoaderVersion))
@@ -593,11 +596,11 @@ public sealed class ModpackExportService(
             };
             if (uid.Length > 0)
             {
-                components.Add(new Dictionary<string, object?>
+                components.Add(new MmcComponent
                 {
-                    ["uid"] = uid,
-                    ["version"] = meta.LoaderVersion,
-                    ["important"] = true
+                    Uid = uid,
+                    Version = meta.LoaderVersion,
+                    Important = true
                 });
             }
         }
@@ -605,21 +608,28 @@ public sealed class ModpackExportService(
         // Prism 的 Fabric / Quilt 实例还需要 Java 中间映射组件，否则启动时无法解析原版类名
         if (meta.LoaderKind is ModpackLoaderKind.Fabric or ModpackLoaderKind.Quilt)
         {
-            components.Add(new Dictionary<string, object?>
+            components.Add(new MmcComponent
             {
-                ["uid"] = "net.fabricmc.intermediary",
-                ["version"] = meta.GameVersion,
-                ["important"] = false
+                Uid = "net.fabricmc.intermediary",
+                Version = meta.GameVersion,
+                Important = false
             });
         }
 
-        var root = new Dictionary<string, object?>
+        var root = new MmcPackRoot
         {
-            ["formatVersion"] = 1,
-            ["components"] = components
+            FormatVersion = 1,
+            Components = components
         };
-        return JsonSerializer.Serialize(root, JsonOptions);
+        return JsonSerializer.Serialize(root, GetTypeInfo<MmcPackRoot>());
     }
+
+    /// <summary>
+    /// 导出清单保持历史的缩进 + 非转义中文输出：在 context 元数据之上叠加写选项（编码器、缩进），
+    /// 经 options.GetTypeInfo 取得与该选项绑定的 JsonTypeInfo（裁剪安全）。
+    /// </summary>
+    private static JsonTypeInfo<T> GetTypeInfo<T>()
+        => (JsonTypeInfo<T>)JsonOptions.GetTypeInfo(typeof(T));
 
     // ------------------------- 收集内容 -------------------------
 

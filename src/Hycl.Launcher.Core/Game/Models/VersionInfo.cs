@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 namespace Hycl.Launcher.Core.Game.Models;
 
@@ -233,7 +234,10 @@ public sealed class ArgumentEntryConverter : JsonConverter<ArgumentEntry>
             switch (propertyName)
             {
                 case "rules":
-                    rules = JsonSerializer.Deserialize<RuleInfo[]>(ref reader, options);
+                    // 裁剪安全：经 options 的 TypeInfoResolver（NetJsonContext）取 RuleInfo[] 的元数据
+                    rules = JsonSerializer.Deserialize(
+                        ref reader,
+                        (JsonTypeInfo<RuleInfo[]>)options.GetTypeInfo(typeof(RuleInfo[])));
                     break;
                 case "value" when reader.TokenType == JsonTokenType.String:
                     values = new[] { reader.GetString() ?? "" };

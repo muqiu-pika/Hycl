@@ -10,7 +10,7 @@ namespace Hycl.Launcher.Core.Game.Comp;
 /// 留空时官方源 403，由 mcimirror 镜像（mod.mcimirror.top/curseforge）兜底——与 PCL-CE 行为一致，
 /// 因此 Key 未配置时功能仍可用，只是请求先经历一次官方源失败。
 /// </summary>
-public sealed class CurseForgeClient(CompRequester requester)
+public sealed partial class CurseForgeClient(CompRequester requester)
 {
     public const string ApiBase = "https://api.curseforge.com";
 
@@ -168,6 +168,19 @@ public sealed class CurseForgeClient(CompRequester requester)
         [JsonPropertyName("file")] public CurseForgeFileJson? File { get; set; }
     }
 
+    /// <summary>
+    /// CurseForge 接口 JSON 的 source-gen 元数据：私有嵌套模型经嵌套 context 收录（嵌套 context 可访问
+    /// 同类的私有类型），替代反射序列化以支持裁剪。所有模型字段均带 [JsonPropertyName]，命名策略不改变输出。
+    /// </summary>
+    [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+    [JsonSerializable(typeof(CurseForgeSearchResponse))]
+    [JsonSerializable(typeof(CurseForgeProjectResponse))]
+    [JsonSerializable(typeof(CurseForgeFilesResponse))]
+    [JsonSerializable(typeof(CurseForgeFingerprintResponse))]
+    [JsonSerializable(typeof(CurseForgeFileIdsRequest))]
+    [JsonSerializable(typeof(CurseForgeFingerprintsRequest))]
+    private sealed partial class CurseForgeJsonContext : JsonSerializerContext;
+
     // ---------- API ----------
 
     /// <summary>
@@ -206,7 +219,7 @@ public sealed class CurseForgeClient(CompRequester requester)
 
         url += $"&sortField={ToSortField(request.Sort)}";
         var response = await requester
-            .GetJsonAsync<CurseForgeSearchResponse>(url, cancellationToken, requester.CurseForgeHeaders)
+            .GetJsonAsync(url, CurseForgeJsonContext.Default.CurseForgeSearchResponse, cancellationToken, requester.CurseForgeHeaders)
             .ConfigureAwait(false);
         var projects = (response.Data ?? []).Select(MapProject).ToList();
         return new CompSearchResult { Projects = projects, CurseForgeTotal = response.Pagination?.TotalCount ?? -1 };
@@ -216,8 +229,9 @@ public sealed class CurseForgeClient(CompRequester requester)
     public async Task<CompProject> GetProjectAsync(string id, CancellationToken cancellationToken = default)
     {
         var response = await requester
-            .GetJsonAsync<CurseForgeProjectResponse>(
-                $"{ApiBase}/v1/mods/{Uri.EscapeDataString(id)}", cancellationToken, requester.CurseForgeHeaders)
+            .GetJsonAsync(
+                $"{ApiBase}/v1/mods/{Uri.EscapeDataString(id)}", CurseForgeJsonContext.Default.CurseForgeProjectResponse,
+                cancellationToken, requester.CurseForgeHeaders)
             .ConfigureAwait(false);
         return MapProject(response.Data ?? throw new CompException($"CurseForge 项目不存在：{id}"));
     }
@@ -233,8 +247,9 @@ public sealed class CurseForgeClient(CompRequester requester)
         CompResourceType type,
         CancellationToken cancellationToken = default)
     {
-        var response = await requester.GetJsonAsync<CurseForgeFilesResponse>(
+        var response = await requester.GetJsonAsync(
                 $"{ApiBase}/v1/mods/{Uri.EscapeDataString(projectId)}/files?pageSize=10000",
+                CurseForgeJsonContext.Default.CurseForgeFilesResponse,
                 cancellationToken,
                 requester.CurseForgeHeaders)
             .ConfigureAwait(false);
@@ -251,10 +266,13 @@ public sealed class CurseForgeClient(CompRequester requester)
         IEnumerable<long> fileIds,
         CancellationToken cancellationToken = default)
     {
-        var body = JsonSerializer.Serialize(new CurseForgeFileIdsRequest { FileIds = fileIds.ToList() });
+        var body = JsonSerializer.Serialize(
+            new CurseForgeFileIdsRequest { FileIds = fileIds.ToList() },
+            CurseForgeJsonContext.Default.CurseForgeFileIdsRequest);
         var response = await requester
-            .PostJsonAsync<CurseForgeFilesResponse>(
-                $"{ApiBase}/v1/mods/files", body, cancellationToken, requester.CurseForgeHeaders)
+            .PostJsonAsync(
+                $"{ApiBase}/v1/mods/files", body, CurseForgeJsonContext.Default.CurseForgeFilesResponse,
+                cancellationToken, requester.CurseForgeHeaders)
             .ConfigureAwait(false);
         return (response.Data ?? [])
             .Select(file => BuildFile(file, CompResourceType.Mod))
@@ -275,10 +293,13 @@ public sealed class CurseForgeClient(CompRequester requester)
         var distinct = fingerprints.Distinct().ToList();
         foreach (var batch in distinct.Chunk(100))
         {
-            var body = JsonSerializer.Serialize(new CurseForgeFingerprintsRequest { Fingerprints = batch.ToList() });
+            var body = JsonSerializer.Serialize(
+                new CurseForgeFingerprintsRequest { Fingerprints = batch.ToList() },
+                CurseForgeJsonContext.Default.CurseForgeFingerprintsRequest);
             var response = await requester
-                .PostJsonAsync<CurseForgeFingerprintResponse>(
-                    $"{ApiBase}/v1/fingerprints/{GameId}", body, cancellationToken, requester.CurseForgeHeaders)
+                .PostJsonAsync(
+                    $"{ApiBase}/v1/fingerprints/{GameId}", body, CurseForgeJsonContext.Default.CurseForgeFingerprintResponse,
+                    cancellationToken, requester.CurseForgeHeaders)
                 .ConfigureAwait(false);
             foreach (var match in response.Data?.ExactMatches ?? [])
             {

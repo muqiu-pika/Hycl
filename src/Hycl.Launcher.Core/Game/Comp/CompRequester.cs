@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Hycl.Launcher.Core.Config;
 using Hycl.Launcher.Core.Download;
 using Hycl.Launcher.Core.Services;
@@ -15,8 +16,6 @@ public sealed class CompRequester(DownloadClient client, LauncherConfig config, 
 {
     /// <summary>当前社区源策略（0 镜像优先 / 1 官方优先 / 2 仅官方），供文件下载 URL 排序复用。</summary>
     public int Solution => config.CommunitySourceSolution;
-
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private static readonly TimeSpan ForbiddenRetryDelay = TimeSpan.FromMilliseconds(400);
 
@@ -51,6 +50,7 @@ public sealed class CompRequester(DownloadClient client, LauncherConfig config, 
     /// <summary>按镜像阶梯 GET 并解析 JSON；全部失败时抛出含各源错误的异常。</summary>
     public async Task<T> GetJsonAsync<T>(
         string officialUrl,
+        JsonTypeInfo<T> typeInfo,
         CancellationToken cancellationToken = default,
         IReadOnlyDictionary<string, string>? headers = null)
     {
@@ -62,7 +62,7 @@ public sealed class CompRequester(DownloadClient client, LauncherConfig config, 
             {
                 var text = await GetOnceWithForbiddenAsync(url, timeoutSeconds, cancellationToken, headers)
                     .ConfigureAwait(false);
-                return JsonSerializer.Deserialize<T>(text, JsonOptions)
+                return JsonSerializer.Deserialize(text, typeInfo)
                        ?? throw new CompException($"接口返回空内容：{url}");
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -82,6 +82,7 @@ public sealed class CompRequester(DownloadClient client, LauncherConfig config, 
     public async Task<T> PostJsonAsync<T>(
         string officialUrl,
         string jsonBody,
+        JsonTypeInfo<T> typeInfo,
         CancellationToken cancellationToken = default,
         IReadOnlyDictionary<string, string>? headers = null)
     {
@@ -102,7 +103,7 @@ public sealed class CompRequester(DownloadClient client, LauncherConfig config, 
             {
                 var text = await PostOnceWithForbiddenAsync(url, jsonBody, timeoutSeconds, cancellationToken, headers)
                     .ConfigureAwait(false);
-                return JsonSerializer.Deserialize<T>(text, JsonOptions)
+                return JsonSerializer.Deserialize(text, typeInfo)
                        ?? throw new CompException($"接口返回空内容：{url}");
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Hycl.Launcher.Core.Download;
 using Hycl.Launcher.Core.Game.Loaders;
 using Hycl.Launcher.Core.Game.Models;
+using Hycl.Launcher.Core.Serialization;
 
 namespace Hycl.Launcher.Core.Game;
 
@@ -55,7 +56,8 @@ public partial class VersionInstaller
         var libraries = raw["libraries"] is JsonArray rawLibraries
             ? (JsonArray)rawLibraries.DeepClone()
             : new JsonArray();
-        libraries.Add(new JsonObject
+        // 走 IList<JsonNode?> 接口添加：JsonArray.Add<T> 泛型扩展对非基元类型带 RequiresUnreferencedCode，裁剪发布下不可用
+        ((IList<JsonNode?>)libraries).Add(new JsonObject
         {
             ["name"] = $"com.mumfrey:liteloader:{raw["version"]}",
             ["url"] = "https://dl.liteloader.com/versions/"
@@ -89,7 +91,7 @@ public partial class VersionInstaller
                 .ConfigureAwait(false);
 
             // 3) 下载依赖库
-            var info = JsonSerializer.Deserialize<VersionInfo>(versionJson.ToJsonString(JsonOptions), JsonOptions)
+            var info = JsonSerializer.Deserialize(versionJson.ToJsonString(JsonOptions), NetJsonContext.Default.VersionInfo)
                        ?? throw new DownloadException("LiteLoader 版本 JSON 解析失败");
             var collected = LibraryResolver.CollectLibraries(info, RuleEnvironment.Current(false), policy);
             reporter.Stage("下载 LiteLoader 依赖", collected.Count);
@@ -175,7 +177,7 @@ public partial class VersionInstaller
             }
 
             // 4) 下载 LabyMod 的依赖库
-            var info = JsonSerializer.Deserialize<VersionInfo>(manifestJson.ToJsonString(JsonOptions), JsonOptions)
+            var info = JsonSerializer.Deserialize(manifestJson.ToJsonString(JsonOptions), NetJsonContext.Default.VersionInfo)
                        ?? throw new DownloadException("LabyMod 版本 JSON 解析失败");
             var collected = LibraryResolver.CollectLibraries(info, RuleEnvironment.Current(false), policy);
             reporter.Stage("下载 LabyMod 依赖", collected.Count);

@@ -7,10 +7,8 @@ namespace Hycl.Launcher.Core.Download;
 /// <summary>
 /// 版本列表磁盘缓存：{数据目录}/Cache/version_manifest.json，命中后可离线展示并后台静默刷新。
 /// </summary>
-public sealed class VersionListCache
+public sealed partial class VersionListCache
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-
     private readonly string _filePath;
 
     public VersionListCache(string cacheDirectory)
@@ -35,7 +33,7 @@ public sealed class VersionListCache
             }
 
             var json = await File.ReadAllTextAsync(_filePath, cancellationToken).ConfigureAwait(false);
-            var wrapper = JsonSerializer.Deserialize<CachedManifestWrapper>(json, JsonOptions);
+            var wrapper = JsonSerializer.Deserialize(json, CacheJsonContext.Default.CachedManifestWrapper);
             if (wrapper?.Manifest?.Versions is not { Count: > 0 } || wrapper.FetchedAt == default)
             {
                 return null;
@@ -58,7 +56,7 @@ public sealed class VersionListCache
                 FetchedAt = DateTimeOffset.Now,
                 Manifest = manifest
             };
-            var json = JsonSerializer.Serialize(wrapper, JsonOptions);
+            var json = JsonSerializer.Serialize(wrapper, CacheJsonContext.Default.CachedManifestWrapper);
             // 先写临时文件再原子替换：崩溃/断电不会留下半个 JSON（读取端虽有兜底，写入端也应干净）
             Directory.CreateDirectory(Path.GetDirectoryName(_filePath) ?? ".");
             var tempFile = _filePath + ".tmp";
@@ -116,4 +114,9 @@ public sealed class VersionListCache
         [JsonPropertyName("manifest")]
         public VersionManifest? Manifest { get; set; }
     }
+
+    /// <summary>版本缓存 JSON 的 source-gen 元数据（字段带 [JsonPropertyName]，输出形态不变），支持裁剪。</summary>
+    [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+    [JsonSerializable(typeof(CachedManifestWrapper))]
+    private sealed partial class CacheJsonContext : JsonSerializerContext;
 }

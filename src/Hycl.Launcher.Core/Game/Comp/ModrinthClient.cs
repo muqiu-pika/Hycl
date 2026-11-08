@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using Hycl.Launcher.Core.Download;
 
 namespace Hycl.Launcher.Core.Game.Comp;
@@ -28,7 +29,7 @@ public sealed record ModrinthLatestFile(
 /// Modrinth 客户端：搜索 / 项目详情 / 文件列表（对应 PCL-CE Comp 模块的 Modrinth 分支）。
 /// 全部请求经 <see cref="CompRequester"/> 的镜像阶梯（api.modrinth.com ↔ mod.mcimirror.top/modrinth）。
 /// </summary>
-public sealed class ModrinthClient(CompRequester requester)
+public sealed partial class ModrinthClient(CompRequester requester)
 {
     public const string ApiBase = "https://api.modrinth.com";
 
@@ -102,6 +103,49 @@ public sealed class ModrinthClient(CompRequester requester)
         [JsonPropertyName("dependency_type")] public string? DependencyType { get; set; }
     }
 
+    /// <summary>POST /v2/version_files 请求体（按 SHA-1 反查版本文件）。</summary>
+    private sealed class ModrinthHashRequest
+    {
+        [JsonPropertyName("hashes")] public string[] Hashes { get; init; } = [];
+
+        [JsonPropertyName("algorithm")] public string Algorithm { get; init; } = "sha1";
+    }
+
+    /// <summary>POST /v2/version_files/update 请求体（查询与实例兼容的最新版本，可选字段缺省时不输出）。</summary>
+    private sealed class ModrinthUpdateRequest
+    {
+        [JsonPropertyName("hashes")] public string[] Hashes { get; init; } = [];
+
+        [JsonPropertyName("algorithm")] public string Algorithm { get; init; } = "sha1";
+
+        [JsonPropertyName("game_versions")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string[]? GameVersions { get; init; }
+
+        [JsonPropertyName("loaders")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public IReadOnlyList<string>? Loaders { get; init; }
+    }
+
+    /// <summary>
+    /// Modrinth 接口 JSON 的 source-gen 元数据：私有嵌套模型经嵌套 context 收录，支持裁剪。
+    /// 所有模型字段均带 [JsonPropertyName]（snake_case），命名策略不改变输出形态。
+    /// </summary>
+    [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+    [JsonSerializable(typeof(ModrinthSearchResponse))]
+    [JsonSerializable(typeof(ModrinthProjectJson))]
+    [JsonSerializable(typeof(List<ModrinthVersionJson>))]
+    [JsonSerializable(typeof(Dictionary<string, ModrinthVersionJson>))]
+    [JsonSerializable(typeof(ModrinthHashRequest))]
+    [JsonSerializable(typeof(ModrinthUpdateRequest))]
+    [JsonSerializable(typeof(List<IReadOnlyList<string>>))]
+    private sealed partial class ModrinthJsonContext : JsonSerializerContext;
+
+    /// <summary>POST /version_files* 的响应（以 sha1 为键的版本映射）不依赖生成成员命名，经 Options.GetTypeInfo 取用。</summary>
+    private static readonly JsonTypeInfo<Dictionary<string, ModrinthVersionJson>> VersionMapTypeInfo =
+        (JsonTypeInfo<Dictionary<string, ModrinthVersionJson>>)ModrinthJsonContext.Default.Options
+            .GetTypeInfo(typeof(Dictionary<string, ModrinthVersionJson>));
+
     // ---------- 类型映射 ----------
 
     /// <summary>CompType → Modrinth project_type（DataPack 在 Modrinth 里作为 mod 类型 + datapack 分类检索）。</summary>
@@ -173,14 +217,16 @@ public sealed class ModrinthClient(CompRequester requester)
             facets.Add(new[] { $"categories:'{tag}'" });
         }
 
-        var facetsJson = JsonSerializer.Serialize(facets);
+        var facetsJson = JsonSerializer.Serialize(facets, ModrinthJsonContext.Default.ListIReadOnlyListString);
         var url = $"{ApiBase}/v2/search?limit={request.Limit}&index={index}&offset={request.Offset}&facets={Uri.EscapeDataString(facetsJson)}";
         if (!string.IsNullOrWhiteSpace(request.Query))
         {
             url += $"&query={Uri.EscapeDataString(request.Query)}";
         }
 
-        var response = await requester.GetJsonAsync<ModrinthSearchResponse>(url, cancellationToken).ConfigureAwait(false);
+        var response = await requester
+            .GetJsonAsync(url, ModrinthJsonContext.Default.ModrinthSearchResponse, cancellationToken)
+            .ConfigureAwait(false);
         var projects = (response.Hits ?? []).Select(hit => new CompProject
         {
             Id = hit.ProjectId ?? "",
@@ -207,8 +253,10 @@ public sealed class ModrinthClient(CompRequester requester)
     /// <summary>项目详情（/v2/project/{idOrSlug}）。</summary>
     public async Task<CompProject> GetProjectAsync(string idOrSlug, CancellationToken cancellationToken = default)
     {
-        var json = await requester.GetJsonAsync<ModrinthProjectJson>(
-                $"{ApiBase}/v2/project/{Uri.EscapeDataString(idOrSlug)}", cancellationToken)
+        var json = await requester.GetJsonAsync(
+                $"{ApiBase}/v2/project/{Uri.EscapeDataString(idOrSlug)}",
+                ModrinthJsonContext.Default.ModrinthProjectJson,
+                cancellationToken)
             .ConfigureAwait(false);
         return new CompProject
         {
@@ -234,8 +282,10 @@ public sealed class ModrinthClient(CompRequester requester)
         CompResourceType type,
         CancellationToken cancellationToken = default)
     {
-        var versions = await requester.GetJsonAsync<List<ModrinthVersionJson>>(
-                $"{ApiBase}/v2/project/{Uri.EscapeDataString(projectId)}/version?include_changelog=false", cancellationToken)
+        var versions = await requester.GetJsonAsync(
+                $"{ApiBase}/v2/project/{Uri.EscapeDataString(projectId)}/version?include_changelog=false",
+                ModrinthJsonContext.Default.ListModrinthVersionJson,
+                cancellationToken)
             .ConfigureAwait(false);
         var files = new List<CompFile>();
         foreach (var version in versions ?? [])
@@ -270,9 +320,14 @@ public sealed class ModrinthClient(CompRequester requester)
 
         foreach (var batch in hashes.Chunk(100))
         {
-            var body = JsonSerializer.Serialize(new { hashes = batch, algorithm = "sha1" });
-            var response = await requester.PostJsonAsync<Dictionary<string, ModrinthVersionJson>>(
-                    $"{ApiBase}/v2/version_files", body, cancellationToken)
+            var body = JsonSerializer.Serialize(
+                new ModrinthHashRequest { Hashes = batch },
+                ModrinthJsonContext.Default.ModrinthHashRequest);
+            var response = await requester.PostJsonAsync(
+                    $"{ApiBase}/v2/version_files",
+                    body,
+                    VersionMapTypeInfo,
+                    cancellationToken)
                 .ConfigureAwait(false);
             foreach (var (hash, version) in response ?? [])
             {
@@ -319,23 +374,18 @@ public sealed class ModrinthClient(CompRequester requester)
 
         foreach (var batch in hashes.Chunk(100))
         {
-            var payload = new Dictionary<string, object>
+            var payload = new ModrinthUpdateRequest
             {
-                ["hashes"] = batch,
-                ["algorithm"] = "sha1"
+                Hashes = batch,
+                GameVersions = string.IsNullOrWhiteSpace(gameVersion) ? null : [gameVersion],
+                Loaders = loaders is { Count: > 0 } ? loaders : null
             };
-            if (!string.IsNullOrWhiteSpace(gameVersion))
-            {
-                payload["game_versions"] = new[] { gameVersion };
-            }
 
-            if (loaders is { Count: > 0 })
-            {
-                payload["loaders"] = loaders;
-            }
-
-            var response = await requester.PostJsonAsync<Dictionary<string, ModrinthVersionJson>>(
-                    $"{ApiBase}/v2/version_files/update", JsonSerializer.Serialize(payload), cancellationToken)
+            var response = await requester.PostJsonAsync(
+                    $"{ApiBase}/v2/version_files/update",
+                    JsonSerializer.Serialize(payload, ModrinthJsonContext.Default.ModrinthUpdateRequest),
+                    VersionMapTypeInfo,
+                    cancellationToken)
                 .ConfigureAwait(false);
             foreach (var (hash, version) in response ?? [])
             {

@@ -1,4 +1,5 @@
 using Hycl.Launcher.Core.Download;
+using Hycl.Launcher.Core.Serialization;
 using Hycl.Launcher.Core.Services;
 
 namespace Hycl.Launcher.Core.Game.Loaders;
@@ -100,8 +101,9 @@ public sealed class FabricLikeProvider(
         try
         {
             meta = await client
-                .GetJsonOnceAsync<FabricMetaVersions>(
+                .GetJsonOnceAsync(
                     $"{baseUrl}/versions",
+                    NetJsonContext.Default.FabricMetaVersions,
                     TimeSpan.FromSeconds(15),
                     cancellationToken)
                 .ConfigureAwait(false);

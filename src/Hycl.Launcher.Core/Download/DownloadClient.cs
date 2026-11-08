@@ -3,6 +3,8 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using Hycl.Launcher.Core.Services;
 
 namespace Hycl.Launcher.Core.Download;
@@ -15,8 +17,6 @@ public sealed class DownloadClient : IDisposable
 {
     /// <summary>断点续传临时文件后缀（参考 HMCL 的 .part 方案）。</summary>
     public const string TempSuffix = ".hycl-dl";
-
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly HttpClient _httpClient;
     private readonly LauncherLogger _logger;
@@ -170,19 +170,20 @@ public sealed class DownloadClient : IDisposable
             lastError);
     }
 
-    public async Task<T> GetJsonAsync<T>(string url, CancellationToken cancellationToken = default)
-        => await GetJsonAsync<T>([url], cancellationToken).ConfigureAwait(false);
+    public async Task<T> GetJsonAsync<T>(string url, JsonTypeInfo<T> typeInfo, CancellationToken cancellationToken = default)
+        => await GetJsonAsync([url], typeInfo, cancellationToken).ConfigureAwait(false);
 
     /// <summary>单次请求并解析 JSON（不重试、单源超时），用于镜像/官方串行竞速的加载器列表。</summary>
     public async Task<T> GetJsonOnceAsync<T>(
         string url,
+        JsonTypeInfo<T> typeInfo,
         TimeSpan timeout,
         CancellationToken cancellationToken = default)
     {
         var json = await GetStringOnceAsync(url, timeout, cancellationToken).ConfigureAwait(false);
         try
         {
-            var value = JsonSerializer.Deserialize<T>(json, JsonOptions);
+            var value = JsonSerializer.Deserialize(json, typeInfo);
             if (value is null)
             {
                 throw new DownloadException($"接口返回空内容：{url}");
@@ -196,12 +197,12 @@ public sealed class DownloadClient : IDisposable
         }
     }
 
-    public async Task<T> GetJsonAsync<T>(IReadOnlyList<string> urls, CancellationToken cancellationToken = default)
+    public async Task<T> GetJsonAsync<T>(IReadOnlyList<string> urls, JsonTypeInfo<T> typeInfo, CancellationToken cancellationToken = default)
     {
         var json = await GetStringAsync(urls, cancellationToken).ConfigureAwait(false);
         try
         {
-            var value = JsonSerializer.Deserialize<T>(json, JsonOptions);
+            var value = JsonSerializer.Deserialize(json, typeInfo);
             if (value is null)
             {
                 throw new DownloadException($"接口返回空内容：{urls.FirstOrDefault()}");

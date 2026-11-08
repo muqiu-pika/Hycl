@@ -6,6 +6,7 @@ using Hycl.Launcher.Core.Config;
 using Hycl.Launcher.Core.Download;
 using Hycl.Launcher.Core.Game.Models;
 using Hycl.Launcher.Core.Platform;
+using Hycl.Launcher.Core.Serialization;
 using Hycl.Launcher.Core.Services;
 
 namespace Hycl.Launcher.Core.Game;
@@ -115,7 +116,7 @@ public sealed partial class VersionInstaller
 
         var rawJson = await RaceFetchAsync(primaryUrl, secondaryUrl, cancellationToken)
             .ConfigureAwait(false);
-        var manifest = JsonSerializer.Deserialize<VersionManifest>(rawJson, JsonOptions)
+        var manifest = JsonSerializer.Deserialize(rawJson, NetJsonContext.Default.VersionManifest)
                        ?? throw new DownloadException("版本清单解析失败");
         if (manifest.Versions.Count < 200)
         {
@@ -211,7 +212,7 @@ public sealed partial class VersionInstaller
                     .ConfigureAwait(false);
             }
 
-            var unlisted = JsonSerializer.Deserialize<VersionManifest>(cachedJson, JsonOptions);
+            var unlisted = JsonSerializer.Deserialize(cachedJson, NetJsonContext.Default.VersionManifest);
             if (unlisted?.Versions is not { Count: > 0 })
             {
                 return;
@@ -304,7 +305,7 @@ public sealed partial class VersionInstaller
             var jsonPath = Path.Combine(versionDirectory, displayName + ".json");
             await File.WriteAllTextAsync(jsonPath, rawJson, cancellationToken).ConfigureAwait(false);
 
-            var info = JsonSerializer.Deserialize<VersionInfo>(rawJson, JsonOptions)
+            var info = JsonSerializer.Deserialize(rawJson, NetJsonContext.Default.VersionInfo)
                        ?? throw new DownloadException($"版本 JSON 解析失败：{summary.Id}");
             if (string.IsNullOrWhiteSpace(info.Id))
             {
@@ -577,7 +578,7 @@ public sealed partial class VersionInstaller
             }
 
             // 6) 下载 profile 声明的加载器依赖库（原版库已就位，重复合并项由去重跳过）
-            var profile = JsonSerializer.Deserialize<VersionInfo>(profileJson.ToJsonString(JsonOptions), JsonOptions)
+            var profile = JsonSerializer.Deserialize(profileJson.ToJsonString(JsonOptions), NetJsonContext.Default.VersionInfo)
                           ?? throw new DownloadException("加载器 profile 解析失败");
             var environment = RuleEnvironment.Current(false);
             var libraries = LibraryResolver.CollectLibraries(profile, environment, policy);
@@ -724,7 +725,7 @@ public sealed partial class VersionInstaller
         var loaderJson = await _client
             .GetStringAsync(loaderUrlPrefix + Uri.EscapeDataString(gameVersion), cancellationToken)
             .ConfigureAwait(false);
-        var loaders = JsonSerializer.Deserialize<List<FabricLoaderEntry>>(loaderJson, JsonOptions)
+        var loaders = JsonSerializer.Deserialize(loaderJson, NetJsonContext.Default.ListFabricLoaderEntry)
                       ?? new List<FabricLoaderEntry>();
         var loader = loaders.FirstOrDefault(x => x.Loader?.Stable == true)?.Loader
                      ?? loaders.FirstOrDefault()?.Loader;
@@ -753,7 +754,7 @@ public sealed partial class VersionInstaller
         var indexPath = Path.Combine(indexesDirectory, assetIndex.Id + ".json");
         await File.WriteAllTextAsync(indexPath, indexJson, cancellationToken).ConfigureAwait(false);
 
-        var index = JsonSerializer.Deserialize<AssetIndex>(indexJson, JsonOptions)
+        var index = JsonSerializer.Deserialize(indexJson, NetJsonContext.Default.AssetIndex)
                     ?? throw new DownloadException("资源索引解析失败");
         if (index.Objects is null || index.Objects.Count == 0)
         {

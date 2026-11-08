@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Hycl.Launcher.Core.Game.Models;
 using Hycl.Launcher.Core.Platform;
+using Hycl.Launcher.Core.Serialization;
 using Hycl.Launcher.Core.Services;
 
 namespace Hycl.Launcher.Core.Game;
@@ -28,8 +29,6 @@ public sealed class ResolvedVersion
 /// </summary>
 public sealed class VersionResolver
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-
     private readonly LauncherLogger _logger;
 
     public VersionResolver(LauncherLogger logger)
@@ -103,7 +102,7 @@ public sealed class VersionResolver
         try
         {
             var json = await File.ReadAllTextAsync(jsonPath, cancellationToken).ConfigureAwait(false);
-            var info = JsonSerializer.Deserialize<VersionInfo>(json, JsonOptions);
+            var info = JsonSerializer.Deserialize(json, NetJsonContext.Default.VersionInfo);
             if (info is null)
             {
                 return null;

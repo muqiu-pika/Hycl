@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Hycl.Launcher.Core.Config;
 using Hycl.Launcher.Core.Download;
+using Hycl.Launcher.Core.Serialization;
 using Hycl.Launcher.Core.Services;
 
 namespace Hycl.Launcher.Core.Game.Mods;
@@ -49,8 +50,6 @@ public sealed class ModrinthFile
 /// </summary>
 public sealed class ModrinthProvider
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-
     private readonly DownloadClient _client;
     private readonly LauncherLogger _logger;
 
@@ -76,7 +75,7 @@ public sealed class ModrinthProvider
             try
             {
                 var json = await _client.GetStringAsync(url, cancellationToken).ConfigureAwait(false);
-                var versions = JsonSerializer.Deserialize<List<ModrinthVersion>>(json, JsonOptions)
+                var versions = JsonSerializer.Deserialize(json, NetJsonContext.Default.ListModrinthVersion)
                                ?? throw new DownloadException($"Modrinth 版本列表解析失败：{slugOrId}");
                 if (versions.Count > 0)
                 {

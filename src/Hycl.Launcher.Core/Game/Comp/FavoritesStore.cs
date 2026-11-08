@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Hycl.Launcher.Core.Services;
 
 namespace Hycl.Launcher.Core.Game.Comp;
@@ -28,14 +29,9 @@ public sealed record FavoriteItem(CompProject Project, string Note, DateTimeOffs
 /// 项目本身仍保留完整快照，断网时也能展示标题/图标/作者。
 /// 写入 %APPDATA%\Hycl\favorites.json。
 /// </summary>
-public sealed class FavoritesStore
+public sealed partial class FavoritesStore
 {
     public const string DefaultFolderName = "默认收藏夹";
-
-    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
-    {
-        WriteIndented = true
-    };
 
     private readonly string _filePath;
     private readonly LauncherLogger _logger;
@@ -220,7 +216,7 @@ public sealed class FavoritesStore
         try
         {
             var json = File.ReadAllText(_filePath);
-            var saved = JsonSerializer.Deserialize<SaveModel>(json, SerializerOptions);
+            var saved = JsonSerializer.Deserialize(json, FavoritesJsonContext.Default.SaveModel);
             _folders.Clear();
             _snapshots.Clear();
 
@@ -292,7 +288,7 @@ public sealed class FavoritesStore
                 Folders = _folders.ToList(),
                 Snapshots = _snapshots.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase)
             };
-            var json = JsonSerializer.Serialize(model, SerializerOptions);
+            var json = JsonSerializer.Serialize(model, FavoritesJsonContext.Default.SaveModel);
             await File.WriteAllTextAsync(tempFile, json).ConfigureAwait(false);
             File.Move(tempFile, _filePath, true);
         }
@@ -317,4 +313,9 @@ public sealed class FavoritesStore
         /// <summary>旧版单列表格式，仅用于迁移。</summary>
         public List<FavoriteEntry>? Items { get; set; }
     }
+
+    /// <summary>favorites.json 的 source-gen 元数据（Web camelCase + 缩进，与历史格式一致），支持裁剪。</summary>
+    [JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+    [JsonSerializable(typeof(SaveModel))]
+    private sealed partial class FavoritesJsonContext : JsonSerializerContext;
 }

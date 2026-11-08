@@ -1,16 +1,12 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Hycl.Launcher.Core.Services;
 
 namespace Hycl.Launcher.Core.Auth;
 
 /// <summary>账号列表持久化（accounts.json）。</summary>
-public sealed class AccountStore
+public sealed partial class AccountStore
 {
-    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
-    {
-        WriteIndented = true
-    };
-
     private readonly string _filePath;
     private readonly LauncherLogger _logger;
 
@@ -60,7 +56,7 @@ public sealed class AccountStore
         try
         {
             var json = await File.ReadAllTextAsync(_filePath, cancellationToken).ConfigureAwait(false);
-            var payload = JsonSerializer.Deserialize<AccountPayload>(json, SerializerOptions);
+            var payload = JsonSerializer.Deserialize(json, AccountJsonContext.Default.AccountPayload);
             Accounts = payload?.Accounts ?? new List<PlayerAccount>();
             SelectedIndex = payload?.SelectedIndex ?? 0;
         }
@@ -289,7 +285,7 @@ public sealed class AccountStore
                 Accounts = Accounts,
                 SelectedIndex = SelectedIndex
             };
-            var json = JsonSerializer.Serialize(payload, SerializerOptions);
+            var json = JsonSerializer.Serialize(payload, AccountJsonContext.Default.AccountPayload);
             var tempFile = _filePath + ".tmp";
             await File.WriteAllTextAsync(tempFile, json, cancellationToken).ConfigureAwait(false);
             File.Move(tempFile, _filePath, true);
@@ -310,4 +306,11 @@ public sealed class AccountStore
 
         public int SelectedIndex { get; set; }
     }
+
+    /// <summary>
+    /// accounts.json 的 source-gen 元数据：输出保持 Web camelCase + 缩进，与历史反射序列化逐字节一致。
+    /// </summary>
+    [JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+    [JsonSerializable(typeof(AccountPayload))]
+    private sealed partial class AccountJsonContext : JsonSerializerContext;
 }

@@ -17,7 +17,7 @@ public sealed record CompCategoryOption(string Label, string Tag);
 /// 简介优先取 mcimirror 在线翻译（无需密钥），失败回退原文；任何兜底都不会是空白或 null。
 /// UI 只绑定这里产出的字符串。
 /// </summary>
-public static class CompLocalization
+public static partial class CompLocalization
 {
     private const string NameDatabaseResource = "Hycl.Launcher.Core.Resources.mcmod.buf";
 
@@ -665,7 +665,7 @@ public static class CompLocalization
                     TimeSpan.FromSeconds(8),
                     cancellationToken)
                 .ConfigureAwait(false);
-            var response = System.Text.Json.JsonSerializer.Deserialize<TranslateResponse>(text);
+            var response = System.Text.Json.JsonSerializer.Deserialize(text, TranslateJsonContext.Default.TranslateResponse);
             var translated = Normalize(response?.Translated);
             if (translated.Length > 0)
             {
@@ -898,4 +898,9 @@ public static class CompLocalization
         [JsonPropertyName("translated")]
         public string? Translated { get; set; }
     }
+
+    /// <summary>翻译响应的 source-gen 元数据，支持裁剪。</summary>
+    [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+    [JsonSerializable(typeof(TranslateResponse))]
+    private sealed partial class TranslateJsonContext : JsonSerializerContext;
 }
