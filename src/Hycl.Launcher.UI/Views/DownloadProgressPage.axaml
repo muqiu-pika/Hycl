@@ -9,15 +9,16 @@
     <!-- 独立下载进度页：从右下角悬浮图标/下载页任务条进入，可返回进入前的页面。
          构图与启动过程页保持一致（图标动画/进度圈 + 步骤清单 + 参数卡 + 总进度），
          进度、步骤、文件数据全部复用 InstallTaskViewModel，不另建状态。
-         主体内容栏固定 620×450（DIP）：文案/文件名再长只在栏内截断；
-         窗口放大时整栏居中、留白变多；窗口小于栏时外层滚动，内容不裁切。 -->
+         主体内容栏：高度固定 450（内容溢出只在栏内滚动）；宽度不固定，只钉左右留白
+         （左 22 / 右 18），随窗口变宽变窄；竖向从顶部往下排（顶部留 18）。 -->
     <Panel>
-        <ScrollViewer HorizontalScrollBarVisibility="Auto"
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
                       VerticalScrollBarVisibility="Auto"
-                      HorizontalAlignment="Center"
-                      VerticalAlignment="Center"
+                      HorizontalAlignment="Stretch"
+                      VerticalAlignment="Top"
+                      HorizontalContentAlignment="Stretch"
                       Margin="22,18,18,14">
-            <Border Width="620" Height="450" Padding="18,16">
+            <Border Height="450" Padding="18,16">
                 <Grid RowDefinitions="Auto,*">
 
         <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,12">

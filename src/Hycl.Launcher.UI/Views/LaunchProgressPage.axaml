@@ -11,16 +11,17 @@
     <Panel>
 
         <!-- ─────────────── 启动中：过程简要概述（PCL-CE 信息密度） ─────────────── -->
-        <!-- 主体内容栏固定 620×450（DIP）：文案再长只在栏内截断/换行；
-             窗口放大时整栏居中、留白变多；窗口小于栏时外层滚动，内容不裁切 -->
-        <ScrollViewer HorizontalScrollBarVisibility="Auto"
+        <!-- 主体内容栏：高度固定 450（内容溢出只在栏内滚动）；宽度不固定，
+             只钉左右留白（40 / 40），随窗口变宽变窄；竖向从顶部往下排（顶部留 18）。
+             窗口高度不足以容纳栏时由外层滚动承接，内容不压缩、不裁切。 -->
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
                       VerticalScrollBarVisibility="Auto"
-                      HorizontalAlignment="Center"
-                      VerticalAlignment="Center"
+                      HorizontalAlignment="Stretch"
+                      VerticalAlignment="Top"
+                      HorizontalContentAlignment="Stretch"
                       Margin="40,18,40,18"
                       IsVisible="{Binding !Launch.IsLaunchFailed}">
-            <Border Width="620"
-                    Height="450"
+            <Border Height="450"
                     Padding="18,16">
                 <ScrollViewer HorizontalScrollBarVisibility="Disabled"
                               VerticalScrollBarVisibility="Auto">
