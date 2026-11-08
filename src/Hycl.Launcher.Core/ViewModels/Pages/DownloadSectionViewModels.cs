@@ -207,6 +207,17 @@ public partial class InstallTaskViewModel : ObservableObject
     private DateTime _installStartedAt = DateTime.UtcNow;
     private Timer? _elapsedTimer;
 
+    /// <summary>
+    /// 进度节流闸门：worker 线程只累积“最新快照 + 本窗口内新增的步骤名”，
+    /// UI 侧约每 120ms 合并应用一次。避免每个文件/每块字节都改十几个绑定文本并触发布局。
+    /// </summary>
+    private readonly object _progressGate = new();
+    private readonly List<string> _pendingStages = new();
+    private InstallProgress? _pendingProgress;
+    private bool _progressPumpRunning;
+    private bool _acceptProgress;
+    private string _queuedStage = "准备中";
+
     /// <summary>最近一次安装/下载的失败原因（成功或开始时清空），供详情页就地提示。</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasError))]
@@ -498,6 +509,15 @@ public partial class InstallTaskViewModel : ObservableObject
         var cts = new CancellationTokenSource();
         _cts = cts;
         var generation = ++_runGeneration;
+        // 新一轮任务：清空上一轮可能残留的节流快照，旧泵醒来会因 generation 不匹配自行退出
+        lock (_progressGate)
+        {
+            _pendingProgress = null;
+            _pendingStages.Clear();
+            _queuedStage = "准备中";
+            _progressPumpRunning = false;
+        }
+        _acceptProgress = true;
         // 先写入任务图标，保证任务条/悬浮图标一出现就带着对应版本或资源图标
         TaskIconKey = iconKey;
         TaskIconUrl = iconUrl;
@@ -514,19 +534,13 @@ public partial class InstallTaskViewModel : ObservableObject
         StartElapsedTimer(generation);
         try
         {
-            var progress = new Progress<InstallProgress>(
-                value => _services.Dispatcher.Post(() =>
-                {
-                    // 取消/新一轮任务后，丢弃仍在队列中的旧进度，避免遮罩文字“复活”
-                    if (generation == _runGeneration && !cts.IsCancellationRequested && IsInstalling)
-                    {
-                        var aggregated = ApplyProgress(value);
-                        progressSink?.Invoke(aggregated);
-                    }
-                }));
+            // 同步回调 + 合并节流：不再为每条进度事件单独 Post 到 UI 线程
+            var progress = new CallbackProgress<InstallProgress>(
+                value => QueueProgress(value, cts, generation, progressSink));
             var actionTask = action(progress, cts.Token);
             _actionTask = actionTask;
             var installedId = await actionTask.ConfigureAwait(true);
+            StopProgressUpdates();
             StageText = "安装完成";
             ProgressPercent = 100;
             OverallProgressPercent = 100;
@@ -547,6 +561,7 @@ public partial class InstallTaskViewModel : ObservableObject
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
+            StopProgressUpdates();
             StageText = "已取消";
             TransferText = "";
             StepProgressText = "";
@@ -558,6 +573,7 @@ public partial class InstallTaskViewModel : ObservableObject
         }
         catch (Exception ex)
         {
+            StopProgressUpdates();
             StageText = "安装失败";
             StepProgressText = "";
             CurrentDetailText = "";
@@ -571,6 +587,7 @@ public partial class InstallTaskViewModel : ObservableObject
         {
             if (ReferenceEquals(_cts, cts))
             {
+                StopProgressUpdates();
                 _cts = null;
                 _actionTask = null;
                 StopElapsedTimer();
@@ -663,6 +680,126 @@ public partial class InstallTaskViewModel : ObservableObject
         var minutes = totalSeconds / 60;
         var seconds = totalSeconds % 60;
         return $"已用 {minutes:00}:{seconds:00}";
+    }
+
+    /// <summary>
+    /// 进度回调（worker 线程）：只记录最新快照与步骤切换，并确保只有一个节流泵在运行。
+    /// 文件数、字节数高频变化不会被逐个推给 UI。
+    /// </summary>
+    private void QueueProgress(
+        InstallProgress value,
+        CancellationTokenSource cts,
+        int generation,
+        Action<InstallProgress>? progressSink)
+    {
+        lock (_progressGate)
+        {
+            if (generation != _runGeneration || !_acceptProgress)
+            {
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(value.Stage)
+                && !string.Equals(value.Stage, _queuedStage, StringComparison.Ordinal))
+            {
+                _queuedStage = value.Stage;
+                _pendingStages.Add(value.Stage);
+            }
+
+            _pendingProgress = value;
+            if (_progressPumpRunning)
+            {
+                return;
+            }
+
+            _progressPumpRunning = true;
+        }
+
+        _ = PumpProgressAsync(cts, generation, progressSink);
+    }
+
+    /// <summary>每 120ms 把窗口内累积的最新进度合并应用到 UI，避免每文件/每字节触发布局。</summary>
+    private async Task PumpProgressAsync(
+        CancellationTokenSource cts,
+        int generation,
+        Action<InstallProgress>? progressSink)
+    {
+        while (true)
+        {
+            await Task.Delay(120).ConfigureAwait(false);
+
+            InstallProgress snapshot;
+            string[] stages;
+            lock (_progressGate)
+            {
+                if (generation != _runGeneration)
+                {
+                    // 已被新一轮任务接管：新泵负责后续刷新，旧泵不再写状态标志
+                    return;
+                }
+
+                if (_pendingProgress is null)
+                {
+                    _progressPumpRunning = false;
+                    return;
+                }
+
+                snapshot = _pendingProgress!;
+                _pendingProgress = null;
+                stages = _pendingStages.Count == 0 ? Array.Empty<string>() : _pendingStages.ToArray();
+                _pendingStages.Clear();
+            }
+
+            _services.Dispatcher.Post(() => ApplyProgressBatch(snapshot, stages, cts, generation, progressSink));
+        }
+    }
+
+    /// <summary>任务结束：丢弃窗口内的残留快照，之后到达的旧进度一律忽略。</summary>
+    private void StopProgressUpdates()
+    {
+        _acceptProgress = false;
+        lock (_progressGate)
+        {
+            _pendingProgress = null;
+            _pendingStages.Clear();
+        }
+    }
+
+    /// <summary>
+    /// 把一批节流后的进度应用到 UI（UI 线程）。窗口内跨过的中间步骤仍按顺序补记，
+    /// 保证「第 N 步 / 共 M 步」与总进度不会少算一步。
+    /// </summary>
+    private void ApplyProgressBatch(
+        InstallProgress snapshot,
+        string[] stages,
+        CancellationTokenSource cts,
+        int generation,
+        Action<InstallProgress>? progressSink)
+    {
+        if (generation != _runGeneration || cts.IsCancellationRequested || !IsInstalling || !_acceptProgress)
+        {
+            return;
+        }
+
+        foreach (var stage in stages)
+        {
+            if (string.Equals(stage, _currentStage, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            CompleteActiveStep();
+            _currentStage = stage;
+            AddStep(stage);
+            if (!string.Equals(stage, snapshot.Stage, StringComparison.Ordinal))
+            {
+                // 中间步骤在节流窗口内一闪而过：推进步骤序号（本步进度按 0 计）
+                _tracker.Update(new InstallProgress(stage, "", 0, 0, 0, 0));
+            }
+        }
+
+        var aggregated = ApplyProgress(snapshot);
+        progressSink?.Invoke(aggregated);
     }
 
     private InstallProgress ApplyProgress(InstallProgress progress)

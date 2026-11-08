@@ -1364,6 +1364,9 @@
     <Style Selector="TextBlock.step-title">
         <Setter Property="FontSize" Value="13" />
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <!-- 步骤名过长时省略而不是撑开所在行/卡片 -->
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        <Setter Property="TextWrapping" Value="NoWrap" />
     </Style>
     <Style Selector="TextBlock.step-title.done">
         <Setter Property="Foreground" Value="{DynamicResource Gray3Brush}" />
@@ -1387,6 +1390,8 @@
     <Style Selector="TextBlock.param-value">
         <Setter Property="FontSize" Value="12.5" />
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
-        <Setter Property="TextWrapping" Value="Wrap" />
+        <!-- 参数值单行省略：路径/文件名变长不会改变卡片行高、不触发滚动条反复出现 -->
+        <Setter Property="TextWrapping" Value="NoWrap" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
 </Styles>

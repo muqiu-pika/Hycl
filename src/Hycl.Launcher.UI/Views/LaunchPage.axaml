@@ -320,11 +320,14 @@
                             <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
                                 <TextBlock Text="{Binding LoaderName}"
                                            FontSize="11"
-                                           Foreground="{DynamicResource Gray3Brush}" />
+                                           Foreground="{DynamicResource Gray3Brush}"
+                                           TextTrimming="CharacterEllipsis" />
                                 <TextBlock Text="{Binding CurrentVersion}"
                                            FontSize="14"
                                            FontWeight="Bold"
                                            Foreground="{DynamicResource TextBrush}"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTip.Tip="{Binding CurrentVersion}"
                                            Margin="0,2,0,0" />
                             </StackPanel>
                         </Grid>
@@ -343,6 +346,7 @@
                                            FontSize="14"
                                            FontWeight="Bold"
                                            Foreground="{DynamicResource TextBrush}"
+                                           TextTrimming="CharacterEllipsis"
                                            Margin="0,2,0,0" />
                             </StackPanel>
                         </Grid>
@@ -361,6 +365,7 @@
                                            FontSize="14"
                                            FontWeight="Bold"
                                            Foreground="{DynamicResource TextBrush}"
+                                           TextTrimming="CharacterEllipsis"
                                            Margin="0,2,0,0" />
                             </StackPanel>
                         </Grid>

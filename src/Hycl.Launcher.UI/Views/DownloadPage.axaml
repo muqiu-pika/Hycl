@@ -1389,7 +1389,7 @@
                             Cursor="Hand"
                             PointerReleased="OnTaskBarPointerReleased">
                         <Grid ColumnDefinitions="Auto,*,Auto,Auto"
-                              RowDefinitions="Auto,Auto,Auto,Auto"
+                              RowDefinitions="Auto,6,16,18"
                               ColumnSpacing="12"
                               RowSpacing="6">
                             <c:HyclIcon Grid.RowSpan="2"
@@ -1417,8 +1417,10 @@
                                 </TextBlock>
                             </StackPanel>
                             <TextBlock Grid.Column="2"
+                                       Width="42"
                                        FontSize="12"
                                        VerticalAlignment="Center"
+                                       TextAlignment="Right"
                                        Foreground="{DynamicResource Gray2Brush}"
                                        Text="{Binding Install.OverallProgressPercent, StringFormat={}{0:0}%}" />
                             <Button Grid.Column="3"
@@ -1437,17 +1439,23 @@
 
                             <TextBlock Grid.Row="2"
                                        Grid.ColumnSpan="4"
+                                       Height="16"
                                        FontSize="11"
+                                       VerticalAlignment="Center"
                                        Foreground="{DynamicResource Gray2Brush}"
                                        Text="{Binding Install.CurrentDetailText}"
-                                       TextTrimming="CharacterEllipsis" />
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding Install.CurrentDetailText}" />
 
                             <ItemsControl Grid.Row="3"
                                           Grid.ColumnSpan="4"
+                                          Height="18"
+                                          ClipToBounds="True"
                                           ItemsSource="{Binding Install.Steps}">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
-                                        <WrapPanel Orientation="Horizontal" />
+                                        <!-- 固定单行，不换行：步骤增多不会改变任务条高度 -->
+                                        <StackPanel Orientation="Horizontal" />
                                     </ItemsPanelTemplate>
                                 </ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>

@@ -11,12 +11,20 @@
     <Panel>
 
         <!-- ─────────────── 启动中：过程简要概述（PCL-CE 信息密度） ─────────────── -->
-        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+        <!-- 主体内容栏固定 620×450（DIP）：文案再长只在栏内截断/换行；
+             窗口放大时整栏居中、留白变多；窗口小于栏时外层滚动，内容不裁切 -->
+        <ScrollViewer HorizontalScrollBarVisibility="Auto"
                       VerticalScrollBarVisibility="Auto"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Center"
+                      Margin="40,18,40,18"
                       IsVisible="{Binding !Launch.IsLaunchFailed}">
-            <StackPanel MaxWidth="620"
-                        Margin="40,18,40,24"
-                        HorizontalAlignment="Center">
+            <Border Width="620"
+                    Height="450"
+                    Padding="18,16">
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto">
+            <StackPanel>
 
                 <!-- 图标动画 + 当前步骤 + 耗时 -->
                 <Grid ColumnDefinitions="Auto,*,Auto">
@@ -28,10 +36,13 @@
                         <TextBlock Text="{Binding Launch.LaunchStepTitle}"
                                    FontSize="19"
                                    FontWeight="Bold"
-                                   Foreground="{DynamicResource TextBrush}" />
+                                   Foreground="{DynamicResource TextBrush}"
+                                   TextTrimming="CharacterEllipsis"
+                                   ToolTip.Tip="{Binding Launch.LaunchStepTitle}" />
                         <TextBlock Text="{Binding Launch.LaunchStepCounterText}"
                                    FontSize="12"
-                                   Foreground="{DynamicResource Gray3Brush}" />
+                                   Foreground="{DynamicResource Gray3Brush}"
+                                   TextTrimming="CharacterEllipsis" />
                     </StackPanel>
                     <Border Grid.Column="2"
                             Background="{DynamicResource Primary8Brush}"
@@ -121,6 +132,8 @@
                 </Grid>
 
             </StackPanel>
+                </ScrollViewer>
+            </Border>
         </ScrollViewer>
 
         <!-- ─────────────── 失败 / 崩溃：上半结论，下半可滚动日志 ─────────────── -->

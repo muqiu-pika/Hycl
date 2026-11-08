@@ -8,10 +8,20 @@
 
     <!-- 独立下载进度页：从右下角悬浮图标/下载页任务条进入，可返回进入前的页面。
          构图与启动过程页保持一致（图标动画/进度圈 + 步骤清单 + 参数卡 + 总进度），
-         进度、步骤、文件数据全部复用 InstallTaskViewModel，不另建状态。 -->
-    <Grid RowDefinitions="Auto,*" Margin="22,18,18,14">
+         进度、步骤、文件数据全部复用 InstallTaskViewModel，不另建状态。
+         主体内容栏固定 620×450（DIP）：文案/文件名再长只在栏内截断；
+         窗口放大时整栏居中、留白变多；窗口小于栏时外层滚动，内容不裁切。 -->
+    <Panel>
+        <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Center"
+                      Margin="22,18,18,14">
+            <Border Width="620" Height="450" Padding="18,16">
+                <Grid RowDefinitions="Auto,*">
 
         <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,12">
+
             <Button Classes="mc-btn"
                     Padding="14,4"
                     FontSize="12.5"
@@ -51,9 +61,8 @@
         <ScrollViewer Grid.Row="1"
                       HorizontalScrollBarVisibility="Disabled"
                       VerticalScrollBarVisibility="Auto">
-            <StackPanel MaxWidth="620"
-                        Margin="0,6,0,24"
-                        HorizontalAlignment="Center">
+            <StackPanel Margin="0,6,0,4">
+
                 <ItemsControl ItemsSource="{Binding Tasks}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:InstallTaskViewModel">
@@ -206,7 +215,8 @@
                                                          Grid.Column="1"
                                                          Classes="param-value"
                                                          Text="{Binding CurrentDetailText}"
-                                                         TextTrimming="CharacterEllipsis" />
+                                                         TextTrimming="CharacterEllipsis"
+                                                         ToolTip.Tip="{Binding CurrentDetailText}" />
 
                                         <TextBlock Grid.Row="2" Grid.Column="0" Classes="param-label" Text="传输量" />
                                         <TextBlock Grid.Row="2" Grid.Column="1" Classes="param-value" Text="{Binding TransferText}" />
@@ -240,5 +250,8 @@
                 </ItemsControl>
             </StackPanel>
         </ScrollViewer>
-    </Grid>
+                </Grid>
+            </Border>
+        </ScrollViewer>
+    </Panel>
 </UserControl>
