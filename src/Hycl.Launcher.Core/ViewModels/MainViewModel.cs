@@ -28,6 +28,9 @@ public partial class MainViewModel : ObservableObject
 
     public DownloadPageViewModel Download { get; }
 
+    /// <summary>独立下载进度页：右下角悬浮图标点入，可返回到进入前的页面。</summary>
+    public DownloadProgressPageViewModel DownloadProgress { get; }
+
     public InstancesViewModel Instances { get; }
 
     public SettingsPageViewModel Settings { get; }
@@ -46,6 +49,15 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _isToastVisible;
 
+    /// <summary>独立下载进度页是否打开（打开期间右下角悬浮图标隐藏）。</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowFloatingDownload))]
+    [NotifyPropertyChangedFor(nameof(FloatingDownloadIndeterminate))]
+    private bool _isDownloadProgressOpen;
+
+    /// <summary>进入下载进度页前所在的页面，返回时原样恢复。</summary>
+    private object? _pageBeforeDownloadProgress;
+
     public event EventHandler? CloseRequested;
 
     public event EventHandler? MinimizeRequested;
@@ -57,6 +69,7 @@ public partial class MainViewModel : ObservableObject
         LaunchProgress = new LaunchProgressViewModel(Launch);
         Download = new DownloadPageViewModel(services, ShowToast);
         PerfTrace.Mark("download_vm_ctor_done");
+        DownloadProgress = new DownloadProgressPageViewModel(Download.Install, CloseDownloadProgress);
         Instances = new InstancesViewModel(services, Download.Install);
         Instances.DownloadResourceRequested = (type, gameVersion, loaderLabel, instanceId) =>
         {
@@ -74,7 +87,8 @@ public partial class MainViewModel : ObservableObject
         Launch.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(LaunchPageViewModel.IsLaunchProgressVisible)
-                && SelectedTabIndex == 0)
+                && SelectedTabIndex == 0
+                && !IsDownloadProgressOpen)
             {
                 CurrentPage = Launch.IsLaunchProgressVisible ? LaunchProgress : Launch;
             }
@@ -128,13 +142,16 @@ public partial class MainViewModel : ObservableObject
         {
             if (e.PropertyName is nameof(InstallTaskViewModel.IsInstalling)
                 or nameof(InstallTaskViewModel.ProgressPercent)
+                or nameof(InstallTaskViewModel.OverallProgressPercent)
                 or nameof(InstallTaskViewModel.InstallingName)
-                or nameof(InstallTaskViewModel.StageText))
+                or nameof(InstallTaskViewModel.StageText)
+                or nameof(InstallTaskViewModel.StepCounterText))
             {
-                OnPropertyChanged(nameof(ShowFloatingDownload));
-                OnPropertyChanged(nameof(FloatingDownloadTip));
+                SyncFloatingDownloadState();
             }
         };
+
+        SyncFloatingDownloadState();
 
         _ = Launch.RefreshInstancesAsync();
         // 启动时补全账号皮肤缓存：SkinPath 已持久化则直接用缓存，缺失才重新拉取
@@ -142,22 +159,76 @@ public partial class MainViewModel : ObservableObject
         PerfTrace.Mark("main_vm_ctor_done");
     }
 
-    /// <summary>是否显示右下角悬浮下载按钮：有任务在进行且当前不在下载页。</summary>
-    public bool ShowFloatingDownload => Download.Install.IsInstalling && SelectedTabIndex != 1;
+    /// <summary>是否显示右下角悬浮下载按钮：有任务在进行、不在下载页且未打开独立进度页。</summary>
+    public bool ShowFloatingDownload =>
+        Download.Install.IsInstalling && SelectedTabIndex != 1 && !IsDownloadProgressOpen;
 
-    /// <summary>悬浮下载按钮的悬停提示：阶段 + 任务名 + 百分比。</summary>
+    /// <summary>悬浮下载按钮的悬停提示：阶段 + 任务名 + 总进度。</summary>
     public string FloatingDownloadTip
     {
         get
         {
             var install = Download.Install;
-            return $"{install.StageText}：{install.InstallingName} · {install.ProgressPercent:0}%";
+            return $"{install.StageText}：{install.InstallingName} · 总进度 {install.OverallProgressPercent:0}%";
         }
+    }
+
+    /// <summary>悬浮图标上显示的百分比：与下载页/进度页同一份总进度。</summary>
+    public string FloatingDownloadPercentText => $"{Download.Install.OverallProgressPercent:0}%";
+
+    /// <summary>刚入队、尚无进度时显示旋转环，避免图标停在 0% 看起来卡死。</summary>
+    public bool FloatingDownloadIndeterminate => Download.Install.IsProgressIndeterminate;
+
+    /// <summary>从右下角悬浮图标进入独立下载进度页；记录来源页面以便返回。</summary>
+    public void OpenDownloadProgress()
+    {
+        if (IsDownloadProgressOpen)
+        {
+            return;
+        }
+
+        _pageBeforeDownloadProgress = CurrentPage ?? Launch;
+        IsDownloadProgressOpen = true;
+        CurrentPage = DownloadProgress;
+        SyncFloatingDownloadState();
+    }
+
+    /// <summary>返回进入下载进度页之前的页面（不是首页，也不是停在下载页）。</summary>
+    public void CloseDownloadProgress()
+    {
+        if (!IsDownloadProgressOpen)
+        {
+            return;
+        }
+
+        IsDownloadProgressOpen = false;
+        var page = _pageBeforeDownloadProgress ?? Launch;
+        _pageBeforeDownloadProgress = null;
+        CurrentPage = page;
+        (page as IPageLifecycle)?.Activate();
+        SyncFloatingDownloadState();
+    }
+
+    /// <summary>同步悬浮按钮相关的派生属性与启动页按钮间距。</summary>
+    private void SyncFloatingDownloadState()
+    {
+        Launch.IsFloatingDownloadVisible = ShowFloatingDownload;
+        OnPropertyChanged(nameof(ShowFloatingDownload));
+        OnPropertyChanged(nameof(FloatingDownloadTip));
+        OnPropertyChanged(nameof(FloatingDownloadPercentText));
+        OnPropertyChanged(nameof(FloatingDownloadIndeterminate));
     }
 
     partial void OnSelectedTabIndexChanged(int value)
     {
         var switchStart = PerfTrace.Now;
+        // 从独立下载进度页切换标签：直接回到目标标签页，不再恢复旧页面
+        if (IsDownloadProgressOpen)
+        {
+            IsDownloadProgressOpen = false;
+            _pageBeforeDownloadProgress = null;
+        }
+
         // 离开当前页：取消该页在途的加载/下载，避免后台任务继续跑
         if (_currentPage is IPageLifecycle leaving)
         {
@@ -190,7 +261,7 @@ public partial class MainViewModel : ObservableObject
         };
 
         (CurrentPage as IPageLifecycle)?.Activate();
-        OnPropertyChanged(nameof(ShowFloatingDownload));
+        SyncFloatingDownloadState();
         PerfTrace.MarkSince($"tab_ready:{value}", switchStart);
     }
 

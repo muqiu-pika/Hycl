@@ -276,6 +276,7 @@
         <Setter Property="MinHeight" Value="0" />
         <Setter Property="Padding" Value="0" />
         <Setter Property="CornerRadius" Value="24" />
+        <Setter Property="Margin" Value="0,0,16,16" />
         <Setter Property="Background" Value="{DynamicResource PrimaryGradientBrush}" />
         <Setter Property="Foreground" Value="#FFFFFFFF" />
         <Setter Property="BorderThickness" Value="0" />
@@ -288,6 +289,10 @@
                 <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.14" />
             </Transitions>
         </Setter>
+    </Style>
+    <!-- 与右下角下载按钮同时出现：下载按钮贴底（16），关闭游戏按钮叠在它上方，间距固定 14 -->
+    <Style Selector="Button.stop-fab.dl-offset">
+        <Setter Property="Margin" Value="0,0,16,76" />
     </Style>
     <Style Selector="Button.stop-fab:pointerover">
         <Setter Property="RenderTransform" Value="scale(1.06)" />

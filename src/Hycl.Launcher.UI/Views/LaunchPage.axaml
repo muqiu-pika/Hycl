@@ -841,13 +841,14 @@
             </Border>
         </Panel>
 
-        <!-- 运行中：右下角固定悬浮的停止按钮（点击仍走既有的关闭游戏二次确认） -->
+        <!-- 运行中：右下角固定悬浮的停止按钮（点击仍走既有的关闭游戏二次确认）。
+             下载按钮存在时叠在它上方保持固定间距，只有它自己时贴最底部。 -->
         <Button Classes="stop-fab"
+                Classes.dl-offset="{Binding IsFloatingDownloadVisible}"
                 x:Name="StopGameButton"
                 IsVisible="{Binding IsGameRunning}"
                 HorizontalAlignment="Right"
                 VerticalAlignment="Bottom"
-                Margin="0,0,16,76"
                 ToolTip.Tip="关闭游戏"
                 Command="{Binding RequestCloseGameCommand}">
             <c:HyclIcon Kind="power"

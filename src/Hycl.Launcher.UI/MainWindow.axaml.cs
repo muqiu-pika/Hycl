@@ -425,6 +425,7 @@ public partial class MainWindow : Window
             LaunchPageViewModel => new LaunchPage(),
             LaunchProgressViewModel => new LaunchProgressPage(),
             DownloadPageViewModel => new DownloadPage(),
+            DownloadProgressPageViewModel => new DownloadProgressPage(),
             InstancesViewModel => new InstancesPage(),
             SettingsPageViewModel => new SettingsPage(),
             ToolsPageViewModel => new ToolsPage(),
@@ -520,11 +521,8 @@ public partial class MainWindow : Window
 
     private void OnFloatingDownloadClick(object? sender, RoutedEventArgs e)
     {
-        // 右下角悬浮下载按钮：切回下载页查看详情（下载任务本身不因切页中断）
-        if (DataContext is MainViewModel viewModel)
-        {
-            viewModel.SelectedTabIndex = 1;
-        }
+        // 右下角悬浮下载按钮：进入独立下载进度页（下载任务本身不因切页中断），返回时回到进入前的页面
+        (DataContext as MainViewModel)?.OpenDownloadProgress();
     }
 
     private void OnHelpClick(object? sender, RoutedEventArgs e) =>

@@ -106,7 +106,8 @@
 
                     <!--
                         右下角悬浮下载按钮（对应 PCL-CE）：下载/安装进行中且不在下载页时显示，
-                        进度环以轻微颜色差呈现下载了多少；点击返回下载页查看详情/取消。
+                        进度环与百分比都取总体进度（与下载页、独立进度页同源）；
+                        刚入队还没有进度时环改画旋转弧，避免停在 0% 看起来像卡死。
                     -->
                     <Button Name="FloatingDownloadButton"
                             Classes="dl-fab"
@@ -119,16 +120,25 @@
                         <Panel>
                             <c:McProgressRing Width="40"
                                               Height="40"
-                                              Thickness="2.5"
+                                              Thickness="3"
                                               TrackBrush="#26FFFFFF"
                                               ProgressBrush="{DynamicResource PrimaryLightBrush}"
-                                              Percent="{Binding Download.Install.ProgressPercent}" />
-                            <c:HyclIcon Kind="download"
-                                        Width="16"
-                                        Height="16"
-                                        Foreground="White"
-                                        HorizontalAlignment="Center"
-                                        VerticalAlignment="Center" />
+                                              Percent="{Binding Download.Install.OverallProgressPercent}"
+                                              IsIndeterminate="{Binding FloatingDownloadIndeterminate}" />
+                            <StackPanel HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        Spacing="0">
+                                <c:HyclIcon Kind="download"
+                                            Width="13"
+                                            Height="13"
+                                            Foreground="White"
+                                            HorizontalAlignment="Center" />
+                                <TextBlock Text="{Binding FloatingDownloadPercentText}"
+                                           FontSize="9"
+                                           FontWeight="SemiBold"
+                                           Foreground="White"
+                                           HorizontalAlignment="Center" />
+                            </StackPanel>
                         </Panel>
                     </Button>
                 </Grid>

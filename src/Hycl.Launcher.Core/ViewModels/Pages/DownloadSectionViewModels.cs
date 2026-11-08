@@ -149,6 +149,7 @@ public partial class InstallTaskViewModel : ObservableObject
     }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsProgressIndeterminate))]
     private bool _isInstalling;
 
     [ObservableProperty]
@@ -165,7 +166,11 @@ public partial class InstallTaskViewModel : ObservableObject
 
     /// <summary>总体进度：按已完成阶段与文件数加权估算，随阶段推进不会回退。</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsProgressIndeterminate))]
     private double _overallProgressPercent;
+
+    /// <summary>进度未知（刚入队/首次进度回调前）：界面显示不定态动画，避免停在 0% 看起来像卡死。</summary>
+    public bool IsProgressIndeterminate => IsInstalling && OverallProgressPercent <= 0.5;
 
     /// <summary>当前阶段在整条安装链路中的序号与已完成阶段数，例如「第 3 步 · 已完成 2 步」。</summary>
     [ObservableProperty]
@@ -194,7 +199,11 @@ public partial class InstallTaskViewModel : ObservableObject
 
     /// <summary>最近一次安装/下载的失败原因（成功或开始时清空），供详情页就地提示。</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasError))]
     private string _errorText = "";
+
+    /// <summary>是否有失败提示需要就地显示。</summary>
+    public bool HasError => !string.IsNullOrEmpty(ErrorText);
 
     /// <summary>安装结束（成功）后携带实际安装的版本目录名。</summary>
     public event EventHandler<string>? Completed;

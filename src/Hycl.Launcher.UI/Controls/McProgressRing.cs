@@ -2,6 +2,8 @@ using System;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 
 namespace Hycl.Launcher.UI.Controls;
 
@@ -25,9 +27,29 @@ public class McProgressRing : Control
     public static readonly StyledProperty<double> ThicknessProperty =
         AvaloniaProperty.Register<McProgressRing, double>(nameof(Thickness), 3d);
 
+    /// <summary>不确定态：进度未知时画一段匀速旋转的弧，避免百分比停在 0 看起来像卡死。</summary>
+    public static readonly StyledProperty<bool> IsIndeterminateProperty =
+        AvaloniaProperty.Register<McProgressRing, bool>(nameof(IsIndeterminate));
+
+    /// <summary>不确定态弧的当前起始角度（度）；仅在动画计时器运行时变化。</summary>
+    private double _sweepAngle;
+
+    private DispatcherTimer? _animationTimer;
+
     static McProgressRing()
     {
-        AffectsRender<McProgressRing>(PercentProperty, TrackBrushProperty, ProgressBrushProperty, ThicknessProperty);
+        AffectsRender<McProgressRing>(
+            PercentProperty,
+            TrackBrushProperty,
+            ProgressBrushProperty,
+            ThicknessProperty,
+            IsIndeterminateProperty);
+    }
+
+    public bool IsIndeterminate
+    {
+        get => GetValue(IsIndeterminateProperty);
+        set => SetValue(IsIndeterminateProperty, value);
     }
 
     public double Percent
@@ -70,13 +92,25 @@ public class McProgressRing : Control
             context.DrawEllipse(null, new Pen(track, Thickness, lineCap: PenLineCap.Round), center, radius, radius);
         }
 
-        var percent = Percent;
-        if (percent <= 0 || ProgressBrush is not { } progress)
+        if (ProgressBrush is not { } progress)
         {
             return;
         }
 
         var progressPen = new Pen(progress, Thickness, lineCap: PenLineCap.Round);
+        if (IsIndeterminate)
+        {
+            // 不确定态：一段约 90° 的弧绕圆心匀速旋转
+            DrawArc(context, progressPen, center, radius, _sweepAngle, 90d);
+            return;
+        }
+
+        var percent = Percent;
+        if (percent <= 0)
+        {
+            return;
+        }
+
         if (percent >= 99.95)
         {
             context.DrawEllipse(null, progressPen, center, radius, radius);
@@ -84,27 +118,91 @@ public class McProgressRing : Control
         }
 
         // 从正上方开始顺时针推进；50% 以内走小弧，超过后走大弧
-        var angle = percent / 100d * 2d * Math.PI;
-        var start = new Point(center.X, center.Y - radius);
-        var end = new Point(
-            center.X + radius * Math.Sin(angle),
-            center.Y - radius * Math.Cos(angle));
+        DrawArc(context, progressPen, center, radius, 0d, percent / 100d * 360d, percent > 50);
+    }
+
+    /// <summary>按起始角度与扫过角度绘制一段圆弧（角度以正上方为 0、顺时针为正）。</summary>
+    private static void DrawArc(
+        DrawingContext context,
+        IPen pen,
+        Point center,
+        double radius,
+        double startDegrees,
+        double sweepDegrees,
+        bool isLargeArc = false)
+    {
+        var start = startDegrees * Math.PI / 180d;
+        var end = (startDegrees + sweepDegrees) * Math.PI / 180d;
+        var startPoint = new Point(
+            center.X + radius * Math.Sin(start),
+            center.Y - radius * Math.Cos(start));
+        var endPoint = new Point(
+            center.X + radius * Math.Sin(end),
+            center.Y - radius * Math.Cos(end));
         var figure = new PathFigure
         {
-            StartPoint = start,
+            StartPoint = startPoint,
             IsClosed = false,
             Segments = new PathSegments
             {
                 new ArcSegment
                 {
-                    Point = end,
+                    Point = endPoint,
                     Size = new Size(radius, radius),
-                    IsLargeArc = percent > 50,
+                    IsLargeArc = isLargeArc,
                     SweepDirection = SweepDirection.Clockwise
                 }
             }
         };
-        var geometry = new PathGeometry { Figures = new PathFigures { figure } };
-        context.DrawGeometry(null, progressPen, geometry);
+        context.DrawGeometry(null, pen, new PathGeometry { Figures = new PathFigures { figure } });
+    }
+
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        UpdateAnimation();
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        StopAnimation();
+        base.OnDetachedFromVisualTree(e);
+    }
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        if (change.Property == IsIndeterminateProperty)
+        {
+            UpdateAnimation();
+        }
+    }
+
+    private void UpdateAnimation()
+    {
+        if (IsIndeterminate && VisualRoot is not null)
+        {
+            if (_animationTimer is not null)
+            {
+                return;
+            }
+
+            _animationTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+            _animationTimer.Tick += (_, _) =>
+            {
+                _sweepAngle = (_sweepAngle + 4d) % 360d;
+                InvalidateVisual();
+            };
+            _animationTimer.Start();
+            return;
+        }
+
+        StopAnimation();
+    }
+
+    private void StopAnimation()
+    {
+        _animationTimer?.Stop();
+        _animationTimer = null;
     }
 }

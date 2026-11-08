@@ -111,6 +111,13 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     [NotifyPropertyChangedFor(nameof(LaunchIconKey))]
     private bool _isClosing;
 
+    /// <summary>
+    /// 右下角悬浮下载按钮当前是否可见（由主窗口同步）：用于让「关闭游戏」按钮
+    /// 在有下载按钮时叠在它上面保持固定间距，单独出现时回到最底部。
+    /// </summary>
+    [ObservableProperty]
+    private bool _isFloatingDownloadVisible;
+
     /// <summary>启动阶段提示（由 LaunchService 在准备各阶段回调）。</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(LaunchSubText))]
