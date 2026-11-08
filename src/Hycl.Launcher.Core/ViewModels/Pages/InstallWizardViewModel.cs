@@ -1407,7 +1407,7 @@ public partial class InstallWizardViewModel : ObservableObject
             _services.Config.EffectiveGameDirectory, targetName);
         if (!effectiveName.Equals(targetName, StringComparison.Ordinal))
         {
-            TargetName = effectiveName;
+            // 不把自动编号写回 TargetName：否则同一选择再装一次会以 26.3-1 为基名，叠成 26.3-1-1。
             _toast?.Invoke($"已存在同名实例 {targetName}，将安装为 {effectiveName}");
         }
 

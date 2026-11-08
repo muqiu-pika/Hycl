@@ -22,6 +22,9 @@ public static class InstanceNameValidator
 
     private static readonly Regex Ntfs83Name = new(@".{2,}~\d", RegexOptions.Compiled);
 
+    /// <summary>自动编号后缀：仅在名称末尾的“-数字”才剥离，避免误伤 1.21.5、26.3 这类版本号。</summary>
+    private static readonly Regex TrailingNumberSuffix = new(@"-\d+$", RegexOptions.Compiled);
+
     /// <summary>只校验名称本身是否合法（不检查重名）。返回 null 表示合法。</summary>
     public static string? ValidateName(string? name)
     {
@@ -85,18 +88,33 @@ public static class InstanceNameValidator
 
     /// <summary>
     /// 返回 versions 目录下可用的实例名：未被占用时原样返回；
-    /// 已存在同名实例时依次尝试 <c>名称-1</c>、<c>名称-2</c> …（跳过已占用的序号）。
+    /// 已占用时先剥掉名称末尾的“-数字”得到基名（避免在 26.3-1 上再叠成 26.3-1-1），
+    /// 再按基名依次尝试 <c>基名-1</c>、<c>基名-2</c> …（跳过已占用的序号，大小写不敏感）。
     /// </summary>
     public static string GetAvailableName(string gameDirectory, string desiredName)
     {
-        if (!IsOccupied(gameDirectory, desiredName))
+        var trimmed = desiredName.Trim();
+        if (trimmed.Length == 0 || !IsOccupied(gameDirectory, trimmed))
         {
-            return desiredName;
+            return trimmed;
+        }
+
+        // 已占用：剥掉自动编号后缀；基名本身可用时直接回到基名，否则从 1 开始找最小空位。
+        var baseName = TrailingNumberSuffix.Replace(trimmed, "", 1);
+        if (baseName.Length == 0)
+        {
+            baseName = trimmed;
+        }
+
+        if (!baseName.Equals(trimmed, StringComparison.OrdinalIgnoreCase)
+            && !IsOccupied(gameDirectory, baseName))
+        {
+            return baseName;
         }
 
         for (var index = 1; ; index++)
         {
-            var candidate = $"{desiredName}-{index}";
+            var candidate = $"{baseName}-{index}";
             if (!IsOccupied(gameDirectory, candidate))
             {
                 return candidate;

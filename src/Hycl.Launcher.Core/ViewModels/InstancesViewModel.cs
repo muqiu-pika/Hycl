@@ -1222,7 +1222,9 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
 
         _isRenameDialog = false;
         NameDialogTitle = $"复制实例 {SelectedInstance.Name}";
-        NameDialogText = SelectedInstance.Id + " - Copy";
+        // 复制建议名同样走统一的可用名规则：连续复制得到 “X - Copy-1”“X - Copy-2”，不会叠成 -Copy-1-1
+        NameDialogText = InstanceNameValidator.GetAvailableName(
+            _services.Config.EffectiveGameDirectory, SelectedInstance.Id + " - Copy");
         NameDialogHint = "新实例将复制当前版本目录、存档与模组";
         IsNameDialogVisible = true;
     }
