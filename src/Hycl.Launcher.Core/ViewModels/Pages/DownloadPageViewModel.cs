@@ -7,6 +7,7 @@ using Hycl.Launcher.Core.Game.Comp;
 using Hycl.Launcher.Core.Game.Loaders;
 using Hycl.Launcher.Core.Game.Models;
 using Hycl.Launcher.Core.Models;
+using Hycl.Launcher.Core.Services;
 
 namespace Hycl.Launcher.Core.ViewModels.Pages;
 
@@ -18,6 +19,9 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
 {
     private readonly LauncherServices _services;
     private bool _skipAutoSearch;
+
+    /// <summary>构造期选中默认分区时为 true：此时不触发版本列表拉取（改为进入页面时按需加载）。</summary>
+    private bool _isInitializing;
 
     /// <summary>下载页底部任务条被点击：请求主窗口打开下载详情页（返回时回到下载页）。</summary>
     public event EventHandler? OpenProgressRequested;
@@ -93,7 +97,11 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
             ])
         };
 
+        // 构造期只做选中，不拉取版本列表：PCL-CE 同款懒加载，进入下载页（Activate）时才请求，
+        // 避免启动期后台跑一次 1116 条版本的网络请求与分组构建。
+        _isInitializing = true;
         SelectedSection = minecraft;
+        _isInitializing = false;
 
         // 保存位置弹窗的可见性需要跨分区转达：ActiveCompSection 为空时一律隐藏
         foreach (var section in CompSections)
@@ -221,9 +229,19 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
         }
     }
 
-    /// <summary>重新进入下载页：恢复社区分区的安装进度监听。</summary>
+    /// <summary>
+    /// 重新进入下载页：恢复社区分区的安装进度监听。
+    /// 版本列表在此首次拉取（对齐 PCL-CE 的按需加载：PCL-CE 也是进入下载页才经 LoaderTask
+    /// 链请求版本清单）；<see cref="InstallWizardViewModel.LoadVersionListAsync"/> 自带缓存与下载源守卫，
+    /// 重复进入不会重复请求。
+    /// </summary>
     public void Activate()
     {
+        if (!IsCompSection)
+        {
+            _ = Wizard.LoadVersionListAsync();
+        }
+
         foreach (var section in CompSections)
         {
             section.Attach();
@@ -254,7 +272,7 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
         else
         {
             ActiveSection = null;
-            if (!IsCompSection)
+            if (!_isInitializing && !IsCompSection)
             {
                 _ = Wizard.LoadVersionListAsync();
             }

@@ -191,7 +191,11 @@ public class McProgressRing : Control
             _animationTimer.Tick += (_, _) =>
             {
                 _sweepAngle = (_sweepAngle + 4d) % 360d;
-                InvalidateVisual();
+                // 所在页面被隐藏（切页后仍留在 PageHost 缓存里）时跳过重绘，计时器保留以便恢复
+                if (IsEffectivelyVisible)
+                {
+                    InvalidateVisual();
+                }
             };
             _animationTimer.Start();
             return;
