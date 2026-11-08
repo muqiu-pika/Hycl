@@ -136,7 +136,7 @@ public sealed class LoaderInstallService
         // 前置 Mod（Fabric API / Legacy Fabric API / OptiFabric）
         foreach (var slug in plan.CompanionModSlugs)
         {
-            await DownloadCompanionModAsync(plan, installedName, slug, cancellationToken).ConfigureAwait(false);
+            await DownloadCompanionModAsync(plan, installedName, slug, progress, cancellationToken).ConfigureAwait(false);
         }
 
         return installedName;
@@ -282,8 +282,10 @@ public sealed class LoaderInstallService
         LoaderInstallPlan plan,
         string installedName,
         string slug,
+        IProgress<InstallProgress>? progress,
         CancellationToken cancellationToken)
     {
+        InstallProgressCounter? reporter = null;
         try
         {
             var versions = await _modrinth.GetVersionsAsync(slug, cancellationToken).ConfigureAwait(false);
@@ -297,10 +299,24 @@ public sealed class LoaderInstallService
                 return;
             }
 
+            // 前置 Mod 也是下载步骤：纳入同一套步骤 + 文件进度，避免主安装完成后长时间停在中间百分比
+            IProgress<DownloadByteProgress>? byteProgress = null;
+            if (progress is not null)
+            {
+                var counter = new InstallProgressCounter(progress);
+                reporter = counter;
+                counter.Stage($"下载前置 Mod {slug}", 1);
+                counter.BeginFile($"{slug}-{recommended.VersionNumber}", 0);
+                byteProgress = new CallbackProgress<DownloadByteProgress>(
+                    value => counter.FileBytes(value.ReceivedBytes, value.TotalBytes));
+            }
+
             var modsDirectory = Path.Combine(
                 InstanceManager.GetContentRoot(plan.GameDirectory, installedName, plan.VersionIsolation),
                 "mods");
-            await _modrinth.DownloadModAsync(recommended, modsDirectory, cancellationToken).ConfigureAwait(false);
+            await _modrinth.DownloadModAsync(recommended, modsDirectory, byteProgress, cancellationToken)
+                .ConfigureAwait(false);
+            reporter?.FileCompleted(0);
             _logger.Info($"前置 Mod {recommended.VersionNumber} 已放入 {modsDirectory}");
         }
         catch (OperationCanceledException)

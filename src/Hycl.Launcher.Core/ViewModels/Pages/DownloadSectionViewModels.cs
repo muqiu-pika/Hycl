@@ -188,6 +188,7 @@ public partial class InstallTaskViewModel : ObservableObject
 
     private string _currentStage = "";
     private int _expectedSteps = 2;
+    private InstallProgressTracker _tracker = new(2);
     private DateTime _installStartedAt = DateTime.UtcNow;
     private Timer? _elapsedTimer;
 
@@ -218,7 +219,7 @@ public partial class InstallTaskViewModel : ObservableObject
                     .ConfigureAwait(true);
                 return targetName;
             },
-            expectedSteps: 5).ConfigureAwait(true);
+            expectedSteps: 7).ConfigureAwait(true);
     }
 
     public async Task RunFabricAsync(string gameVersion, string displayName)
@@ -239,7 +240,18 @@ public partial class InstallTaskViewModel : ObservableObject
                         targetName)
                     .ConfigureAwait(true);
             },
-            expectedSteps: 6).ConfigureAwait(true);
+            expectedSteps: FabricExpectedSteps(gameVersion)).ConfigureAwait(true);
+    }
+
+    /// <summary>Fabric 安装：原版已就绪时 6 步；缺失时内部会补装原版（约多 5 步）。</summary>
+    private int FabricExpectedSteps(string gameVersion)
+    {
+        var baseJson = Path.Combine(
+            _services.Config.EffectiveGameDirectory,
+            "versions",
+            gameVersion,
+            gameVersion + ".json");
+        return File.Exists(baseJson) ? 6 : 11;
     }
 
     /// <summary>执行完整的加载器安装计划（主加载器 + 附属内容 + 前置 Mod）。</summary>
@@ -331,7 +343,7 @@ public partial class InstallTaskViewModel : ObservableObject
                     .InstallFileToDirectoryAsync(mainFile, targetDirectory, progress, token)
                     .ConfigureAwait(true);
             },
-            expectedSteps: 3 + dependencies.Count).ConfigureAwait(true);
+            expectedSteps: 3 + dependencies.Count * 2).ConfigureAwait(true);
     }
 
     /// <summary>安装整合包（下载 → 解析 → 资源落盘 → 自动安装原版与加载器）。</summary>
@@ -347,7 +359,7 @@ public partial class InstallTaskViewModel : ObservableObject
                 _services.Config.DownloadThreads,
                 progress,
                 token),
-            expectedSteps: 10)
+            expectedSteps: 12)
             .ConfigureAwait(true);
     }
 
@@ -373,7 +385,7 @@ public partial class InstallTaskViewModel : ObservableObject
                 token,
                 optionalFileIds: optionalFileIds),
             progressSink,
-            expectedSteps: 10).ConfigureAwait(true);
+            expectedSteps: 12).ConfigureAwait(true);
     }
 
     /// <summary>
@@ -382,10 +394,20 @@ public partial class InstallTaskViewModel : ObservableObject
     /// </summary>
     private static int EstimatePlanSteps(LoaderInstallPlan plan)
     {
-        // 准备中 + 原版 4 步（获取版本 / 客户端 / 依赖库 / 完成）；加载器 6 步
-        var steps = string.Equals(plan.Kind, LoaderInstallService.VanillaKind, StringComparison.OrdinalIgnoreCase)
-            ? 5
-            : 6;
+        // 准备中 + 原版 6 步 / 加载器 6 步；缺失原版时补装会多出约 5 步
+        var vanilla = string.Equals(plan.Kind, LoaderInstallService.VanillaKind, StringComparison.OrdinalIgnoreCase);
+        var steps = vanilla ? 7 : 6;
+        if (!vanilla)
+        {
+            var baseJson = Path.Combine(plan.GameDirectory, "versions", plan.GameVersion, plan.GameVersion + ".json");
+            if (!File.Exists(baseJson))
+            {
+                steps += 5;
+            }
+        }
+
+
+
         if (plan.OptiFine is not null)
         {
             steps += 2;
@@ -396,7 +418,7 @@ public partial class InstallTaskViewModel : ObservableObject
             steps += 1;
         }
 
-        steps += plan.CompanionModSlugs.Count * 2;
+        steps += plan.CompanionModSlugs.Count;
         return Math.Max(steps, 2);
     }
 
@@ -435,8 +457,8 @@ public partial class InstallTaskViewModel : ObservableObject
                     // 取消/新一轮任务后，丢弃仍在队列中的旧进度，避免遮罩文字“复活”
                     if (generation == _runGeneration && !cts.IsCancellationRequested && IsInstalling)
                     {
-                        ApplyProgress(value);
-                        progressSink?.Invoke(value);
+                        var aggregated = ApplyProgress(value);
+                        progressSink?.Invoke(aggregated);
                     }
                 }));
             var actionTask = action(progress, cts.Token);
@@ -506,9 +528,10 @@ public partial class InstallTaskViewModel : ObservableObject
     {
         _expectedSteps = Math.Max(expectedSteps, 2);
         _currentStage = "准备中";
+        _tracker = new InstallProgressTracker(_expectedSteps, _currentStage);
         Steps.Clear();
         AddStep("准备中");
-        StepCounterText = "第 1 步 · 已完成 0 步";
+        StepCounterText = $"第 1/{_expectedSteps} 步 · 已完成 0 步 · 还剩 {_expectedSteps - 1} 步";
         StepProgressText = "";
         CurrentDetailText = "";
     }
@@ -519,7 +542,6 @@ public partial class InstallTaskViewModel : ObservableObject
         {
             Status = LaunchStepStatus.Active
         });
-        StepCounterText = $"第 {Steps.Count} 步 · 已完成 {Steps.Count - 1} 步";
     }
 
     /// <summary>当前步骤结束：标记为已完成，供总体进度按步数推进。</summary>
@@ -579,7 +601,7 @@ public partial class InstallTaskViewModel : ObservableObject
         return $"已用 {minutes:00}:{seconds:00}";
     }
 
-    private void ApplyProgress(InstallProgress progress)
+    private InstallProgress ApplyProgress(InstallProgress progress)
     {
         // 阶段切换：上一阶段标记完成，新阶段追加到步骤列表并保持高亮
         if (!string.IsNullOrEmpty(progress.Stage) && !string.Equals(progress.Stage, _currentStage, StringComparison.Ordinal))
@@ -589,35 +611,33 @@ public partial class InstallTaskViewModel : ObservableObject
             AddStep(progress.Stage);
         }
 
-        StageText = progress.Stage;
-        // 单个大文件下载时文件数长期停在 0/1，用字节比例让「本步进度」持续可见
-        var byteFraction = progress.BytesTotal > 0
-            ? progress.BytesDone / progress.BytesTotal
-            : 0;
-        var stageFraction = Math.Clamp(Math.Max(progress.Percentage, byteFraction), 0, 1);
-        ProgressPercent = stageFraction * 100;
+        // 统一进度模型：本步按文件数（字节兜底），总进度按步骤合成且单调不减
+        var aggregated = _tracker.Update(progress);
+        StageText = aggregated.Stage;
+        ProgressPercent = aggregated.Percentage * 100;
         StepProgressText = $"本步 {ProgressPercent:0}%";
 
-        var files = progress.FilesTotal > 0
-            ? $"{progress.FilesDone}/{progress.FilesTotal} 个文件"
+        var files = aggregated.FilesTotal > 0
+            ? $"{aggregated.FilesDone}/{aggregated.FilesTotal} 个文件"
             : "";
-        var bytes = progress.BytesTotal > 0
-            ? $"{FormatBytes(progress.BytesDone)} / {FormatBytes(progress.BytesTotal)}"
-            : "";
-        var remaining = progress.FilesTotal > 0
-            ? $"剩余 {Math.Max(0, progress.FilesTotal - progress.FilesDone)} 项"
+        var bytes = aggregated.BytesTotal > 0
+            ? $"{FormatBytes(aggregated.BytesDone)} / {FormatBytes(aggregated.BytesTotal)}"
             : "";
         TransferText = string.Join(" · ", new[] { files, bytes }.Where(x => x.Length > 0));
 
-        var detail = string.Join(" · ", new[] { progress.CurrentItem, files, remaining }
+        var remaining = aggregated.RemainingFiles > 0
+            ? $"剩余 {aggregated.RemainingFiles} 个文件"
+            : "";
+        var detail = string.Join(" · ", new[] { aggregated.CurrentItem, files, remaining }
             .Where(x => !string.IsNullOrWhiteSpace(x)));
         CurrentDetailText = detail.Length > 0 ? detail : "正在处理本地文件…";
 
-        // 总体进度 = (已完成步骤数 + 当前步骤比例) / 预期步骤数；
-        // 阶段数超出预期时（例如原版缺失多跑了安装阶段）按实际出现的步骤数收口
-        var totalSteps = Math.Max(_expectedSteps, Steps.Count);
-        var overall = (Steps.Count - 1 + stageFraction) / totalSteps * 100;
-        OverallProgressPercent = Math.Max(OverallProgressPercent, Math.Clamp(overall, 0, 100));
+        StepCounterText =
+            $"第 {aggregated.StepIndex}/{aggregated.StepCount} 步 · " +
+            $"已完成 {Math.Max(0, aggregated.StepIndex - 1)} 步 · " +
+            $"还剩 {aggregated.RemainingSteps} 步";
+        OverallProgressPercent = aggregated.OverallPercent;
+        return aggregated;
     }
 
     private static string FormatBytes(double bytes)

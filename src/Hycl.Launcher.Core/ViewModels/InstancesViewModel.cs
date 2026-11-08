@@ -1168,10 +1168,14 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
                     optionalFileIds,
                     value =>
                     {
-                        ImportPercentage = value.Percentage * 100;
+                        // 与下载页同一套步骤合成模型：总进度取 OverallPercent，本步按文件数
+                        ImportPercentage = value.OverallPercent;
+                        var step = value.StepCount > 0
+                            ? $"第 {value.StepIndex}/{value.StepCount} 步 · {value.Stage}"
+                            : value.Stage;
                         ImportStageText = string.IsNullOrEmpty(value.CurrentItem)
-                            ? value.Stage
-                            : $"{value.Stage} · {value.CurrentItem}";
+                            ? step
+                            : $"{step} · {value.CurrentItem}";
                     })
                 .ConfigureAwait(true);
 

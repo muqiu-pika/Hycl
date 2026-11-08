@@ -119,6 +119,7 @@ public sealed class ModrinthProvider
     public async Task<string> DownloadModAsync(
         ModrinthVersion version,
         string modsDirectory,
+        IProgress<DownloadByteProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
         var file = version.Files?.FirstOrDefault(f => f.Primary)
@@ -127,7 +128,7 @@ public sealed class ModrinthProvider
         Directory.CreateDirectory(modsDirectory);
         var destination = Path.Combine(modsDirectory, file.Filename);
         var urls = DownloadSources.GetModDownloadUrls(file.Url, 0);
-        await _client.DownloadFileAsync(urls, destination, file.Size > 0 ? file.Size : null, null, null, cancellationToken)
+        await _client.DownloadFileAsync(urls, destination, file.Size > 0 ? file.Size : null, null, progress, cancellationToken)
             .ConfigureAwait(false);
         _logger.Info($"前置 Mod 已下载：{file.Filename}");
         return destination;

@@ -897,70 +897,22 @@ public sealed partial class VersionInstaller
         cancellationToken.ThrowIfCancellationRequested();
     }
 
-    /// <summary>线程安全的进度聚合。</summary>
+    /// <summary>线程安全的进度聚合（步骤内计数由 <see cref="InstallProgressCounter"/> 统一实现）。</summary>
     private sealed class ProgressReporter
     {
-        private readonly IProgress<InstallProgress>? _progress;
-        private string _stage = "";
-        private int _filesDone;
-        private int _filesTotal;
-        private long _bytesDone;
-        private long _bytesTotal;
-        private string _currentItem = "";
+        private readonly InstallProgressCounter _counter;
 
         public ProgressReporter(IProgress<InstallProgress>? progress)
         {
-            _progress = progress;
+            _counter = new InstallProgressCounter(progress);
         }
 
-        public void Stage(string stage, int totalFiles = 0)
-        {
-            _stage = stage;
-            _filesDone = 0;
-            _filesTotal = totalFiles;
-            _bytesDone = 0;
-            _bytesTotal = 0;
-            _currentItem = "";
-            Report();
-        }
+        public void Stage(string stage, int totalFiles = 0) => _counter.Stage(stage, totalFiles);
 
-        public void BeginFile(string item, long expectedBytes)
-        {
-            _currentItem = item;
-            if (expectedBytes > 0)
-            {
-                Interlocked.Add(ref _bytesTotal, expectedBytes);
-            }
+        public void BeginFile(string item, long expectedBytes) => _counter.BeginFile(item, expectedBytes);
 
-            Report();
-        }
+        public void FileBytes(long received, long total) => _counter.FileBytes(received, total);
 
-        public void FileBytes(long received, long total)
-        {
-            _currentItem = $"{Math.Round((double)received / (1024 * 1024), 1)} MB / {Math.Round((double)total / (1024 * 1024), 1)} MB";
-            Report();
-        }
-
-        public void FileCompleted(long bytes)
-        {
-            Interlocked.Increment(ref _filesDone);
-            if (bytes > 0)
-            {
-                Interlocked.Add(ref _bytesDone, bytes);
-            }
-
-            Report();
-        }
-
-        private void Report()
-        {
-            _progress?.Report(new InstallProgress(
-                _stage,
-                _currentItem,
-                Volatile.Read(ref _filesDone),
-                Volatile.Read(ref _filesTotal),
-                Volatile.Read(ref _bytesDone),
-                Volatile.Read(ref _bytesTotal)));
-        }
+        public void FileCompleted(long bytes) => _counter.FileCompleted(bytes);
     }
 }
