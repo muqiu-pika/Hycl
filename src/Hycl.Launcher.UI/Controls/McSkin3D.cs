@@ -5,6 +5,7 @@ using System.Numerics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
@@ -54,6 +55,23 @@ public class McSkin3D : Control
     /// <summary>面片边缘外扩（皮肤像素），遮挡贴图边界的亚像素缝隙。</summary>
     private const double FaceBleed = 0.15;
 
+    /// <summary>头部旋转的颈部枢轴高度（模型坐标：脚底 0，颈部 24）。</summary>
+    private const double HeadPivotY = 24;
+
+    /// <summary>头部跟随鼠标的最大偏航 / 俯仰（弧度）。</summary>
+    private const double MaxHeadYaw = Math.PI / 3;
+
+    private const double MaxHeadPitch = Math.PI / 4;
+
+    /// <summary>头部跟随的缓动系数；比整体拖动更跟手一些。</summary>
+    private const double HeadEaseRate = 18;
+
+    /// <summary>模型几何中心高度（脚底 0、头顶 32），拖动旋转以此为中心。</summary>
+    private const float ModelCenterY = 16;
+
+    /// <summary>投影后短边小于该像素的面片视为边缘线，不再绘制，避免转正时出现发丝黑线。</summary>
+    private const double MinFacePixels = 2;
+
     private readonly List<Face> _faces = new();
     private readonly DispatcherTimer _timer;
     private int[] _order = Array.Empty<int>();
@@ -73,9 +91,16 @@ public class McSkin3D : Control
     private double _targetYaw;
     private double _targetPitch;
 
+    // 头部局部朝向（相对身体）：鼠标悬停时像 MC 物品栏里的小人一样转头，指针离开后回正。
+    private double _headYaw;
+    private double _headPitch;
+    private double _targetHeadYaw;
+    private double _targetHeadPitch;
+
     private bool _dragging;
     private Point _lastPointer;
     private long _lastTick;
+    private TopLevel? _topLevel;
 
     public McSkin3D()
     {
@@ -149,6 +174,10 @@ public class McSkin3D : Control
         _targetYaw = 0;
         _pitch = 0;
         _targetPitch = 0;
+        _headYaw = 0;
+        _targetHeadYaw = 0;
+        _headPitch = 0;
+        _targetHeadPitch = 0;
 
         // 正在拖拽时保留动画计时器，避免打断当前手势；其余情况停止缓动。
         if (!_dragging)
@@ -158,8 +187,79 @@ public class McSkin3D : Control
         }
     }
 
+    /// <summary>非有限值（指针坐标异常等）会让旋转矩阵变成 NaN；这里统一收敛，避免人偶整块消失。</summary>
+    private void SanitizeOrientations()
+    {
+        if (!double.IsFinite(_yaw))
+        {
+            _yaw = 0;
+        }
+
+        if (!double.IsFinite(_pitch))
+        {
+            _pitch = 0;
+        }
+
+        if (!double.IsFinite(_targetYaw))
+        {
+            _targetYaw = _yaw;
+        }
+
+        if (!double.IsFinite(_targetPitch))
+        {
+            _targetPitch = _pitch;
+        }
+
+        if (!double.IsFinite(_headYaw))
+        {
+            _headYaw = 0;
+        }
+
+        if (!double.IsFinite(_headPitch))
+        {
+            _headPitch = 0;
+        }
+
+        if (!double.IsFinite(_targetHeadYaw))
+        {
+            _targetHeadYaw = _headYaw;
+        }
+
+        if (!double.IsFinite(_targetHeadPitch))
+        {
+            _targetHeadPitch = _headPitch;
+        }
+    }
+
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+
+        // 头部跟随作用于整个窗口：把处理器挂在 TopLevel 上，指针在任意位置移动都能驱动转头。
+        _topLevel = TopLevel.GetTopLevel(this);
+        if (_topLevel is not null)
+        {
+            _topLevel.AddHandler(PointerMovedEvent, OnTopLevelPointerMoved, RoutingStrategies.Bubble, true);
+            _topLevel.AddHandler(PointerExitedEvent, OnTopLevelPointerExited, RoutingStrategies.Bubble, true);
+        }
+    }
+
+    /// <summary>窗口内任意位置的指针移动都映射到头部朝向，超出控件范围时自然收敛到最大角度。</summary>
+    private void OnTopLevelPointerMoved(object? sender, PointerEventArgs e)
+        => UpdateHeadTarget(e.GetPosition(this));
+
+    private void OnTopLevelPointerExited(object? sender, PointerEventArgs e)
+        => ResetHeadTarget();
+
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
+        if (_topLevel is not null)
+        {
+            _topLevel.RemoveHandler(PointerMovedEvent, OnTopLevelPointerMoved);
+            _topLevel.RemoveHandler(PointerExitedEvent, OnTopLevelPointerExited);
+            _topLevel = null;
+        }
+
         _timer.Stop();
         _lastTick = 0;
         _dragging = false;
@@ -179,6 +279,11 @@ public class McSkin3D : Control
             return;
         }
 
+        if (!double.IsFinite(point.Position.X) || !double.IsFinite(point.Position.Y))
+        {
+            return;
+        }
+
         _dragging = true;
         _lastPointer = point.Position;
         e.Pointer.Capture(this);
@@ -189,25 +294,98 @@ public class McSkin3D : Control
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
+
+        var position = e.GetPosition(this);
+
+        // 指针被捕获到窗口外时坐标可能不可用，忽略非有限值，避免 NaN 污染旋转状态导致人偶消失。
+        if (!double.IsFinite(position.X) || !double.IsFinite(position.Y))
+        {
+            return;
+        }
+
+        // 悬停即转头：与 MC 物品栏里的小人一致，指针在预览区域内移动时头部跟随。
+        UpdateHeadTarget(position);
+
         if (!_dragging)
         {
             return;
         }
 
-        var position = e.GetPosition(this);
         var dx = position.X - _lastPointer.X;
         var dy = position.Y - _lastPointer.Y;
         _lastPointer = position;
 
-        if (dx == 0 && dy == 0)
+        if (dx != 0 || dy != 0)
+        {
+            _targetYaw += dx * DragSensitivity;
+            _targetPitch = Math.Clamp(_targetPitch + dy * DragSensitivity, -PitchLimit, PitchLimit);
+            StartAnimation();
+        }
+
+        e.Handled = true;
+    }
+
+    protected override void OnPointerExited(PointerEventArgs e)
+    {
+        base.OnPointerExited(e);
+
+        // 拖拽中指针可能移出控件，此时保持头部朝向，避免手势中途突然回正。
+        ResetHeadTarget();
+    }
+
+    private void ResetHeadTarget()
+    {
+        if (_dragging || (_targetHeadYaw == 0 && _targetHeadPitch == 0))
         {
             return;
         }
 
-        _targetYaw += dx * DragSensitivity;
-        _targetPitch = Math.Clamp(_targetPitch + dy * DragSensitivity, -PitchLimit, PitchLimit);
+        _targetHeadYaw = 0;
+        _targetHeadPitch = 0;
         StartAnimation();
-        e.Handled = true;
+    }
+
+    /// <summary>把指针位置映射为头部相对身体的偏航/俯仰，越靠边越接近最大值。</summary>
+    private void UpdateHeadTarget(Point position)
+    {
+        var width = Bounds.Width;
+        var height = Bounds.Height;
+        if (!double.IsFinite(width) || !double.IsFinite(height) || width < 1 || height < 1)
+        {
+            return;
+        }
+
+        if (!double.IsFinite(position.X) || !double.IsFinite(position.Y))
+        {
+            return;
+        }
+
+        var scale = Math.Min((width - 16) / 20.0, (height - 12) / 34.0);
+        if (!double.IsFinite(scale) || scale <= 0)
+        {
+            return;
+        }
+
+        // 头部中心（正视时）：模型头部中点在 y=28，投影基线在 height-8。
+        var headCenterY = height - 8 - 28 * scale;
+        var nx = (position.X - width / 2) / Math.Max(1, width * 0.5);
+        var ny = (position.Y - headCenterY) / Math.Max(1, height * 0.5);
+        var yaw = Math.Clamp(nx, -1, 1) * MaxHeadYaw;
+        var pitch = Math.Clamp(ny, -1, 1) * MaxHeadPitch;
+
+        if (!double.IsFinite(yaw) || !double.IsFinite(pitch))
+        {
+            return;
+        }
+
+        if (Math.Abs(yaw - _targetHeadYaw) < 1e-4 && Math.Abs(pitch - _targetHeadPitch) < 1e-4)
+        {
+            return;
+        }
+
+        _targetHeadYaw = yaw;
+        _targetHeadPitch = pitch;
+        StartAnimation();
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
@@ -240,6 +418,8 @@ public class McSkin3D : Control
 
     private void Tick()
     {
+        SanitizeOrientations();
+
         var dt = _lastTick == 0
             ? 1d / 60
             : Math.Min(0.05, Stopwatch.GetElapsedTime(_lastTick).TotalSeconds);
@@ -249,12 +429,22 @@ public class McSkin3D : Control
         _yaw += (_targetYaw - _yaw) * k;
         _pitch += (_targetPitch - _pitch) * k;
 
+        var headK = 1 - Math.Exp(-HeadEaseRate * dt);
+        _headYaw += (_targetHeadYaw - _headYaw) * headK;
+        _headPitch += (_targetHeadPitch - _headPitch) * headK;
+
         InvalidateVisual();
 
-        if (!_dragging && Math.Abs(_targetYaw - _yaw) < 1e-4 && Math.Abs(_targetPitch - _pitch) < 1e-4)
+        if (!_dragging
+            && Math.Abs(_targetYaw - _yaw) < 1e-4
+            && Math.Abs(_targetPitch - _pitch) < 1e-4
+            && Math.Abs(_targetHeadYaw - _headYaw) < 1e-4
+            && Math.Abs(_targetHeadPitch - _headPitch) < 1e-4)
         {
             _yaw = _targetYaw;
             _pitch = _targetPitch;
+            _headYaw = _targetHeadYaw;
+            _headPitch = _targetHeadPitch;
             _timer.Stop();
             _lastTick = 0;
         }
@@ -262,8 +452,31 @@ public class McSkin3D : Control
 
     // ===== 渲染 =====
 
+    /// <summary>以颈部 (0, 24, 0) 为枢轴旋转头部顶点：先绕 Y 偏航，再绕 X 俯仰。</summary>
+    private static Vector3 RotateHead(Vector3 p, float cy, float sy, float cp, float sp)
+    {
+        var x1 = p.X * cy + p.Z * sy;
+        var z1 = -p.X * sy + p.Z * cy;
+        var y = p.Y - (float)HeadPivotY;
+        var y2 = y * cp - z1 * sp;
+        var z2 = y * sp + z1 * cp;
+        return new Vector3(x1, y2 + (float)HeadPivotY, z2);
+    }
+
+    /// <summary>只旋转方向向量（法线），不含枢轴平移。</summary>
+    private static Vector3 RotateHeadDirection(Vector3 d, float cy, float sy, float cp, float sp)
+    {
+        var x1 = d.X * cy + d.Z * sy;
+        var z1 = -d.X * sy + d.Z * cy;
+        var y2 = d.Y * cp - z1 * sp;
+        var z2 = d.Y * sp + z1 * cp;
+        return new Vector3(x1, y2, z2);
+    }
+
     public override void Render(DrawingContext context)
     {
+        SanitizeOrientations();
+
         if (_skinBitmap is null || _faces.Count == 0)
         {
             return;
@@ -271,14 +484,14 @@ public class McSkin3D : Control
 
         var width = Bounds.Width;
         var height = Bounds.Height;
-        if (width < 1 || height < 1)
+        if (!double.IsFinite(width) || !double.IsFinite(height) || width < 1 || height < 1)
         {
             return;
         }
 
         // 保持人偶在卡片里接近原 2D 尺寸（32 皮肤像素高），并留出边距。
         var scale = Math.Min((width - 16) / 20.0, (height - 12) / 34.0);
-        if (scale <= 0)
+        if (!double.IsFinite(scale) || scale <= 0)
         {
             return;
         }
@@ -293,22 +506,40 @@ public class McSkin3D : Control
             MathF.Sin((float)_pitch));
 
         // 第一遍：旋转四个角、算深度与法线朝向（正交投影下相机沿 -Z 观察，法线 Z>0 才可见）。
+        // 只有头部（含帽子第二层）做局部偏航/俯仰，身体保持原样。
+        var headCy = MathF.Cos((float)_headYaw);
+        var headSy = MathF.Sin((float)_headYaw);
+        var headCp = MathF.Cos((float)_headPitch);
+        var headSp = MathF.Sin((float)_headPitch);
         var count = _faces.Count;
         for (var i = 0; i < count; i++)
         {
             var face = _faces[i];
-            var a = view.Rotate(face.A);
-            var b = view.Rotate(face.B);
-            var c = view.Rotate(face.C);
-            var d = view.Rotate(face.D);
+            var a = view.Rotate(face.IsHead ? RotateHead(face.A, headCy, headSy, headCp, headSp) : face.A);
+            var b = view.Rotate(face.IsHead ? RotateHead(face.B, headCy, headSy, headCp, headSp) : face.B);
+            var c = view.Rotate(face.IsHead ? RotateHead(face.C, headCy, headSy, headCp, headSp) : face.C);
+            var d = view.Rotate(face.IsHead ? RotateHead(face.D, headCy, headSy, headCp, headSp) : face.D);
             _rotatedA[i] = a;
             _rotatedB[i] = b;
             _rotatedC[i] = c;
             _rotatedD[i] = d;
             _depths[i] = (a.Z + b.Z + c.Z + d.Z) * 0.25;
 
-            var normal = view.Rotate(face.Normal);
-            _visible[i] = normal.Z > 0.0005f;
+            var normal = view.Rotate(
+                face.IsHead ? RotateHeadDirection(face.Normal, headCy, headSy, headCp, headSp) : face.Normal);
+
+            // 投影后短边不足 1 个像素的面片会退化成边缘黑线（尤其头部转到接近正面时），直接剔除。
+            var pa = view.Project(a);
+            var pb = view.Project(b);
+            var pc = view.Project(c);
+            var pd = view.Project(d);
+            var minX = Math.Min(Math.Min(pa.X, pb.X), Math.Min(pc.X, pd.X));
+            var maxX = Math.Max(Math.Max(pa.X, pb.X), Math.Max(pc.X, pd.X));
+            var minY = Math.Min(Math.Min(pa.Y, pb.Y), Math.Min(pc.Y, pd.Y));
+            var maxY = Math.Max(Math.Max(pa.Y, pb.Y), Math.Max(pc.Y, pd.Y));
+
+            _visible[i] = normal.Z > 0.002f
+                          && Math.Min(maxX - minX, maxY - minY) >= MinFacePixels;
         }
 
         // 第二遍：可见面按深度从后往前排序（画家算法），背面剔除后每块立方体约 3 个面。
@@ -422,8 +653,8 @@ public class McSkin3D : Control
         var armWidth = slim ? 3 : 4;
 
         // 坐标：脚底 y=0，腿部 0..12，身体 12..24，头 24..32；+X 为玩家左侧。
-        AddBox(-4, 4, 24, 32, -4, 4, 0, 0, 8, 8, 8, false);          // 头
-        AddBox(-4.5f, 4.5f, 23.5f, 32.5f, -4.5f, 4.5f, 32, 0, 8, 8, 8, false); // 帽子
+        AddBox(-4, 4, 24, 32, -4, 4, 0, 0, 8, 8, 8, false, true);          // 头
+        AddBox(-4.5f, 4.5f, 23.5f, 32.5f, -4.5f, 4.5f, 32, 0, 8, 8, 8, false, true); // 帽子
 
         AddBox(-4, 4, 12, 24, -2, 2, 16, 16, 8, 12, 4, false);       // 身体
         if (!legacy)
@@ -488,7 +719,7 @@ public class McSkin3D : Control
     /// </summary>
     private void AddBox(
         float x0, float x1, float y0, float y1, float z0, float z1,
-        int u, int v, int width, int height, int depth, bool mirror)
+        int u, int v, int width, int height, int depth, bool mirror, bool isHead = false)
     {
         var topU = u + depth;
         var bottomU = u + width + depth;
@@ -502,36 +733,36 @@ public class McSkin3D : Control
         AddFace(
             new Vector3(x0, y1, z1), new Vector3(x1, y1, z1),
             new Vector3(x0, y0, z1), new Vector3(x1, y0, z1),
-            frontU, sideV, width, height, mirror, false);
+            frontU, sideV, width, height, mirror, false, isHead);
 
         // -Z 背面
         AddFace(
             new Vector3(x1, y1, z0), new Vector3(x0, y1, z0),
             new Vector3(x1, y0, z0), new Vector3(x0, y0, z0),
-            backU, sideV, width, height, mirror, false);
+            backU, sideV, width, height, mirror, false, isHead);
 
         // +X / -X；镜像左肢时区域互换（左肢的 +X 面对应右肢 -X 面的贴图）。
         AddFace(
             new Vector3(x1, y1, z1), new Vector3(x1, y1, z0),
             new Vector3(x1, y0, z1), new Vector3(x1, y0, z0),
-            mirror ? leftU : rightU, sideV, depth, height, mirror, false);
+            mirror ? leftU : rightU, sideV, depth, height, mirror, false, isHead);
 
         AddFace(
             new Vector3(x0, y1, z0), new Vector3(x0, y1, z1),
             new Vector3(x0, y0, z0), new Vector3(x0, y0, z1),
-            mirror ? rightU : leftU, sideV, depth, height, mirror, false);
+            mirror ? rightU : leftU, sideV, depth, height, mirror, false, isHead);
 
         // +Y 顶面
         AddFace(
             new Vector3(x0, y1, z0), new Vector3(x1, y1, z0),
             new Vector3(x0, y1, z1), new Vector3(x1, y1, z1),
-            topU, v, width, depth, mirror, false);
+            topU, v, width, depth, mirror, false, isHead);
 
         // -Y 底面
         AddFace(
             new Vector3(x1, y0, z0), new Vector3(x0, y0, z0),
             new Vector3(x1, y0, z1), new Vector3(x0, y0, z1),
-            bottomU, v, width, depth, mirror, false);
+            bottomU, v, width, depth, mirror, false, isHead);
     }
 
     /// <summary>
@@ -590,7 +821,7 @@ public class McSkin3D : Control
 
     private void AddFace(
         Vector3 a, Vector3 b, Vector3 c, Vector3 d,
-        int u, int v, int width, int height, bool flipU, bool isCape)
+        int u, int v, int width, int height, bool flipU, bool isCape, bool isHead = false)
     {
         // 几何法线由 (C-A)×(B-A) 得到（纹理 U 沿 A→B、V 沿 A→C，叉乘朝外），
         // 披风倾斜后的面也因此自动获得正确的法线。
@@ -610,7 +841,8 @@ public class McSkin3D : Control
             new Rect(u, v, width, height),
             normal,
             flipU,
-            isCape));
+            isCape,
+            isHead));
     }
 
     private readonly record struct Face(
@@ -622,7 +854,8 @@ public class McSkin3D : Control
         Rect Uv,
         Vector3 Normal,
         bool FlipU,
-        bool IsCape);
+        bool IsCape,
+        bool IsHead);
 
     /// <summary>正交视图：模型点先绕 Y 轴偏航、再绕 X 轴俯仰，然后丢弃 Z 做正交投影。</summary>
     private readonly record struct View(
@@ -636,11 +869,12 @@ public class McSkin3D : Control
     {
         public Vector3 Rotate(Vector3 p)
         {
+            var y = p.Y - ModelCenterY;
             var x1 = p.X * Cy + p.Z * Sy;
             var z1 = -p.X * Sy + p.Z * Cy;
-            var y2 = p.Y * Cp - z1 * Sp;
-            var z2 = p.Y * Sp + z1 * Cp;
-            return new Vector3(x1, y2, z2);
+            var y2 = y * Cp - z1 * Sp;
+            var z2 = y * Sp + z1 * Cp;
+            return new Vector3(x1, y2 + ModelCenterY, z2);
         }
 
         public Point Project(Vector3 p)

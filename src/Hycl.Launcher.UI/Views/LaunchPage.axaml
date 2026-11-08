@@ -51,7 +51,7 @@
                                        CapePath="{Binding ActiveProfile.CapePath}"
                                        IsSlim="{Binding ActiveProfile.IsSlim}"
                                        AutomationProperties.Name="3D人偶预览"
-                                       ToolTip.Tip="按住并拖动可旋转人偶"
+                                       ToolTip.Tip="移动鼠标转动头部，按住拖动可旋转人偶"
                                        HorizontalAlignment="Stretch"
                                        VerticalAlignment="Stretch" />
                         </Panel>
