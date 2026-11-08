@@ -23,8 +23,19 @@
     <PackageReference Include="Avalonia" Version="12.1.4" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.4" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.4" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.4" />
+    <!-- 不使用 Avalonia.Fonts.Inter：界面字体为 Microsoft YaHei UI / Consolas，
+         Inter 从未被引用，移除后单文件发布少 ~1.85MB 且免去无谓的字体嵌入。 -->
   </ItemGroup>
+
+  <!--
+    单文件发布时启用压缩与 ReadyToRun（均只在 PublishSingleFile=true 时生效，不影响日常构建）：
+    - EnableCompressionInSingleFile：exe 从 101.6MB 降到 ~64MB（含 R2R），启动耗时实测无差异；
+    - PublishReadyToRun：预编译托管代码，可见首帧从 ~2.9s 提前到 ~1.1s（win-x64 实测）。
+  -->
+  <PropertyGroup Condition="'$(PublishSingleFile)' == 'true'">
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <PublishReadyToRun>true</PublishReadyToRun>
+  </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Hycl.Launcher.Core\Hycl.Launcher.Core.csproj" />

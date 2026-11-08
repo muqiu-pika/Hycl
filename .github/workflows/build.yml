@@ -60,7 +60,8 @@ jobs:
             throw "发布产物不是 exe：$($exe.Name)"
           }
           # 自包含单文件应明显大于纯托管程序集，用于识别误发布为框架依赖/多文件的情况
-          if ($exe.Length -lt 50MB) {
+          # 启用压缩 + R2R 后产物约 63MB，阈值从 50MB 下调避免误判
+          if ($exe.Length -lt 40MB) {
             throw "发布产物大小异常（$([math]::Round($exe.Length / 1MB, 1)) MB），可能不是自包含单文件"
           }
           Rename-Item -Path $exe.FullName -NewName 'Hycl.exe'
