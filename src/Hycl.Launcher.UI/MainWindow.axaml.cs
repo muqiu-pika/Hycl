@@ -128,7 +128,9 @@ public partial class MainWindow : Window
                 memoryTimer.Start();
             };
         }
-        SizeChanged += (_, _) => ScheduleWindowRegionUpdate();
+        // 尺寸变化期间必须立刻撤掉圆角区域：SetWindowRgn 的区域不会随窗口伸缩，
+        // 拖拽放大时旧区域会把新扩出的部分裁掉（对角内容缺失/残影），缩小则看不出来
+        SizeChanged += (_, _) => OnWindowSizeChanged();
 
         SetupResizeHandles();
         UpdateFrameForState();
@@ -670,8 +672,36 @@ public partial class MainWindow : Window
     // —— Windows 圆角窗形区域：把圆角外的四角从窗口矩形中裁掉，点击可穿透到下层窗口 ——
 
     // 圆角区域重设（SetWindowRgn）在缩放过程中每帧调用会造成明显卡顿（触屏尤其明显），
-    // 改为 120ms 防抖：连续变化只在停止后应用一次；触屏缩放结束时由 EndTouchResize 立即应用
+    // 改为 120ms 防抖：连续变化只在停止后应用一次；触屏缩放结束时由 EndTouchResize 立即应用。
+    // 但防抖期间若保留旧区域，窗口变大后新扩出的部分会被旧区域裁掉——所以尺寸一变就先把
+    // 区域清空（无裁切），等尺寸稳定后再按最新尺寸重设圆角。
     private DispatcherTimer? _regionDebounceTimer;
+    private bool _windowRegionApplied;
+
+    /// <summary>窗口尺寸变化：先撤掉按旧尺寸生成的圆角区域，再防抖按新尺寸重设。</summary>
+    private void OnWindowSizeChanged()
+    {
+        ClearWindowRegion();
+        ScheduleWindowRegionUpdate();
+    }
+
+    /// <summary>撤掉当前圆角窗形区域（恢复为完整矩形，不做任何裁切）。</summary>
+    private void ClearWindowRegion()
+    {
+        if (!_windowRegionApplied)
+        {
+            return;
+        }
+
+        var handle = TryGetPlatformHandle()?.Handle;
+        if (handle is null || handle.Value == 0)
+        {
+            return;
+        }
+
+        SetWindowRgn(handle.Value, IntPtr.Zero, true);
+        _windowRegionApplied = false;
+    }
 
     private void ScheduleWindowRegionUpdate()
     {
@@ -709,6 +739,7 @@ public partial class MainWindow : Window
         if (WindowState == WindowState.Maximized)
         {
             SetWindowRgn(handle.Value, IntPtr.Zero, true);
+            _windowRegionApplied = false;
             return;
         }
 
@@ -739,7 +770,11 @@ public partial class MainWindow : Window
         if (SetWindowRgn(handle.Value, region, true) == 0)
         {
             DeleteObject(region);
+            _windowRegionApplied = false;
+            return;
         }
+
+        _windowRegionApplied = true;
     }
 
     [StructLayout(LayoutKind.Sequential)]
