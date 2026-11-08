@@ -42,6 +42,9 @@ public class HyclImage : Image
         set => SetValue(UrlProperty, value);
     }
 
+    /// <summary>加载结束（true=已显示网络图片；false=地址为空或加载失败），供图标回退逻辑使用。</summary>
+    public event EventHandler<bool>? LoadCompleted;
+
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
@@ -56,6 +59,7 @@ public class HyclImage : Image
         if (Url is null)
         {
             Source = null;
+            LoadCompleted?.Invoke(this, false);
             return;
         }
 
@@ -71,15 +75,25 @@ public class HyclImage : Image
             var bytes = await Downloads.GetOrAdd(url, DownloadAndCacheAsync).ConfigureAwait(true);
             if (bytes is null || Url != url)
             {
+                if (Url == url)
+                {
+                    LoadCompleted?.Invoke(this, false);
+                }
+
                 return;
             }
 
             using var stream = new MemoryStream(bytes);
             Source = new Bitmap(stream);
+            LoadCompleted?.Invoke(this, true);
         }
         catch (Exception)
         {
             // 保持占位空白
+            if (Url == url)
+            {
+                LoadCompleted?.Invoke(this, false);
+            }
         }
     }
 

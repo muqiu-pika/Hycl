@@ -2,6 +2,7 @@ using System.IO;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
+using Avalonia.VisualTree;
 using Hycl.Launcher.Core.ViewModels.Pages;
 
 namespace Hycl.Launcher.UI.Views;
@@ -26,6 +27,37 @@ public partial class DownloadPage : UserControl
         {
             section.FolderPicker = PickFolderAsync;
         }
+    }
+
+    /// <summary>底部任务条整块点击进入下载详情页；点取消等子按钮时交给按钮自身处理。</summary>
+    private void OnTaskBarPointerReleased(object? sender, Avalonia.Input.PointerReleasedEventArgs e)
+    {
+        if (e.InitialPressMouseButton != Avalonia.Input.MouseButton.Left)
+        {
+            return;
+        }
+
+        if (HasButtonAncestor(e.Source as Avalonia.Visual))
+        {
+            return;
+        }
+
+        (DataContext as DownloadPageViewModel)?.RequestOpenProgress();
+    }
+
+    private static bool HasButtonAncestor(Avalonia.Visual? visual)
+    {
+        while (visual is not null)
+        {
+            if (visual is Button)
+            {
+                return true;
+            }
+
+            visual = visual.GetVisualParent();
+        }
+
+        return false;
     }
 
     private async Task<string?> PickFolderAsync(string startDirectory)

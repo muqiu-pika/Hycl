@@ -95,6 +95,25 @@ public partial class MainViewModel : ObservableObject
         };
 
         Download.Installed += (_, instanceId) => _ = Launch.RefreshInstancesAsync(instanceId);
+        // 下载页底部任务条整块可点击，进入与悬浮图标相同的独立进度页
+        Download.OpenProgressRequested += (_, _) => OpenDownloadProgress();
+        // 任务成功后：若用户正停在下载进度页且没有其它任务在跑，自动返回进入前的页面；
+        // 不在进度页时保持当前页面，只由安装任务统一弹出底部的「下载完成」提示。
+        Download.Install.Completed += (_, _) =>
+        {
+            if (!IsDownloadProgressOpen)
+            {
+                return;
+            }
+
+            // 还有别的任务在跑时不自动返回，进度页与悬浮图标继续展示剩余任务
+            var othersRunning = DownloadProgress.Tasks.Any(
+                task => task.IsInstalling && task.StageText != "安装完成");
+            if (!othersRunning)
+            {
+                CloseDownloadProgress();
+            }
+        };
         Instances.SelectionChanged += (_, instanceId) =>
         {
             if (!string.IsNullOrWhiteSpace(instanceId))

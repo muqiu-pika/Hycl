@@ -150,12 +150,16 @@ public partial class InstallTaskViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsProgressIndeterminate))]
+    [NotifyPropertyChangedFor(nameof(IsCompleted))]
+    [NotifyPropertyChangedFor(nameof(IsFinishedWithError))]
     private bool _isInstalling;
 
     [ObservableProperty]
     private string _installingName = "";
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsCompleted))]
+    [NotifyPropertyChangedFor(nameof(IsFinishedWithError))]
     private string _stageText = "";
 
     [ObservableProperty]
@@ -171,6 +175,12 @@ public partial class InstallTaskViewModel : ObservableObject
 
     /// <summary>进度未知（刚入队/首次进度回调前）：界面显示不定态动画，避免停在 0% 看起来像卡死。</summary>
     public bool IsProgressIndeterminate => IsInstalling && OverallProgressPercent <= 0.5;
+
+    /// <summary>任务成功结束：详情页据此做完成态收尾（绿色勾选 + 收尾渐变）。</summary>
+    public bool IsCompleted => !IsInstalling && StageText == "安装完成";
+
+    /// <summary>任务失败或取消结束：详情页使用对应错误/取消文案与收尾样式。</summary>
+    public bool IsFinishedWithError => !IsInstalling && (StageText == "安装失败" || StageText == "已取消");
 
     /// <summary>当前阶段在整条安装链路中的序号与已完成阶段数，例如「第 3 步 · 已完成 2 步」。</summary>
     [ObservableProperty]
@@ -205,6 +215,14 @@ public partial class InstallTaskViewModel : ObservableObject
     /// <summary>是否有失败提示需要就地显示。</summary>
     public bool HasError => !string.IsNullOrEmpty(ErrorText);
 
+    /// <summary>任务图标键：版本/加载器/整合包取对应 Minecraft 版本图标（与下载页版本列表同一套）。</summary>
+    [ObservableProperty]
+    private string _taskIconKey = "grass-block";
+
+    /// <summary>社区资源自身的远程图标地址；为空或加载失败时回退到 <see cref="TaskIconKey"/> / 启动器图标。</summary>
+    [ObservableProperty]
+    private string? _taskIconUrl;
+
     /// <summary>安装结束（成功）后携带实际安装的版本目录名。</summary>
     public event EventHandler<string>? Completed;
 
@@ -228,7 +246,8 @@ public partial class InstallTaskViewModel : ObservableObject
                     .ConfigureAwait(true);
                 return targetName;
             },
-            expectedSteps: 7).ConfigureAwait(true);
+            expectedSteps: 7,
+            iconKey: InstallTaskIcons.FromVersionType(summary.Type)).ConfigureAwait(true);
     }
 
     public async Task RunFabricAsync(string gameVersion, string displayName)
@@ -249,7 +268,8 @@ public partial class InstallTaskViewModel : ObservableObject
                         targetName)
                     .ConfigureAwait(true);
             },
-            expectedSteps: FabricExpectedSteps(gameVersion)).ConfigureAwait(true);
+            expectedSteps: FabricExpectedSteps(gameVersion),
+            iconKey: InstallTaskIcons.FromGameVersion(gameVersion)).ConfigureAwait(true);
     }
 
     /// <summary>Fabric 安装：原版已就绪时 6 步；缺失时内部会补装原版（约多 5 步）。</summary>
@@ -284,12 +304,18 @@ public partial class InstallTaskViewModel : ObservableObject
                 };
                 return await _services.LoaderInstall.InstallAsync(plan, progress, token).ConfigureAwait(true);
             },
-            expectedSteps: EstimatePlanSteps(plan))
+            expectedSteps: EstimatePlanSteps(plan),
+            iconKey: plan.IconKey)
             .ConfigureAwait(true);
     }
 
     /// <summary>安装社区资源文件（Mod/资源包/光影/数据包 → 实例对应目录）。</summary>
-    public async Task RunCompFileAsync(CompFile file, string instanceId, string sectionTitle)
+    public async Task RunCompFileAsync(
+        CompFile file,
+        string instanceId,
+        string sectionTitle,
+        string? iconUrl = null,
+        string iconKey = "forge")
     {
         await RunAsync(
             $"{file.DisplayName}（{sectionTitle}）",
@@ -301,18 +327,27 @@ public partial class InstallTaskViewModel : ObservableObject
                     _services.Config.IsInstanceIsolated(instanceId),
                     progress,
                     token),
-            expectedSteps: 3)
+            expectedSteps: 3,
+            iconKey: iconKey,
+            iconUrl: iconUrl)
             .ConfigureAwait(true);
     }
 
     /// <summary>把社区资源文件保存到用户选择的目录（目录不存在时自动创建）。</summary>
-    public async Task RunCompFileToDirectoryAsync(CompFile file, string targetDirectory, string sectionTitle)
+    public async Task RunCompFileToDirectoryAsync(
+        CompFile file,
+        string targetDirectory,
+        string sectionTitle,
+        string? iconUrl = null,
+        string iconKey = "forge")
     {
         await RunAsync(
             $"{file.DisplayName}（{sectionTitle}）",
             (progress, token) => _services.CompInstall
                 .InstallFileToDirectoryAsync(file, targetDirectory, progress, token),
-            expectedSteps: 3)
+            expectedSteps: 3,
+            iconKey: iconKey,
+            iconUrl: iconUrl)
             .ConfigureAwait(true);
     }
 
@@ -323,7 +358,9 @@ public partial class InstallTaskViewModel : ObservableObject
         IReadOnlyList<CompFile> dependencies,
         CompFile mainFile,
         string targetDirectory,
-        string sectionTitle)
+        string sectionTitle,
+        string? iconUrl = null,
+        string iconKey = "forge")
     {
         await RunAsync(
             $"{mainFile.DisplayName}（{sectionTitle}）",
@@ -352,12 +389,20 @@ public partial class InstallTaskViewModel : ObservableObject
                     .InstallFileToDirectoryAsync(mainFile, targetDirectory, progress, token)
                     .ConfigureAwait(true);
             },
-            expectedSteps: 3 + dependencies.Count * 2).ConfigureAwait(true);
+            expectedSteps: 3 + dependencies.Count * 2,
+            iconKey: iconKey,
+            iconUrl: iconUrl).ConfigureAwait(true);
     }
 
     /// <summary>安装整合包（下载 → 解析 → 资源落盘 → 自动安装原版与加载器）。</summary>
-    public async Task RunCompModpackAsync(CompFile file, string instanceName)
+    public async Task RunCompModpackAsync(
+        CompFile file,
+        string instanceName,
+        string? iconUrl = null,
+        string? gameVersion = null)
     {
+        // 整合包以对应的 Minecraft 版本图标为主；版本未知时才用资源自身图标。
+        var resolvedVersion = gameVersion ?? file.GameVersions.FirstOrDefault();
         await RunAsync(
             $"整合包 {file.DisplayName}",
             (progress, token) => _services.CompInstall.InstallModpackAsync(
@@ -368,7 +413,9 @@ public partial class InstallTaskViewModel : ObservableObject
                 _services.Config.DownloadThreads,
                 progress,
                 token),
-            expectedSteps: 12)
+            expectedSteps: 12,
+            iconKey: InstallTaskIcons.FromGameVersion(resolvedVersion),
+            iconUrl: resolvedVersion is null ? iconUrl : null)
             .ConfigureAwait(true);
     }
 
@@ -380,7 +427,8 @@ public partial class InstallTaskViewModel : ObservableObject
         string sourcePath,
         string instanceName,
         IReadOnlyCollection<long>? optionalFileIds,
-        Action<InstallProgress>? progressSink = null)
+        Action<InstallProgress>? progressSink = null,
+        string? gameVersion = null)
     {
         return await RunAsync(
             $"整合包 {instanceName}",
@@ -394,7 +442,8 @@ public partial class InstallTaskViewModel : ObservableObject
                 token,
                 optionalFileIds: optionalFileIds),
             progressSink,
-            expectedSteps: 12).ConfigureAwait(true);
+            expectedSteps: 12,
+            iconKey: InstallTaskIcons.FromGameVersion(gameVersion)).ConfigureAwait(true);
     }
 
     /// <summary>
@@ -435,7 +484,9 @@ public partial class InstallTaskViewModel : ObservableObject
         string displayName,
         Func<IProgress<InstallProgress>, CancellationToken, Task<string>> action,
         Action<InstallProgress>? progressSink = null,
-        int expectedSteps = 2)
+        int expectedSteps = 2,
+        string iconKey = "grass-block",
+        string? iconUrl = null)
     {
         if (IsInstalling)
         {
@@ -447,6 +498,9 @@ public partial class InstallTaskViewModel : ObservableObject
         var cts = new CancellationTokenSource();
         _cts = cts;
         var generation = ++_runGeneration;
+        // 先写入任务图标，保证任务条/悬浮图标一出现就带着对应版本或资源图标
+        TaskIconKey = iconKey;
+        TaskIconUrl = iconUrl;
         IsInstalling = true;
         InstallingName = displayName;
         StageText = "准备中";
@@ -480,7 +534,7 @@ public partial class InstallTaskViewModel : ObservableObject
             CurrentDetailText = "";
             CompleteAllSteps();
             ErrorText = "";
-            _toast?.Invoke($"安装完成：{installedId}");
+            _toast?.Invoke($"下载完成：{installedId}");
             // 安装新实例后自动选定该实例（对应 PCL-CE ToolDownloadAutoSelectVersion）
             if (_services.Config.AutoSelectInstance)
             {
@@ -499,6 +553,7 @@ public partial class InstallTaskViewModel : ObservableObject
             CurrentDetailText = "";
             MarkActiveStepFailed();
             ErrorText = "";
+            _toast?.Invoke($"已取消：{InstallingName}");
             return new InstallRunResult(null, true, null);
         }
         catch (Exception ex)
@@ -738,4 +793,56 @@ public partial class InstallTaskViewModel : ObservableObject
 
     [RelayCommand]
     private void CancelInstall() => Cancel();
+}
+
+/// <summary>
+/// 安装任务图标映射：与下载页版本列表使用同一套图标键
+/// （正式版=草方块 / 快照=命令方块 / 远古版本=圆石）。
+/// </summary>
+internal static class InstallTaskIcons
+{
+    public static string FromVersionType(string? type)
+    {
+        if (type is null)
+        {
+            return "grass-block";
+        }
+
+        if (type.StartsWith("old", StringComparison.OrdinalIgnoreCase))
+        {
+            return "cobblestone";
+        }
+
+        return type.Equals("snapshot", StringComparison.OrdinalIgnoreCase) ? "command-block" : "grass-block";
+    }
+
+    /// <summary>按版本号推断分类图标（加载器安装/整合包只拿到版本号字符串时使用）。</summary>
+    public static string FromGameVersion(string? gameVersion)
+    {
+        var id = gameVersion?.Trim().ToLowerInvariant() ?? "";
+        if (id.Length == 0)
+        {
+            return "grass-block";
+        }
+
+        // 远古版本：a1.2.6 / b1.7.3 / c0.30 / inf-20100618 / rd-132211 / 0.x
+        if (id.StartsWith("inf-", StringComparison.Ordinal)
+            || id.StartsWith("rd-", StringComparison.Ordinal)
+            || (id.Length > 1 && "abc".Contains(id[0]) && char.IsDigit(id[1]))
+            || id[0] == '0')
+        {
+            return "cobblestone";
+        }
+
+        // 快照：23w31a / 1.21.2-pre1 / 26.4-snapshot-7
+        if (id.Contains("snapshot")
+            || id.Contains("-pre")
+            || id.Contains("-rc")
+            || (char.IsDigit(id[0]) && id.Contains('w')))
+        {
+            return "command-block";
+        }
+
+        return "grass-block";
+    }
 }

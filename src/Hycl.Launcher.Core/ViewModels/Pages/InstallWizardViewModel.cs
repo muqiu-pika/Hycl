@@ -1440,6 +1440,8 @@ public partial class InstallWizardViewModel : ObservableObject
             GameDirectory = _services.Config.EffectiveGameDirectory,
             GameVersion = SelectedMcId,
             TargetName = effectiveName,
+            // 加载器安装沿用该 MC 版本在版本列表中的图标
+            IconKey = InstallTaskIcons.FromVersionType(_selectedMc?.Type),
             LoaderVersion = choice?.DisplayName is { } loaderVersion
                             && !loaderVersion.Contains("自动", StringComparison.Ordinal)
                 ? loaderVersion

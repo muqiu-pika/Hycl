@@ -18,6 +18,9 @@ public sealed record LoaderInstallPlan
     /// <summary>实例目录名。</summary>
     public required string TargetName { get; init; }
 
+    /// <summary>安装任务图标键（该 Minecraft 版本在版本列表中的图标：草方块/命令方块/圆石）。</summary>
+    public string IconKey { get; init; } = "grass-block";
+
     /// <summary>主加载器版本；null 表示自动选择最新稳定版。</summary>
     public string? LoaderVersion { get; init; }
 

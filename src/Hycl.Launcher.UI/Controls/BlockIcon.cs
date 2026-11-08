@@ -69,7 +69,7 @@ public class BlockIcon : TemplatedControl
 
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Bitmap?> BitmapCache = new();
 
-    private static Bitmap? Resolve(string? kind)
+    internal static Bitmap? Resolve(string? kind)
     {
         if (kind is null || !KindToAsset.TryGetValue(kind, out var assetName))
         {

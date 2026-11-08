@@ -1335,6 +1335,17 @@
         <Setter Property="Padding" Value="16,12" />
     </Style>
 
+    <!-- 下载页底部任务条：整块可点击进入详情页，悬停给出版本主题色反馈 -->
+    <Style Selector="Border.task-tap">
+        <Setter Property="Background" Value="{DynamicResource GlassSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Primary6Brush}" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Border.task-tap:pointerover">
+        <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
+    </Style>
+
     <Style Selector="TextBlock.step-marker">
         <Setter Property="Width" Value="18" />
         <Setter Property="FontSize" Value="12" />

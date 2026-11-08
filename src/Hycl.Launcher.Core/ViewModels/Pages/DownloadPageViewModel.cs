@@ -19,6 +19,12 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
     private readonly LauncherServices _services;
     private bool _skipAutoSearch;
 
+    /// <summary>下载页底部任务条被点击：请求主窗口打开下载详情页（返回时回到下载页）。</summary>
+    public event EventHandler? OpenProgressRequested;
+
+    /// <summary>由任务条的 PointerReleased 调用（子按钮点击已在视图层排除）。</summary>
+    public void RequestOpenProgress() => OpenProgressRequested?.Invoke(this, EventArgs.Empty);
+
     public DownloadPageViewModel(LauncherServices services, Action<string>? toast)
     {
         _services = services;

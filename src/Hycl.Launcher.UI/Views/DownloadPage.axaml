@@ -1380,12 +1380,14 @@
 
                 <!-- ── 底部：开始安装 + 任务条 ──────────────────── -->
                 <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="0,0,0,4">
-                    <Border Background="{DynamicResource GlassSurfaceBrush}"
-                            BorderBrush="{DynamicResource Primary6Brush}"
+                    <!-- 整块任务条是进入下载详情页的点击热区；取消按钮等子控件优先处理自己的点击 -->
+                    <Border Classes="task-tap"
                             BorderThickness="1"
                             CornerRadius="8"
                             Padding="14,8"
-                            IsVisible="{Binding Install.IsInstalling}">
+                            IsVisible="{Binding Install.IsInstalling}"
+                            Cursor="Hand"
+                            PointerReleased="OnTaskBarPointerReleased">
                         <Grid ColumnDefinitions="Auto,*,Auto,Auto"
                               RowDefinitions="Auto,Auto,Auto,Auto"
                               ColumnSpacing="12"

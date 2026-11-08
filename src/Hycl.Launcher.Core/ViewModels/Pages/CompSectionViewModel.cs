@@ -1382,12 +1382,25 @@ public partial class CompSectionViewModel : ObservableObject
             if (dependencies.Count > 0)
             {
                 await _install
-                    .RunCompFileWithDependenciesAsync(dependencies, item.File, directory, Title)
+                    .RunCompFileWithDependenciesAsync(
+                        dependencies,
+                        item.File,
+                        directory,
+                        Title,
+                        iconUrl: SelectedProject?.IconUrl,
+                        iconKey: IconKey)
                     .ConfigureAwait(true);
             }
             else
             {
-                await _install.RunCompFileToDirectoryAsync(item.File, directory, Title).ConfigureAwait(true);
+                await _install
+                    .RunCompFileToDirectoryAsync(
+                        item.File,
+                        directory,
+                        Title,
+                        iconUrl: SelectedProject?.IconUrl,
+                        iconKey: IconKey)
+                    .ConfigureAwait(true);
             }
         }
         finally
@@ -1685,7 +1698,12 @@ public partial class CompSectionViewModel : ObservableObject
         _installingItem = item;
         try
         {
-            await _install.RunCompModpackAsync(item.File, effectiveName).ConfigureAwait(true);
+            await _install
+                .RunCompModpackAsync(
+                    item.File,
+                    effectiveName,
+                    iconUrl: SelectedProject?.IconUrl)
+                .ConfigureAwait(true);
         }
         finally
         {

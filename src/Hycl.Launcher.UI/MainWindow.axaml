@@ -118,27 +118,33 @@
                             Margin="0,0,16,16"
                             Click="OnFloatingDownloadClick">
                         <Panel>
-                            <c:McProgressRing Width="40"
-                                              Height="40"
-                                              Thickness="3"
-                                              TrackBrush="#26FFFFFF"
-                                              ProgressBrush="{DynamicResource PrimaryLightBrush}"
-                                              Percent="{Binding Download.Install.OverallProgressPercent}"
-                                              IsIndeterminate="{Binding FloatingDownloadIndeterminate}" />
-                            <StackPanel HorizontalAlignment="Center"
-                                        VerticalAlignment="Center"
-                                        Spacing="0">
-                                <c:HyclIcon Kind="download"
-                                            Width="13"
-                                            Height="13"
-                                            Foreground="White"
-                                            HorizontalAlignment="Center" />
-                                <TextBlock Text="{Binding FloatingDownloadPercentText}"
-                                           FontSize="9"
-                                           FontWeight="SemiBold"
-                                           Foreground="White"
-                                           HorizontalAlignment="Center" />
-                            </StackPanel>
+                            <!-- 等待真实进度（准备/解析/等待网络）：复用启动页的图标弹跳动画 -->
+                            <c:McLoading IconSize="16"
+                                         VerticalAlignment="Center"
+                                         HorizontalAlignment="Center"
+                                         IsVisible="{Binding FloatingDownloadIndeterminate}" />
+                            <Panel IsVisible="{Binding !FloatingDownloadIndeterminate}">
+                                <c:McProgressRing Width="40"
+                                                  Height="40"
+                                                  Thickness="3"
+                                                  TrackBrush="#26FFFFFF"
+                                                  ProgressBrush="{DynamicResource PrimaryLightBrush}"
+                                                  Percent="{Binding Download.Install.OverallProgressPercent}" />
+                                <StackPanel HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            Spacing="0">
+                                    <!-- 圆环中心放任务版本/资源图标，取不到时回退启动器图标 -->
+                                    <c:TaskIcon Size="14"
+                                                Kind="{Binding Download.Install.TaskIconKey}"
+                                                Url="{Binding Download.Install.TaskIconUrl}"
+                                                HorizontalAlignment="Center" />
+                                    <TextBlock Text="{Binding FloatingDownloadPercentText}"
+                                               FontSize="9"
+                                               FontWeight="SemiBold"
+                                               Foreground="White"
+                                               HorizontalAlignment="Center" />
+                                </StackPanel>
+                            </Panel>
                         </Panel>
                     </Button>
                 </Grid>

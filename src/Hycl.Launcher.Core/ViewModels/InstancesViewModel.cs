@@ -119,6 +119,9 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
 
     private string? _pendingImportPath;
 
+    /// <summary>待导入整合包声明的 MC 版本，用于任务图标（解析不到时为 null）。</summary>
+    private string? _pendingImportGameVersion;
+
     private bool _isImportDialog;
 
     /// <summary>导入前可选项清单（CurseForge：required 禁勾，optional 默认勾选）。</summary>
@@ -1031,6 +1034,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         }
 
         _pendingImportPath = path;
+        _pendingImportGameVersion = inspection.GameVersion;
         _isImportDialog = true;
         _isRenameDialog = false;
         NameDialogTitle = "导入整合包";
@@ -1137,6 +1141,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
     private async Task ConfirmImportAsync(string name)
     {
         var path = _pendingImportPath;
+        var gameVersion = _pendingImportGameVersion;
         // required 由导入服务强制安装；这里只收集用户勾选的 optional（未提供选择时保持默认全装）
         IReadOnlyCollection<long>? optionalFileIds = _hasOptionalSelection
             ? ModpackFileOptions
@@ -1150,6 +1155,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         ModpackFileLoadError = "";
         IsLoadingModpackFiles = false;
         _pendingImportPath = null;
+        _pendingImportGameVersion = null;
         if (path is null)
         {
             IsNameDialogVisible = false;
@@ -1178,7 +1184,9 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
                         ImportStageText = string.IsNullOrEmpty(value.CurrentItem)
                             ? step
                             : $"{step} · {value.CurrentItem}";
-                    })
+                    },
+                    // 任务图标沿用整合包声明的 MC 版本图标
+                    gameVersion: gameVersion)
                 .ConfigureAwait(true);
 
             await RefreshAsync().ConfigureAwait(true);
@@ -1253,6 +1261,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         NameDialogHint = "";
         _isImportDialog = false;
         _pendingImportPath = null;
+        _pendingImportGameVersion = null;
         _hasOptionalSelection = false;
         ModpackFileOptions.Clear();
         ModpackFileLoadError = "";
