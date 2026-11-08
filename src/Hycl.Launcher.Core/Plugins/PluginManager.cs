@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Reflection;
 using System.Text.Json;
@@ -216,6 +217,13 @@ public sealed class PluginManager
         PluginsChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>
+    /// 从安装目录加载并激活插件。
+    /// 裁剪说明：插件程序集在运行时才进入进程，不在宿主裁剪图内（LoadFrom/GetExportedTypes/
+    /// CreateInstance 的 IL2026/IL2072 为误报）；宿主只需保证契约接口类型完整（根类型不被裁剪）。
+    /// </summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "插件程序集运行时加载，不属于宿主裁剪图")]
+    [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = "加载的程序集按 IHyclPlugin 契约实例化，公共无参构造由插件作者保证")]
     private async Task TryLoadAsync(string directory)
     {
         var package = ReadPackageManifest(directory);
