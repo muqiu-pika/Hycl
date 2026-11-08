@@ -2,16 +2,14 @@ using Hycl.Launcher.PluginContract;
 
 namespace Hycl.Launcher.Plugin.Online;
 
-/// <summary>Hycl 联机插件入口：陶瓦联机（Terracotta）。</summary>
+/// <summary>Hycl 联机插件入口：陶瓦联机（Terracotta）。版本号以 csproj 的 Version 为单一事实源。</summary>
 public sealed class TerracottaPlugin : IHyclPlugin
 {
-    public const string PluginVersionValue = "1.0.0";
-
     public string Id => "hycl.online";
 
     public string DisplayName => "陶瓦联机";
 
-    public string Version => PluginVersionValue;
+    public string Version => GetType().Assembly.GetName().Version!.ToString(3);
 
     public int AbiVersion => 1;
 
