@@ -23,11 +23,12 @@ dotnet run --project src/Hycl.Launcher.UI
 
 | 产物 | 说明 |
 | --- | --- |
-| `Hycl-<rid>`（Windows 为 `.exe`） | 自包含单文件，启用压缩 / R2R / 裁剪，目标机器无需安装 .NET |
+| `Hycl-<rid>`（Windows 为 `.exe`） | 自包含单文件，启用压缩 / R2R，目标机器无需安装 .NET |
 | `Hycl-<rid>-framework-dependent` | 框架依赖单文件，需目标机器已装 .NET 10 Desktop Runtime |
 | `Hycl-osx-*-app` | macOS 额外打包的 `.app` bundle（裸可执行文件没有 Dock 图标 / 菜单栏） |
 
-- 交叉 RID 发布（含跨 OS 与跨架构）已实测：`linux-x64` 约 40 MB、`osx-arm64` 约 37 MB，均只输出单个可执行文件。
+- **自包含单文件必须关闭裁剪（`PublishTrimmed=false`）**：插件 dll 在运行时通过 `Assembly.LoadFrom` 动态加载，不参与宿主裁剪图。裁剪器会移除 `System.Runtime` / `netstandard` 等 type-forwarder facade 并重写宿主 IL 的引用，而插件仍引用 `System.Runtime, Version=10.0.0.0`，实测裁剪版加载插件必然抛 `FileNotFoundException`，表现为「插件已启用但工具页没有入口」。这是动态插件系统的硬性约束，不要为了缩小体积重新开启裁剪。
+- 交叉 RID 发布（含跨 OS 与跨架构）已实测：`linux-x64` 约 40 MB、`osx-arm64` 约 37 MB，均只输出单个可执行文件（关闭裁剪后体积会有所增加）。
 - `app.manifest` / `hycl.ico` 是 Win32 资源，仅在无 RID 或 `win-*` 目标时应用；非 Windows 目标跳过。
 - macOS 的 `.app` 未签名，首次打开若被 Gatekeeper 拦截，执行 `xattr -dr com.apple.quarantine Hycl.app`。
 - 陶瓦联机插件（`Hycl.Online.dll`）是 anycpu 托管程序集，与平台无关；真正的平台差异在 Hycl-online 清单的 6 个 Terracotta 资产（win/linux/mac × x64/arm64），由插件按 `HyclOnlineTools.ToolAssetKey` 挑选，Unix 上自动 `chmod +x`。

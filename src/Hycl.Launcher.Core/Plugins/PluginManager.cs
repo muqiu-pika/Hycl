@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Reflection;
+using System.Runtime.Loader;
 using System.Text.Json;
 using Hycl.Launcher.Core.Auth;
 using Hycl.Launcher.Core.Config;
@@ -65,6 +66,11 @@ public sealed class PluginCatalogItem
                 return PluginInstallState.NotInstalled;
             }
 
+            if (Installed.LoadError is not null)
+            {
+                return PluginInstallState.LoadFailed;
+            }
+
             if (RestartRequired)
             {
                 return PluginInstallState.UpdatePendingRestart;
@@ -84,16 +90,22 @@ public enum PluginInstallState
     Installed,
     UpdateAvailable,
     UpdatePendingRestart,
+    /// <summary>文件已安装但程序集加载失败（ABI 不匹配、依赖缺失等），工具页不会有入口。</summary>
+    LoadFailed,
 }
 
-/// <summary>本机已安装插件的元数据（来自 plugin.json）。</summary>
+/// <summary>
+/// 本机已安装插件的元数据（来自 plugin.json）。
+/// LoadError 非空表示加载失败，插件工坊据此显示原因并提供「重试加载」。
+/// </summary>
 public sealed record InstalledPluginInfo(
     string Id,
     string DisplayName,
     string Version,
     int Abi,
     string Directory,
-    bool IsLoaded);
+    bool IsLoaded,
+    string? LoadError = null);
 
 /// <summary>插件包内的 plugin.json。</summary>
 public sealed class PluginPackageManifest
@@ -108,6 +120,13 @@ public sealed class PluginPackageManifest
 
     /// <summary>入口程序集文件名（相对插件目录），默认 plugin.dll。</summary>
     public string Entry { get; init; } = "plugin.dll";
+
+    /// <summary>
+    /// 入口类型全名（可选）。指定后宿主只解析这一个类型，避免 GetExportedTypes()
+    /// 为枚举所有导出类型而强制解析无关依赖（单文件发布下尤其脆弱）。
+    /// 旧包留空时按 ABI 约定反射查找 IHyclPlugin 实现。
+    /// </summary>
+    public string Type { get; init; } = "";
 
     public string MinLauncherVersion { get; init; } = "";
 }
@@ -314,7 +333,9 @@ public sealed class PluginManager
             }
             catch (Exception ex)
             {
-                _logger.Error("[插件] 加载失败：" + Path.GetFileName(directory), ex);
+                var id = Path.GetFileName(directory);
+                _logger.Error("[插件] 加载失败：" + id, ex);
+                MarkLoadFailed(id, directory, ex.Message);
             }
         }
 
@@ -337,45 +358,43 @@ public sealed class PluginManager
             return;
         }
 
+        // 以下校验全部抛异常而不是静默 return：文件已经装到本机，若不能加载，
+        // 必须让工坊显示「加载失败 + 原因」，否则用户只会看到「启用后工具页没有入口」。
         if (package.Abi != HyclOnlineDefaults.CurrentAbi)
         {
-            _logger.Warn($"[插件] {package.Id} ABI {package.Abi} 与启动器 {HyclOnlineDefaults.CurrentAbi} 不匹配，拒绝加载");
-            return;
+            throw new InvalidOperationException(
+                $"插件 ABI {package.Abi} 与启动器 {HyclOnlineDefaults.CurrentAbi} 不匹配");
         }
 
         if (!SatisfiesMinLauncher(package.MinLauncherVersion))
         {
-            _logger.Warn($"[插件] {package.Id} 需要启动器 {package.MinLauncherVersion} 及以上，拒绝加载");
-            return;
+            throw new InvalidOperationException($"插件需要启动器 {package.MinLauncherVersion} 及以上");
         }
 
         var entryFile = Path.Combine(directory, string.IsNullOrWhiteSpace(package.Entry) ? "plugin.dll" : package.Entry);
         if (!IsInsideDirectory(directory, entryFile) || !File.Exists(entryFile))
         {
-            _logger.Warn("[插件] " + package.Id + " 入口程序集缺失：" + package.Entry);
-            return;
+            throw new InvalidOperationException("入口程序集缺失：" + package.Entry);
         }
 
+        // 单文件发布下框架/宿主程序集被嵌入 bundle，没有独立文件可探测；
+        // 注册回退后插件的 AssemblyRef 可以复用进程内已加载的同名程序集。
+        EnsurePluginAssemblyResolver();
         var assembly = Assembly.LoadFrom(entryFile);
-        var pluginType = assembly
-            .GetExportedTypes()
-            .FirstOrDefault(type => !type.IsAbstract && typeof(IHyclPlugin).IsAssignableFrom(type));
+        var pluginType = FindPluginType(assembly, package.Type);
         if (pluginType is null)
         {
-            _logger.Warn("[插件] " + package.Id + " 未找到 IHyclPlugin 实现");
-            return;
+            throw new InvalidOperationException("未找到 IHyclPlugin 实现（或入口类型无法解析）");
         }
 
         if (Activator.CreateInstance(pluginType) is not IHyclPlugin plugin)
         {
-            _logger.Warn("[插件] " + package.Id + " 插件实例化失败");
-            return;
+            throw new InvalidOperationException("插件实例化失败");
         }
 
         if (plugin.AbiVersion != HyclOnlineDefaults.CurrentAbi)
         {
-            _logger.Warn($"[插件] {package.Id} 运行时 ABI {plugin.AbiVersion} 与启动器不匹配，拒绝激活");
-            return;
+            throw new InvalidOperationException($"运行时 ABI {plugin.AbiVersion} 与启动器不匹配");
         }
 
         await plugin
@@ -405,6 +424,112 @@ public sealed class PluginManager
             featurePageFactory);
         RefreshEnabledPlugins();
         _logger.Info($"[插件] 已加载：{package.Id} v{package.Version}");
+    }
+
+    // ---------- 加载辅助 ----------
+
+    private static int _resolverRegistered;
+
+    /// <summary>
+    /// 单文件发布时框架/宿主程序集被嵌入 bundle，默认 ALC 无法按路径探测到它们；
+    /// 插件的 AssemblyRef 解析失败时复用进程内已加载的同名程序集（契约、Avalonia、框架程序集）。
+    /// </summary>
+    private static void EnsurePluginAssemblyResolver()
+    {
+        if (Interlocked.Exchange(ref _resolverRegistered, 1) != 0)
+        {
+            return;
+        }
+
+        AssemblyLoadContext.Default.Resolving += (context, name) =>
+        {
+            foreach (var loaded in context.Assemblies)
+            {
+                if (string.Equals(loaded.GetName().Name, name.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return loaded;
+                }
+            }
+
+            return null;
+        };
+    }
+
+    /// <summary>
+    /// 查找插件入口类型。优先用 plugin.json 的 type 精确解析（只碰一个类型）；
+    /// 旧包回退到导出类型枚举，并对 ReflectionTypeLoadException 取已成功加载的部分。
+    /// </summary>
+    private static Type? FindPluginType(Assembly assembly, string? declaredType)
+    {
+        if (!string.IsNullOrWhiteSpace(declaredType))
+        {
+            var exact = assembly.GetType(declaredType.Trim(), throwOnError: false, ignoreCase: false);
+            if (exact is not null && !exact.IsAbstract && typeof(IHyclPlugin).IsAssignableFrom(exact))
+            {
+                return exact;
+            }
+        }
+
+        try
+        {
+            return assembly.GetExportedTypes()
+                .FirstOrDefault(type => !type.IsAbstract && typeof(IHyclPlugin).IsAssignableFrom(type));
+        }
+        catch (ReflectionTypeLoadException ex)
+        {
+            return ex.Types.FirstOrDefault(type => type is not null
+                && !type.IsAbstract
+                && typeof(IHyclPlugin).IsAssignableFrom(type));
+        }
+    }
+
+    /// <summary>记录「文件已安装但加载失败」，让插件工坊能显示原因并提供重试。</summary>
+    private void MarkLoadFailed(string pluginId, string directory, string error)
+    {
+        var package = ReadPackageManifest(directory);
+        _installed[pluginId] = new InstalledPluginInfo(
+            pluginId,
+            string.IsNullOrWhiteSpace(package?.Name) ? pluginId : package!.Name,
+            package?.Version ?? "",
+            package?.Abi ?? HyclOnlineDefaults.CurrentAbi,
+            directory,
+            IsLoaded: false,
+            LoadError: error);
+        _entries.Remove(pluginId);
+        if (_loaded.Remove(pluginId, out var stale))
+        {
+            // 加载流程中途失败时可能已经完成 InitializeAsync，顺手关闭，避免后台服务残留。
+            try
+            {
+                _ = stale.ShutdownAsync();
+            }
+            catch
+            {
+                // 清理失败不能覆盖真正的加载错误
+            }
+        }
+
+        RefreshEnabledPlugins();
+    }
+
+    /// <summary>工坊「重试加载」：不改文件，只重新走一次加载流程（修复依赖后无需重装）。</summary>
+    public async Task<bool> RetryLoadAsync(string pluginId)
+    {
+        var directory = Path.Combine(_paths.PluginsDirectory, pluginId);
+        try
+        {
+            await TryLoadAsync(directory).ConfigureAwait(true);
+            PluginsChanged?.Invoke(this, EventArgs.Empty);
+            _logger.Info("[插件] 重试加载成功：" + pluginId);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("[插件] 重试加载失败：" + pluginId, ex);
+            MarkLoadFailed(pluginId, directory, ex.Message);
+            PluginsChanged?.Invoke(this, EventArgs.Empty);
+            return false;
+        }
     }
 
     // ---------- 安装 / 卸载 ----------
@@ -481,15 +606,10 @@ public sealed class PluginManager
                 }
                 catch (Exception ex)
                 {
-                    // 文件已安装：加载失败只记录（下次启动重试），不让安装整体回滚
-                    _logger.Error("[插件] 安装后加载失败（重启启动器后将重试）：" + pluginId, ex);
-                    _installed[pluginId] = new InstalledPluginInfo(
-                        package.Id,
-                        package.Name,
-                        package.Version,
-                        package.Abi,
-                        finalDirectory,
-                        IsLoaded: false);
+                    // 文件已安装：加载失败不回滚安装，但必须把原因落到安装态，
+                    // 否则工坊只显示「已安装」而工具页没有入口，用户无从排查。
+                    _logger.Error("[插件] 安装后加载失败：" + pluginId, ex);
+                    MarkLoadFailed(pluginId, finalDirectory, ex.Message);
                 }
             }
 

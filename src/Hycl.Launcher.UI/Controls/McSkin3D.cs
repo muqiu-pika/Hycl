@@ -69,8 +69,8 @@ public class McSkin3D : Control
     /// <summary>模型几何中心高度（脚底 0、头顶 32），拖动旋转以此为中心。</summary>
     private const float ModelCenterY = 16;
 
-    /// <summary>投影后短边小于该像素的面片视为边缘线，不再绘制，避免转正时出现发丝黑线。</summary>
-    private const double MinFacePixels = 2;
+    /// <summary>投影后面积小于该值（px²）的面片视为已退化成边缘线，不再绘制，避免转正时出现发丝黑线。</summary>
+    private const double MinFaceArea = 3;
 
     private readonly List<Face> _faces = new();
     private readonly DispatcherTimer _timer;
@@ -525,21 +525,20 @@ public class McSkin3D : Control
             _rotatedD[i] = d;
             _depths[i] = (a.Z + b.Z + c.Z + d.Z) * 0.25;
 
-            var normal = view.Rotate(
+            // 法线是方向向量，必须用不含模型中心平移的旋转。
+            // 复用 Rotate 会把 -ModelCenterY 带进 Y 分量，使 normal.Z 出现 -16*sin(pitch)：
+            // 俯仰只要超过 ~3.6° 所有面都会被误判为背面，表现为「一转人偶就整块消失」。
+            var normal = view.RotateDirection(
                 face.IsHead ? RotateHeadDirection(face.Normal, headCy, headSy, headCp, headSp) : face.Normal);
 
-            // 投影后短边不足 1 个像素的面片会退化成边缘黑线（尤其头部转到接近正面时），直接剔除。
+            // 用投影后两条边的叉积面积判定退化面：斜 45° 时对角线会把包围盒撑大，
+            // 只看包围盒短边会漏掉已经压成一条线的面片（奇异变换 + 发丝黑线）。
             var pa = view.Project(a);
             var pb = view.Project(b);
             var pc = view.Project(c);
-            var pd = view.Project(d);
-            var minX = Math.Min(Math.Min(pa.X, pb.X), Math.Min(pc.X, pd.X));
-            var maxX = Math.Max(Math.Max(pa.X, pb.X), Math.Max(pc.X, pd.X));
-            var minY = Math.Min(Math.Min(pa.Y, pb.Y), Math.Min(pc.Y, pd.Y));
-            var maxY = Math.Max(Math.Max(pa.Y, pb.Y), Math.Max(pc.Y, pd.Y));
+            var cross = (pb.X - pa.X) * (pc.Y - pa.Y) - (pb.Y - pa.Y) * (pc.X - pa.X);
 
-            _visible[i] = normal.Z > 0.002f
-                          && Math.Min(maxX - minX, maxY - minY) >= MinFacePixels;
+            _visible[i] = normal.Z > 0.002f && Math.Abs(cross) >= MinFaceArea;
         }
 
         // 第二遍：可见面按深度从后往前排序（画家算法），背面剔除后每块立方体约 3 个面。
@@ -875,6 +874,17 @@ public class McSkin3D : Control
             var y2 = y * Cp - z1 * Sp;
             var z2 = y * Sp + z1 * Cp;
             return new Vector3(x1, y2 + ModelCenterY, z2);
+        }
+
+        /// <summary>
+        /// 只旋转方向向量。与 <see cref="Rotate"/> 的区别是不带模型中心平移：
+        /// 法线没有"位置"，若把 -ModelCenterY 计入 Y，pitch 会把 Z 分量整体拉偏。
+        /// </summary>
+        public Vector3 RotateDirection(Vector3 d)
+        {
+            var x1 = d.X * Cy + d.Z * Sy;
+            var z1 = -d.X * Sy + d.Z * Cy;
+            return new Vector3(x1, d.Y * Cp - z1 * Sp, d.Y * Sp + z1 * Cp);
         }
 
         public Point Project(Vector3 p)

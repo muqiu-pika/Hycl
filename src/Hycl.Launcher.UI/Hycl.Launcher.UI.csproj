@@ -32,18 +32,23 @@
   </ItemGroup>
 
   <!--
-    单文件发布时启用压缩、ReadyToRun 与裁剪（均只在 PublishSingleFile=true 时生效，不影响日常构建）：
-    - EnableCompressionInSingleFile：exe 从 101.6MB 降到 ~64MB（含 R2R），启动耗时实测无差异；
-    - PublishReadyToRun：预编译托管代码，可见首帧从 ~2.9s 提前到 ~1.1s（win-x64 实测）；
-    - PublishTrimmed：JSON 已全部改为 source-gen（Serialization/JsonContexts.cs + 各类内嵌套 context），
-      裁剪后自包含单文件降至 ~35MB。
-    framework-dependent 发布需在命令行显式关闭以上三项：压缩/裁剪不支持非自包含，
-    R2R 在 framework-dependent 单文件下实测随机 coreclr fail-fast（0xc0000602，自包含不受影响）。
+    单文件发布时启用压缩与 ReadyToRun（均只在 PublishSingleFile=true 时生效，不影响日常构建）：
+    - EnableCompressionInSingleFile：压缩嵌入程序集，显著缩小 exe，启动耗时实测无差异；
+    - PublishReadyToRun：预编译托管代码，可见首帧从 ~2.9s 提前到 ~1.1s（win-x64 实测）。
+
+    PublishTrimmed 必须保持 false：插件程序集是运行时通过 Assembly.LoadFrom 动态加载的，
+    不参与宿主裁剪图。裁剪器会移除 System.Runtime / netstandard 这类 type-forwarder facade
+    并重写宿主 IL 的引用，而插件 dll 未经过裁剪，其 AssemblyRef 仍指向
+    "System.Runtime, Version=10.0.0.0" —— 实测裁剪版单文件加载插件必然抛
+    FileNotFoundException（GetExportedTypes），表现为「插件已安装并启用，工具页却没有入口」。
+    关闭裁剪后所有框架程序集都进入 bundle，外部插件才能正常解析依赖。
+    framework-dependent 发布同样需显式关闭压缩/裁剪/R2R（非自包含不支持压缩，
+    R2R 在 framework-dependent 单文件下实测随机 coreclr fail-fast 0xc0000602）。
   -->
   <PropertyGroup Condition="'$(PublishSingleFile)' == 'true'">
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <PublishReadyToRun>true</PublishReadyToRun>
-    <PublishTrimmed>true</PublishTrimmed>
+    <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
 
   <ItemGroup>

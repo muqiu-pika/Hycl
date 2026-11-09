@@ -43,9 +43,17 @@
                                              Height="4" CornerRadius="2"
                                              Foreground="{DynamicResource PrimaryDeepBrush}"
                                              IsVisible="{Binding IsInstalling}" />
+                                <!-- 加载失败时明确显示原因：否则用户只会看到「已启用」但工具页没有入口 -->
+                                <TextBlock Text="{Binding LoadErrorText}" FontSize="11.5"
+                                           Foreground="{DynamicResource ErrorDarkBrush}" TextWrapping="Wrap"
+                                           IsVisible="{Binding ShowRetryButton}" />
                             </StackPanel>
 
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <Button Classes="mc-btn primary-soft" Content="重试加载"
+                                        Command="{Binding $parent[UserControl].((p:PluginWorkshopViewModel)DataContext).RetryLoadCommand}"
+                                        CommandParameter="{Binding}"
+                                        IsVisible="{Binding ShowRetryButton}" />
                                 <Button Classes="mc-btn" Content="启用"
                                         Command="{Binding $parent[UserControl].((p:PluginWorkshopViewModel)DataContext).EnableCommand}"
                                         CommandParameter="{Binding}"

@@ -40,6 +40,12 @@ public partial class PluginWorkshopRow : ObservableObject
     private bool _showUninstallButton;
 
     [ObservableProperty]
+    private bool _showRetryButton;
+
+    [ObservableProperty]
+    private string _loadErrorText = "";
+
+    [ObservableProperty]
     private bool _restartRequired;
 
     [ObservableProperty]
@@ -54,17 +60,28 @@ public partial class PluginWorkshopRow : ObservableObject
         IsEnabled = enabled;
         IsInstalled = source.Installed is not null;
         RestartRequired = source.RestartRequired;
-        ShowInstallButton = source.State is PluginInstallState.NotInstalled or PluginInstallState.UpdateAvailable;
+        ShowInstallButton = source.State is PluginInstallState.NotInstalled
+            or PluginInstallState.UpdateAvailable
+            or PluginInstallState.LoadFailed;
         ShowUninstallButton = source.State is PluginInstallState.Installed
             or PluginInstallState.UpdateAvailable
-            or PluginInstallState.UpdatePendingRestart;
-        ButtonText = source.State == PluginInstallState.UpdateAvailable ? "更新" : "安装";
+            or PluginInstallState.UpdatePendingRestart
+            or PluginInstallState.LoadFailed;
+        ShowRetryButton = source.State == PluginInstallState.LoadFailed;
+        LoadErrorText = source.Installed?.LoadError ?? "";
+        ButtonText = source.State switch
+        {
+            PluginInstallState.UpdateAvailable => "更新",
+            PluginInstallState.LoadFailed => "重装",
+            _ => "安装",
+        };
         StateText = source.State switch
         {
             PluginInstallState.NotInstalled => "未安装",
             PluginInstallState.Installed => $"已安装 v{source.Installed?.Version}",
             PluginInstallState.UpdateAvailable => $"已安装 v{source.Installed?.Version} · 可更新至 v{source.Entry.Version}",
             PluginInstallState.UpdatePendingRestart => $"已更新至 v{source.Entry.Version} · 重启启动器后生效",
+            PluginInstallState.LoadFailed => $"已安装 v{source.Installed?.Version} · 加载失败",
             _ => "",
         };
     }
@@ -138,7 +155,11 @@ public partial class PluginWorkshopViewModel : ObservableObject
         {
             var progress = new Progress<double>(value => row.Percent = Math.Clamp(value * 100, 0, 100));
             await _plugins.InstallAsync(row.Id, progress).ConfigureAwait(true);
-            _toast?.Invoke($"{row.Name} 安装完成，已默认启用");
+            // 安装成功但加载失败时不能报「已完成」：工具页不会出现入口，必须把原因告诉用户。
+            var loadError = _plugins.Installed.TryGetValue(row.Id, out var installed) ? installed.LoadError : null;
+            _toast?.Invoke(loadError is null
+                ? $"{row.Name} 安装完成，已默认启用"
+                : $"{row.Name} 已安装但加载失败：{loadError}。可在插件工坊点「重试加载」或重启启动器");
         }
         catch (OperationCanceledException)
         {
@@ -150,6 +171,34 @@ public partial class PluginWorkshopViewModel : ObservableObject
         finally
         {
             row.IsInstalling = false;
+            IsBusy = false;
+            Rebuild();
+        }
+    }
+
+    /// <summary>重新加载已安装但加载失败的插件（不重新下载，修复运行环境后可直接恢复）。</summary>
+    [RelayCommand]
+    private async Task RetryLoadAsync(PluginWorkshopRow? row)
+    {
+        if (row is null || IsBusy)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            var ok = await _plugins.RetryLoadAsync(row.Id).ConfigureAwait(true);
+            _toast?.Invoke(ok
+                ? $"{row.Name} 加载成功，可在工具页打开"
+                : $"{row.Name} 加载仍失败，详见启动器日志");
+        }
+        catch (Exception ex)
+        {
+            _toast?.Invoke($"{row.Name} 重试加载失败：{ex.Message}");
+        }
+        finally
+        {
             IsBusy = false;
             Rebuild();
         }

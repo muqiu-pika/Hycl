@@ -28,7 +28,7 @@
                             <TextBlock Text="还没有已启用的插件" FontSize="13" FontWeight="SemiBold"
                                        Foreground="{DynamicResource TextBrush}" />
                             <TextBlock FontSize="12" Foreground="{DynamicResource Gray2Brush}" TextWrapping="Wrap"
-                                       Text="请到「设置 → 插件工坊」下载并启用插件。启用后这里会出现入口，点进去即可打开插件的功能设置页。" />
+                                       Text="请到「设置 → 插件工坊」下载并启用插件。启用后这里会出现入口，点进去即可打开插件的功能设置页。若已启用仍看不到入口，请回插件工坊确认是否提示「加载失败」。" />
                         </StackPanel>
                     </Border>
 
