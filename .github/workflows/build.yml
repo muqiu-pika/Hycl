@@ -43,6 +43,9 @@ jobs:
   # R2R 默认关闭：它让自包含单文件从 ~47.9 MB 涨到 ~59.2 MB，体积换来的首帧收益不划算。
   # 裁剪必须关闭：动态加载的插件 dll 引用 System.Runtime 等框架 facade，裁剪版会移除它们。
   # 交叉 RID 发布（含跨 OS 与跨架构）已在 Windows 主机上实测 linux-x64 / osx-arm64 通过。
+  # Linux 锁定 ubuntu-24.04：ubuntu-latest 正迁移到 Ubuntu 26，固定版本可消除迁移告警。
+  # osx 两个 RID 交叉编译（.NET 自包含发布支持跨 OS/跨架构，产物与本机编译一致），
+  # 不再排队 macOS arm64 runner：规避容量排队告警，也顺带缩短等待时间。
   publish:
     name: Publish ${{ matrix.rid }}
     needs: compile
@@ -53,10 +56,10 @@ jobs:
         include:
           - { rid: win-x64,     os: windows-latest, ext: '.exe' }
           - { rid: win-arm64,   os: windows-latest, ext: '.exe' }
-          - { rid: linux-x64,   os: ubuntu-latest,  ext: '' }
-          - { rid: linux-arm64, os: ubuntu-latest,  ext: '' }
-          - { rid: osx-x64,     os: macos-latest,   ext: '' }
-          - { rid: osx-arm64,   os: macos-latest,   ext: '' }
+          - { rid: linux-x64,   os: ubuntu-24.04,   ext: '' }
+          - { rid: linux-arm64, os: ubuntu-24.04,   ext: '' }
+          - { rid: osx-x64,     os: ubuntu-24.04,   ext: '' }
+          - { rid: osx-arm64,   os: ubuntu-24.04,   ext: '' }
     env:
       RID: ${{ matrix.rid }}
       EXT: ${{ matrix.ext }}
