@@ -37,18 +37,20 @@
             <!-- 主体：未安装 → 安装区；已就绪 → 会话区 -->
             <Grid Grid.Row="2" RowDefinitions="Auto,Auto,*">
 
-                <!-- 安装区 -->
+                <!-- 安装/补齐区：自动下载中只显示进度；校验不通过时显示「补齐文件后重试」 -->
                 <StackPanel Grid.Row="0" Spacing="10" IsVisible="{Binding !IsBinaryReady}">
                     <TextBlock FontSize="12.5" Foreground="{DynamicResource Gray2Brush}" TextWrapping="Wrap"
-                               Text="陶瓦联机（Terracotta）是独立开源联机项目（基于 EasyTier，AGPL-3.0）：下载官方工具并校验后，创建/加入房间即可与好友联机，连接效果取决于双方网络。" />
+                               Text="陶瓦联机（Terracotta）是独立开源联机项目（基于 EasyTier，AGPL-3.0）：联机工具会在安装插件后自动准备，完整性校验通过后本区域自动隐藏。若文件缺失或损坏，点下方按钮重新下载即可。" />
+                    <TextBlock Text="{Binding InstallStatusText}" FontSize="12.5"
+                               Foreground="{DynamicResource ErrorDarkBrush}" TextWrapping="Wrap"
+                               IsVisible="{Binding !IsInstalling}" />
                     <ProgressBar Minimum="0" Maximum="100" Value="{Binding DownloadPercent}"
                                  Height="4" CornerRadius="2"
                                  Foreground="{DynamicResource PrimaryDeepBrush}"
                                  IsVisible="{Binding IsInstalling}" />
-                    <StackPanel Orientation="Horizontal" Spacing="10">
+                    <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding !IsInstalling}">
                         <Button Classes="mc-btn primary-soft" Content="{Binding InstallButtonText}"
-                                Command="{Binding InstallCommand}"
-                                IsEnabled="{Binding !IsInstalling}" />
+                                Command="{Binding InstallCommand}" />
                     </StackPanel>
                 </StackPanel>
 

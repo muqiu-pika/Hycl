@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Hycl.Launcher.PluginContract;
@@ -59,6 +60,9 @@ public sealed partial class TerracottaService
     private static readonly Regex PortFilePattern = PortPattern();
     private static readonly Regex RoomCodePattern = new(@"^U/[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$", RegexOptions.Compiled);
 
+    /// <summary>工具文件缺失或损坏时统一提示（UI 的「补齐文件后重试」按钮会重新下载）。</summary>
+    public const string RepairHint = "陶瓦工具文件缺失或完整性校验未通过，请点击「补齐文件后重试」重新下载联机工具";
+
     private const int StartTotalTimeoutSeconds = 120;
     private const int HostPollSeconds = 30;
     private const int JoinPollSeconds = 60;
@@ -85,7 +89,10 @@ public sealed partial class TerracottaService
     private static readonly HttpClient LocalHttp = CreateLocalHttp();
 
     private readonly IPluginContext _context;
+    private readonly PublicNodesProvider _nodes;
     private readonly object _stateLock = new();
+
+    private int _autoPreparing;
 
     private Process? _process;
     private int _httpPort;
@@ -103,6 +110,7 @@ public sealed partial class TerracottaService
     public TerracottaService(IPluginContext context)
     {
         _context = context;
+        _nodes = new PublicNodesProvider(context);
     }
 
     /// <summary>日志回调（level: info/warn/error；已在插件内记录，UI 只做展示）。</summary>
@@ -194,6 +202,65 @@ public sealed partial class TerracottaService
         return File.Exists(exePath) && await VerifySha256Async(exePath, asset.ExeSha256, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// 加载插件时自动准备工具：已通过校验 → 静默就绪；文件不存在 → 后台自动下载；
+    /// 文件存在但校验失败 → 只发「待补齐」状态，由用户点「补齐文件后重试」重新下载。
+    /// 异常不向上抛：工具下载失败不能拖垮启动器，UI 会显示补齐入口。
+    /// </summary>
+    public async Task AutoPrepareAsync(CancellationToken cancellationToken = default)
+    {
+        if (Interlocked.Exchange(ref _autoPreparing, 1) != 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var asset = await ResolveAssetAsync(cancellationToken).ConfigureAwait(false);
+            if (asset is null)
+            {
+                Publish(s => s with
+                {
+                    Phase = TerracottaPhase.Idle,
+                    BinaryReady = false,
+                    Error = "当前平台不受陶瓦联机支持",
+                });
+                return;
+            }
+
+            var exePath = Path.Combine(ToolDirectory, asset.ExeName);
+            if (File.Exists(exePath))
+            {
+                if (await VerifySha256Async(exePath, asset.ExeSha256, cancellationToken).ConfigureAwait(false))
+                {
+                    MakeExecutable(exePath);
+                    Publish(s => s with { Phase = TerracottaPhase.Idle, BinaryReady = true, Error = null });
+                }
+                else
+                {
+                    // 损坏时不要自动覆盖：交给用户点「补齐文件后重试」，避免启动期反复下载
+                    Publish(s => s with { Phase = TerracottaPhase.Idle, BinaryReady = false, Error = RepairHint });
+                }
+
+                return;
+            }
+
+            // 首次安装（或文件被清理）：直接后台补好，用户不需要手动点下载
+            Publish(s => s with { Phase = TerracottaPhase.Downloading, BinaryReady = false, Error = null });
+            await EnsureInstalledAsync(null, cancellationToken).ConfigureAwait(false);
+            Publish(s => s with { Phase = TerracottaPhase.Idle });
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Publish(s => s with { Phase = TerracottaPhase.Idle, BinaryReady = false, Error = RepairHint });
+            Log?.Invoke("warn", "自动准备陶瓦工具失败：" + ex.Message);
+        }
+        finally
+        {
+            Volatile.Write(ref _autoPreparing, 0);
+        }
+    }
+
     private async Task<ToolAsset?> ResolveAssetAsync(CancellationToken cancellationToken)
     {
         var key = PlatformAssetKey();
@@ -272,10 +339,12 @@ public sealed partial class TerracottaService
             var asset = await ResolveAssetAsync(cancellationToken).ConfigureAwait(false)
                 ?? throw new PlatformNotSupportedException("陶瓦联机暂不支持当前平台");
             var exePath = Path.Combine(ToolDirectory, asset.ExeName);
+            // 每次建房/加入前都做完整性自检：不通过就把状态切到「待补齐」，UI 出现补齐按钮
             if (!File.Exists(exePath)
                 || !await VerifySha256Async(exePath, asset.ExeSha256, cancellationToken).ConfigureAwait(false))
             {
-                throw new InvalidOperationException("请先安装陶瓦工具（校验未通过或尚未下载）");
+                Publish(s => s with { Phase = TerracottaPhase.Idle, BinaryReady = false, Error = RepairHint });
+                throw new InvalidOperationException(RepairHint);
             }
 
             if (generation != _operation)
@@ -291,10 +360,19 @@ public sealed partial class TerracottaService
             }
 
             var player = string.IsNullOrWhiteSpace(_context.PlayerName) ? "Hycl" : _context.PlayerName.Trim();
+
+            // 社区节点（密文清单）：与陶瓦内置节点合并，缓解内置节点 DNS 失效导致的「等待房间号超时」
+            var publicNodes = await _nodes.GetNodesAsync(cancellationToken).ConfigureAwait(false);
+            var nodeQuery = BuildNodeQuery(publicNodes);
+            if (publicNodes.Count > 0)
+            {
+                Log?.Invoke("info", $"已附加 {publicNodes.Count} 个社区节点");
+            }
+
             if (mode == TerracottaMode.Host)
             {
                 Publish(s => s with { Phase = TerracottaPhase.Hosting });
-                await GetAsync($"/state/scanning?player={Uri.EscapeDataString(player)}", cancellationToken).ConfigureAwait(false);
+                await GetAsync($"/state/scanning?player={Uri.EscapeDataString(player)}{nodeQuery}", cancellationToken).ConfigureAwait(false);
                 Log?.Invoke("info", "已请求创建陶瓦房间，等待房间号…");
                 var final = await PollUntilReadyAsync(TerracottaMode.Host, HostPollSeconds, cancellationToken).ConfigureAwait(false);
                 if (generation != _operation)
@@ -314,7 +392,7 @@ public sealed partial class TerracottaService
 
                 Publish(s => s with { Phase = TerracottaPhase.Joining, Room = code });
                 await GetAsync(
-                    $"/state/guesting?room={Uri.EscapeDataString(code)}&player={Uri.EscapeDataString(player)}",
+                    $"/state/guesting?room={Uri.EscapeDataString(code)}&player={Uri.EscapeDataString(player)}{nodeQuery}",
                     cancellationToken).ConfigureAwait(false);
                 Log?.Invoke("info", "已请求加入陶瓦房间，等待连接就绪…");
                 var final = await PollUntilReadyAsync(TerracottaMode.Join, JoinPollSeconds, cancellationToken).ConfigureAwait(false);
@@ -768,6 +846,24 @@ public sealed partial class TerracottaService
     }
 
     // ---------- 小工具 ----------
+
+    /// <summary>把节点列表拼成重复的 public_nodes 查询参数（Terracotta 会与内置节点合并）。</summary>
+    private static string BuildNodeQuery(IReadOnlyList<string> nodes)
+    {
+        if (nodes.Count == 0)
+        {
+            return "";
+        }
+
+        var builder = new StringBuilder();
+        // 上限 48 个：避免本地 HTTP 请求行过长（当前清单 31 个，留有余量）
+        foreach (var node in nodes.Take(48))
+        {
+            builder.Append("&public_nodes=").Append(Uri.EscapeDataString(node));
+        }
+
+        return builder.ToString();
+    }
 
     private void Publish(Func<TerracottaState, TerracottaState> mutate)
     {

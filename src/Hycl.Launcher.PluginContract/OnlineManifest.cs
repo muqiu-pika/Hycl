@@ -10,6 +10,9 @@ public sealed class HyclOnlineManifest
 
     public string UpdatedAt { get; init; } = "";
 
+    /// <summary>社区 EasyTier 公共节点清单地址（Hycl-online 托管；插件建房/加入前拉取）。</summary>
+    public string PublicNodesUrl { get; init; } = "";
+
     public List<HyclPluginEntry> Plugins { get; init; } = [];
 
     public Dictionary<string, HyclToolInfo> Tools { get; init; } = new(StringComparer.Ordinal);

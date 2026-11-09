@@ -7,7 +7,7 @@
     <Product>Hyplay Craft Launcher</Product>
     <Description>Hycl 联机插件（陶瓦联机，基于 Terracotta）；以插件包形式从 Hycl-online 分发</Description>
     <!-- 插件版本单一事实源：CI 读取此值生成 plugin.json 与 Release 标签；运行时插件上报同一值 -->
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <!-- 插件 UI 是 Avalonia 控件：版本必须与主程序 Hycl.Launcher.UI 的 Avalonia 保持一致（12.1.4） -->
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>

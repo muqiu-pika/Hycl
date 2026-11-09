@@ -23,6 +23,9 @@ public partial class OnlineToolCardViewModel : ObservableObject
     private readonly IPluginContext _context;
     private readonly TerracottaService _service;
 
+    /// <summary>手动下载（补齐）进行中：避免引擎的 Idle 状态把手动进度提前关掉。</summary>
+    private bool _manualInstalling;
+
     public OnlineToolCardViewModel(IPluginContext context, TerracottaService service)
     {
         _context = context;
@@ -47,7 +50,7 @@ public partial class OnlineToolCardViewModel : ObservableObject
     private bool _isInstalling;
 
     [ObservableProperty]
-    private string _installButtonText = "安装陶瓦工具";
+    private string _installButtonText = "补齐文件后重试";
 
     [ObservableProperty]
     private double _downloadPercent;
@@ -119,6 +122,7 @@ public partial class OnlineToolCardViewModel : ObservableObject
             return;
         }
 
+        _manualInstalling = true;
         IsInstalling = true;
         InstallButtonText = "正在下载…";
         DownloadPercent = 0;
@@ -132,14 +136,19 @@ public partial class OnlineToolCardViewModel : ObservableObject
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _context.Dispatch(() => ErrorText = ex.Message);
+            _context.Dispatch(() =>
+            {
+                ErrorText = ex.Message;
+                InstallStatusText = TerracottaService.RepairHint;
+            });
         }
         finally
         {
+            _manualInstalling = false;
             _context.Dispatch(() =>
             {
                 IsInstalling = false;
-                InstallButtonText = "安装陶瓦工具";
+                InstallButtonText = "补齐文件后重试";
             });
         }
     }
@@ -292,6 +301,21 @@ public partial class OnlineToolCardViewModel : ObservableObject
             ErrorText = state.Error ?? "";
             IsBusy = state.Phase is TerracottaPhase.Starting or TerracottaPhase.Hosting or TerracottaPhase.Joining;
             OnPropertyChanged(nameof(IsReady));
+
+            // 工具态由引擎快照驱动：自动下载显示进度，校验失败显示补齐入口，通过后整块隐藏
+            IsBinaryReady = state.BinaryReady;
+            if (state.Phase == TerracottaPhase.Downloading)
+            {
+                IsInstalling = true;
+                InstallStatusText = "正在自动下载陶瓦工具…";
+            }
+            else if (!_manualInstalling)
+            {
+                IsInstalling = false;
+                InstallStatusText = state.BinaryReady
+                    ? $"陶瓦 v{_service.ToolVersionNumber} 已就绪"
+                    : string.IsNullOrWhiteSpace(state.Error) ? "正在检查陶瓦工具…" : state.Error;
+            }
         });
     }
 
@@ -306,16 +330,27 @@ public partial class OnlineToolCardViewModel : ObservableObject
             return;
         }
 
+        // 引擎正在自动下载时不要抢先下结论，交给 StateChanged 驱动进度
+        if (_service.Current.Phase == TerracottaPhase.Downloading)
+        {
+            _context.Dispatch(() =>
+            {
+                IsInstalling = true;
+                InstallStatusText = "正在自动下载陶瓦工具…";
+            });
+            return;
+        }
+
         try
         {
             var ready = await _service.IsBinaryReadyAsync().ConfigureAwait(true);
             _context.Dispatch(() =>
             {
                 IsBinaryReady = ready;
-                InstallStatusText = ready ? $"陶瓦 v{_service.ToolVersionNumber} 已就绪" : "尚未安装陶瓦工具";
+                InstallStatusText = ready ? $"陶瓦 v{_service.ToolVersionNumber} 已就绪" : TerracottaService.RepairHint;
                 ToolStatusText = ready
                     ? "已安装并通过 SHA-256 校验"
-                    : "未安装或校验失败，可用「修复安装」重新下载";
+                    : "未安装或校验失败，点击「补齐文件后重试」重新下载";
             });
         }
         catch (Exception ex)

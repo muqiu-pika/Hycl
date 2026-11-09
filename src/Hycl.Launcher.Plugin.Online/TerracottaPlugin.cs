@@ -22,6 +22,9 @@ public sealed class TerracottaPlugin : IHyclPlugin, IHyclPluginFeaturePage
         _context = context;
         _service = new TerracottaService(context);
         context.Log.Info("陶瓦联机插件已初始化（工具 v" + _service.ToolVersionNumber + "）");
+
+        // 装好插件就把联机工具准备好：缺失 → 后台自动下载；损坏 → 只提示「补齐文件后重试」。
+        _ = _service.AutoPrepareAsync();
         return Task.CompletedTask;
     }
 

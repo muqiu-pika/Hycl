@@ -14,6 +14,9 @@ public static class HyclOnlineSites
     /// <summary>EdgeOne 托管清单地址；未部署返回空字符串。</summary>
     public static string EdgeOneManifestUrl => EdgeOneSiteUrl.Length == 0 ? "" : EdgeOneSiteUrl.TrimEnd('/') + "/online.json";
 
+    /// <summary>EdgeOne 托管的社区 EasyTier 公共节点清单（AES-256-GCM 密文 public-nodes.enc）。</summary>
+    public static string EdgeOnePublicNodesUrl => EdgeOneSiteUrl.Length == 0 ? "" : EdgeOneSiteUrl.TrimEnd('/') + "/public-nodes.enc";
+
     /// <summary>
     /// EdgeOne 托管的工具包文件地址（deploy 工作流的目录约定：tools/terracotta/&lt;版本&gt;/&lt;文件名&gt;）；
     /// 未部署返回 null。
