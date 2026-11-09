@@ -14,6 +14,12 @@ internal static class Program
     {
         PerfTrace.Mark("process_main");
 
+        // 单实例：已有 Hycl 在运行时不再开第二个窗口，改为唤起现有窗口并退出
+        if (!SingleInstance.TryAcquire())
+        {
+            return;
+        }
+
         if (!EnsureRuntimeEnvironment())
         {
             return;
