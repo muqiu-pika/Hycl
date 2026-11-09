@@ -238,13 +238,12 @@ public partial class SettingsPageViewModel : ObservableObject
     private ToggleRowViewModel? _closeAfterLaunchRow;
     private ToggleRowViewModel? _showOutputRow;
     private ToggleRowViewModel? _animationsRow;
-    private TextRowViewModel? _onlineManifestUrlRow;
 
     public SettingsPageViewModel(LauncherServices services, Action<string>? toast = null)
     {
         _services = services;
         _toast = toast;
-        _workshop = new PluginWorkshopViewModel(services.Plugins, toast);
+        _workshop = new PluginWorkshopViewModel(services.Plugins, services.Config, services.ConfigStore, toast);
         Groups =
         [
             new("游戏",
@@ -758,24 +757,17 @@ public partial class SettingsPageViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 「插件工坊」分区：清单源设置 + 插件管理面板（启用/禁用/下载/更新/卸载）。
-    /// 面板自身订阅 PluginsChanged，安装/卸载/启停后即时刷新，无需重建设置分区。
+    /// 「插件工坊」分区：插件管理面板（下载源选择/启用/禁用/下载/更新/卸载）。
+    /// 面板自身订阅 PluginsChanged，安装/卸载/启停后即时刷新，无需重建设置分区；
+    /// 下载源（官方源/自定义源）也在面板内选择并即时落盘。
     /// </summary>
     private SettingsSectionViewModel BuildPluginWorkshopSection()
     {
-        var config = _services.Config;
         return new SettingsSectionViewModel(PluginWorkshopSectionTitle,
         [
-            new SettingCardViewModel("插件源",
-            [
-                new TextLineRowViewModel("联机等功能以插件形式提供：在本页安装并启用插件后，工具页会出现对应入口，点进去即可使用该插件的功能设置页。"),
-                _onlineManifestUrlRow = new TextRowViewModel(
-                    "插件清单源地址",
-                    "留空使用默认源（Hycl-online raw 直链 + 镜像）",
-                    config.OnlineManifestUrl),
-            ]),
             new SettingCardViewModel("插件管理",
             [
+                new TextLineRowViewModel("联机等功能以插件形式提供：在本页安装并启用插件后，工具页会出现对应入口，点进去即可使用该插件的功能设置页。"),
                 new PluginWorkshopRowViewModel(_workshop),
             ]),
         ]);
@@ -1401,17 +1393,7 @@ public partial class SettingsPageViewModel : ObservableObject
 
         gameSettings.Normalize();
 
-        if (_onlineManifestUrlRow is not null)
-        {
-            var newUrl = _onlineManifestUrlRow.Text?.Trim() ?? "";
-            if (!string.Equals(config.OnlineManifestUrl, newUrl, StringComparison.Ordinal))
-            {
-                config.OnlineManifestUrl = newUrl;
-                // 换源后让插件工坊的下一次「刷新清单」走新地址，不被 5 分钟缓存挡住
-                _services.Plugins.Manifests.Invalidate();
-            }
-        }
-
+        // 插件下载源已迁移到插件工坊面板内选择（官方源/自定义源），随修改即时落盘
         await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
     }
 
