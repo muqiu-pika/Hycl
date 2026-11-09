@@ -23,12 +23,14 @@ dotnet run --project src/Hycl.Launcher.UI
 
 | 产物 | 说明 |
 | --- | --- |
-| `Hycl-<rid>`（Windows 为 `.exe`） | 自包含单文件，启用压缩 / R2R，目标机器无需安装 .NET |
+| `Hycl-<rid>`（Windows 为 `.exe`） | 自包含单文件，启用压缩、关闭 R2R 与裁剪，目标机器无需安装 .NET |
 | `Hycl-<rid>-framework-dependent` | 框架依赖单文件，需目标机器已装 .NET 10 Desktop Runtime |
+| 体积参考（win-x64，原生库已嵌入） | 自包含 ≈ 47.9 MB（旧版开 R2R 为 59.2 MB）、框架依赖 ≈ 12.4 MB |
 | `Hycl-osx-*-app` | macOS 额外打包的 `.app` bundle（裸可执行文件没有 Dock 图标 / 菜单栏） |
 
 - **自包含单文件必须关闭裁剪（`PublishTrimmed=false`）**：插件 dll 在运行时通过 `Assembly.LoadFrom` 动态加载，不参与宿主裁剪图。裁剪器会移除 `System.Runtime` / `netstandard` 等 type-forwarder facade 并重写宿主 IL 的引用，而插件仍引用 `System.Runtime, Version=10.0.0.0`，实测裁剪版加载插件必然抛 `FileNotFoundException`，表现为「插件已启用但工具页没有入口」。这是动态插件系统的硬性约束，不要为了缩小体积重新开启裁剪。
-- 交叉 RID 发布（含跨 OS 与跨架构）已实测：`linux-x64` 约 40 MB、`osx-arm64` 约 37 MB，均只输出单个可执行文件（关闭裁剪后体积会有所增加）。
+- **R2R 默认关闭**：`PublishReadyToRun` 会把每个程序集的 IL 预编译一份本机码，win-x64 自包含单文件（原生库嵌入）因此从 47.9 MB 涨到 59.2 MB（实测）。收益只是首帧从约 2.9s 提前到约 1.1s。需要更快冷启动时单独加 `-p:PublishReadyToRun=true` 即可，不要改回默认值。
+- 交叉 RID 发布（含跨 OS 与跨架构）已实测：关闭 R2R 后 `linux-x64` 与 `osx-arm64` 均只输出单个可执行文件，体积与 Windows 同量级。
 - `app.manifest` / `hycl.ico` 是 Win32 资源，仅在无 RID 或 `win-*` 目标时应用；非 Windows 目标跳过。
 - macOS 的 `.app` 未签名，首次打开若被 Gatekeeper 拦截，执行 `xattr -dr com.apple.quarantine Hycl.app`。
 - 陶瓦联机插件（`Hycl.Online.dll`）是 anycpu 托管程序集，与平台无关；真正的平台差异在 Hycl-online 清单的 6 个 Terracotta 资产（win/linux/mac × x64/arm64），由插件按 `HyclOnlineTools.ToolAssetKey` 挑选，Unix 上自动 `chmod +x`。

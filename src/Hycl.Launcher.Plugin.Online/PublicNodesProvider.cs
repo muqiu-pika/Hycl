@@ -19,6 +19,13 @@ internal sealed class PublicNodesProvider
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(10);
 
     /// <summary>
+    /// 上游官方维护的陶瓦节点清单（HMCL 的 TerracottaNodeList 用的同一个地址）。
+    /// 这些节点是为陶瓦网络专门维护的，命中率高于自建 EasyTier 网络的 peer，因此排在社区清单之前。
+    /// </summary>
+    private const string OfficialNodesUrl = "https://terracotta.glavo.site/nodes";
+    private static readonly TimeSpan OfficialCacheTtl = TimeSpan.FromMinutes(30);
+
+    /// <summary>
     /// 种子分片：故意打乱顺序存放，运行时按 <see cref="SeedOrder"/> 重组。
     /// 必须与 Hycl-online <c>scripts/sync-public-nodes.cjs</c> 的 HYCL_NODES_SEED 一致；
     /// 轮换种子后需重新发版（旧客户端会因 GCM 认证失败而回退内置节点）。
@@ -31,6 +38,8 @@ internal sealed class PublicNodesProvider
     private readonly SemaphoreSlim _gate = new(1, 1);
     private string[] _nodes = [];
     private DateTime _fetchedUtc;
+    private string[] _official = [];
+    private DateTime _officialFetchedUtc;
 
     public PublicNodesProvider(IPluginContext context) => _context = context;
 
@@ -54,6 +63,8 @@ internal sealed class PublicNodesProvider
                 return cached;
             }
 
+            var official = await GetOfficialNodesAsync(cancellationToken).ConfigureAwait(false);
+
             var urls = new List<string>();
             try
             {
@@ -71,35 +82,44 @@ internal sealed class PublicNodesProvider
             urls.Add(HyclOnlineSites.EdgeOnePublicNodesUrl);
             urls.Add("https://raw.githubusercontent.com/muqiu-pika/Hycl-online/main/public-nodes.enc");
 
+            string? envelope = null;
+            string[] community = [];
             try
             {
-                var envelope = await _context.Downloads.GetStringAsync(
+                envelope = await _context.Downloads.GetStringAsync(
                         urls.Where(url => !string.IsNullOrWhiteSpace(url))
                             .Distinct(StringComparer.Ordinal)
                             .ToArray(),
                         cancellationToken)
                     .ConfigureAwait(false);
-                var parsed = Parse(Decrypt(envelope));
-                if (parsed.Length > 0)
-                {
-                    _nodes = parsed;
-                    _fetchedUtc = DateTime.UtcNow;
-                    TrySaveCache(envelope);
-                    return parsed;
-                }
+                community = Parse(Decrypt(envelope));
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 // 解密失败通常是密钥轮换或密文损坏：静默回退，避免每次联机都弹错误
-                _context.Log.Warn("社区节点清单不可用，回退本地缓存：" + ex.Message);
+                _context.Log.Warn("社区节点清单不可用：" + ex.Message);
+            }
+
+            var merged = MergeNodes(official, community);
+            if (merged.Length > 0)
+            {
+                _nodes = merged;
+                _fetchedUtc = DateTime.UtcNow;
+                if (envelope is not null)
+                {
+                    TrySaveCache(envelope);
+                }
+
+                _context.Log.Info($"可用公共节点 {merged.Length} 个（官方 {official.Length} + 社区 {community.Length}）");
+                return merged;
             }
 
             var offline = TryLoadCache();
             if (offline.Length > 0)
             {
-                _nodes = offline;
+                _nodes = MergeNodes(official, offline);
                 _fetchedUtc = DateTime.UtcNow;
-                return offline;
+                return _nodes;
             }
 
             return [];
@@ -108,6 +128,87 @@ internal sealed class PublicNodesProvider
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>官方陶瓦节点清单：JSON 数组 [{ "url": "...", "region": "CN" }]，字段名是 url 而非 uri。</summary>
+    private async Task<string[]> GetOfficialNodesAsync(CancellationToken cancellationToken)
+    {
+        if (_official.Length > 0 && DateTime.UtcNow - _officialFetchedUtc < OfficialCacheTtl)
+        {
+            return _official;
+        }
+
+        try
+        {
+            var json = await _context.Downloads.GetStringAsync([OfficialNodesUrl], cancellationToken).ConfigureAwait(false);
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                return _official;
+            }
+
+            var preferred = new List<string>();
+            var others = new List<string>();
+            foreach (var item in document.RootElement.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object
+                    || !item.TryGetProperty("url", out var urlElement)
+                    || urlElement.ValueKind != JsonValueKind.String)
+                {
+                    continue;
+                }
+
+                var url = urlElement.GetString();
+                if (string.IsNullOrWhiteSpace(url) || !url.Contains("://", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var region = item.TryGetProperty("region", out var regionElement) && regionElement.ValueKind == JsonValueKind.String
+                    ? regionElement.GetString() ?? ""
+                    : "";
+                if (region.Length == 0
+                    || region.Contains("CN", StringComparison.OrdinalIgnoreCase)
+                    || region.Contains("China", StringComparison.OrdinalIgnoreCase))
+                {
+                    preferred.Add(url);
+                }
+                else
+                {
+                    others.Add(url);
+                }
+            }
+
+            // 国内/无区域标记的排前面：用户在国内，先给最容易打通的节点
+            _official = [.. preferred, .. others];
+            _officialFetchedUtc = DateTime.UtcNow;
+            if (_official.Length > 0)
+            {
+                _context.Log.Info($"官方陶瓦节点 {_official.Length} 个");
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _context.Log.Warn("官方陶瓦节点清单不可用：" + ex.Message);
+        }
+
+        return _official;
+    }
+
+    /// <summary>官方陶瓦节点优先（专为陶瓦网络维护），再接社区清单，按序去重。</summary>
+    private static string[] MergeNodes(IReadOnlyList<string> official, IReadOnlyList<string> community)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var result = new List<string>(official.Count + community.Count);
+        foreach (var node in official.Concat(community))
+        {
+            if (!string.IsNullOrWhiteSpace(node) && seen.Add(node))
+            {
+                result.Add(node);
+            }
+        }
+
+        return [.. result];
     }
 
     /// <summary>Key = SHA-256(seed + "|hycl.online|nodes")，与 Node 侧加密脚本完全一致。</summary>

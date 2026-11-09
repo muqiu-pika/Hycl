@@ -64,10 +64,17 @@ public sealed partial class TerracottaService
     public const string RepairHint = "陶瓦工具文件缺失或完整性校验未通过，请点击「补齐文件后重试」重新下载联机工具";
 
     private const int StartTotalTimeoutSeconds = 120;
-    private const int HostPollSeconds = 30;
-    private const int JoinPollSeconds = 60;
+
+    // 超时参考 HMCL：TerracottaManager 对 host-ok / guest-ok 不做时间上限，只被动跟随状态机。
+    // 这里保留上限只是为了不无限占住后台任务，但必须给足「扫描本机端口 + 公共节点打洞」的时间：
+    // 30s 在卧室网络/首次打洞场景下必然误报「等待房间号超时」。
+    private const int HostPollSeconds = 180;
+    private const int JoinPollSeconds = 180;
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan HttpTimeout = TimeSpan.FromSeconds(8);
+
+    /// <summary>等待陶瓦回到 waiting 的上限；/state/scanning 只有在 waiting 时才生效。</summary>
+    private static readonly TimeSpan WaitingTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>官方 0.4.2 资产（清单不可达时的兜底；键与 HyclOnlineDefaults.ToolAssetKey 一致）。</summary>
     private static readonly Dictionary<string, (string FileName, string ExeName, string PkgSha256, string ExeSha256)> FallbackAssets = new(StringComparer.Ordinal)
@@ -368,6 +375,11 @@ public sealed partial class TerracottaService
             {
                 Log?.Invoke("info", $"已附加 {publicNodes.Count} 个社区节点");
             }
+
+            // 关键前置：/state/scanning 与 /state/guesting 只在 waiting 状态生效，
+            // 否则上游会「静默忽略并返回 200」。之前不校验就直接请求，一旦陶瓦进程复用了
+            // 上一次的实例或刚启动尚未进入 waiting，请求就被丢掉，随后必然等到超时。
+            await EnsureWaitingAsync(cancellationToken).ConfigureAwait(false);
 
             if (mode == TerracottaMode.Host)
             {
@@ -783,13 +795,66 @@ public sealed partial class TerracottaService
         return body;
     }
 
+    /// <summary>
+    /// 等待陶瓦进入 waiting。<c>/state/scanning</c> 与 <c>/state/guesting</c> 只在 waiting 时生效，
+    /// 否则上游会静默忽略并返回 200 —— 此时如果直接轮询 host-ok，就只会等到超时。
+    /// 若卡在其它状态（复用旧实例、上次异常残留），先调 <c>/state/ide</c> 复位。
+    /// 复位失败不阻断流程：后续请求仍可能成功，最终超时文案会带上最后状态。
+    /// </summary>
+    private async Task EnsureWaitingAsync(CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow + WaitingTimeout;
+        var resetTried = false;
+        var lastSeen = "";
+
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                lastSeen = TerracottaStateJson.Parse(await GetAsync("/state", cancellationToken).ConfigureAwait(false)).State;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidOperationException)
+            {
+                await Task.Delay(PollInterval, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            if (lastSeen == "waiting")
+            {
+                return;
+            }
+
+            if (!resetTried)
+            {
+                resetTried = true;
+                Log?.Invoke("info", $"陶瓦当前状态为 {lastSeen}，先复位为待机再发起请求");
+                try
+                {
+                    await GetAsync("/state/ide", cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidOperationException)
+                {
+                    Log?.Invoke("warn", "复位陶瓦状态失败：" + ex.Message);
+                }
+            }
+
+            await Task.Delay(PollInterval, cancellationToken).ConfigureAwait(false);
+        }
+
+        Log?.Invoke("warn", $"陶瓦未在 {WaitingTimeout.TotalSeconds:0}s 内回到待机（当前 {lastSeen}），继续尝试发起请求");
+    }
+
     private async Task<TerracottaStateJson> PollUntilReadyAsync(TerracottaMode mode, int timeoutSeconds, CancellationToken cancellationToken)
     {
         _pollCts?.Dispose();
         _pollCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var token = _pollCts.Token;
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(timeoutSeconds);
+        var startedUtc = DateTime.UtcNow;
+        var deadline = startedUtc + TimeSpan.FromSeconds(timeoutSeconds);
         var lastRaw = Current.StateRaw;
+        var lastIndex = -1;
+        var lastNotice = startedUtc;
+
         while (DateTime.UtcNow < deadline)
         {
             if (_process is null || _process.HasExited)
@@ -808,10 +873,23 @@ public sealed partial class TerracottaService
                 continue;
             }
 
+            // 上游约定 index 单调递增：忽略回退/重复的快照，避免旧状态把界面拉回去
+            if (state.Index >= 0 && state.Index < lastIndex)
+            {
+                await Task.Delay(PollInterval, token).ConfigureAwait(false);
+                continue;
+            }
+
+            lastIndex = state.Index;
+
             if (state.State != lastRaw)
             {
                 lastRaw = state.State;
-                Publish(s => s with { StateRaw = state.State });
+                // host-starting 起上游就已给出房间码：先展示出来，用户不必干等到 host-ok 才能复制
+                var room = mode == TerracottaMode.Host && !string.IsNullOrEmpty(state.Room)
+                    ? state.Room
+                    : Current.Room;
+                Publish(s => s with { StateRaw = state.State, Room = room });
                 Log?.Invoke("info", "陶瓦状态：" + state.State);
             }
 
@@ -826,7 +904,7 @@ public sealed partial class TerracottaService
                     // 复位尽力而为
                 }
 
-                throw new InvalidOperationException($"陶瓦进入异常状态（{state.State}），已复位，可重试");
+                throw new InvalidOperationException(DescribeException(state.Type, mode == TerracottaMode.Host));
             }
 
             if (mode == TerracottaMode.Host && state.State == "host-ok" && !string.IsNullOrEmpty(state.Room))
@@ -839,11 +917,35 @@ public sealed partial class TerracottaService
                 return state;
             }
 
+            // 长等待期间每 15s 打一条进度，便于用户反馈日志时定位卡在哪一步
+            if (DateTime.UtcNow - lastNotice > TimeSpan.FromSeconds(15))
+            {
+                lastNotice = DateTime.UtcNow;
+                Log?.Invoke("info", $"仍在等待（{state.State}），已等待 {(int)(DateTime.UtcNow - startedUtc).TotalSeconds}s");
+            }
+
             await Task.Delay(PollInterval, token).ConfigureAwait(false);
         }
 
-        throw new TimeoutException(mode == TerracottaMode.Host ? "等待房间号超时（30s）" : "等待连接就绪超时");
+        throw new TimeoutException(mode == TerracottaMode.Host
+            ? $"等待房间号超时（{timeoutSeconds}s，最后状态：{lastRaw ?? "未知"}）。"
+              + "若一直停在 host-scanning，请先在游戏里「对局域网开放」世界；"
+              + "若停在 host-starting，说明正在通过公共节点打洞，可稍等后重试或在插件设置中查看日志"
+            : $"等待连接就绪超时（{timeoutSeconds}s，最后状态：{lastRaw ?? "未知"}）。"
+              + "请确认房间码正确、房主的房间仍然开启，并检查网络后重试");
     }
+
+    /// <summary>把上游 exception 的 type 翻成可操作提示（定义见 http-api.md）。</summary>
+    private static string DescribeException(int? type, bool isHost) => type switch
+    {
+        0 => "无法连接房主：房间已关闭或网络不稳定，请确认房主房间仍在后重试",
+        1 => "与房主的连接已中断，请重新加入",
+        2 => "本机 EasyTier 崩溃了，请重试；多次失败可更换网络环境",
+        3 => "房主端 EasyTier 崩溃，请关闭房间后重新创建",
+        4 => "房主端 Minecraft 服务器失联（房主退出存档后房间会自动关闭）",
+        5 => "陶瓦脚手架协议错误，请更新插件与联机工具后重试",
+        _ => isHost ? "陶瓦进入异常状态，已复位，可重试" : "加入房间失败，已复位，可重试",
+    };
 
     // ---------- 小工具 ----------
 
@@ -856,10 +958,19 @@ public sealed partial class TerracottaService
         }
 
         var builder = new StringBuilder();
-        // 上限 48 个：避免本地 HTTP 请求行过长（当前清单 31 个，留有余量）
-        foreach (var node in nodes.Take(48))
+        var added = 0;
+        foreach (var node in nodes)
         {
-            builder.Append("&public_nodes=").Append(Uri.EscapeDataString(node));
+            var encoded = "&public_nodes=" + Uri.EscapeDataString(node);
+            // 本地 HTTP 服务的请求行有长度上限：按编码后总长 6000 字符截断。
+            // 宁可少带几个节点，也不要因为请求行过长被 431/断开而让整次开房直接失败。
+            if (added >= 48 || builder.Length + encoded.Length > 6000)
+            {
+                break;
+            }
+
+            builder.Append(encoded);
+            added++;
         }
 
         return builder.ToString();
@@ -965,7 +1076,7 @@ public sealed partial class TerracottaService
 
     private sealed record SessionDirectory(string Directory, bool IsMac, Process? Process);
 
-    private sealed record TerracottaStateJson(string State, string? Room, string? Url)
+    private sealed record TerracottaStateJson(string State, string? Room, string? Url, int Index, int? Type)
     {
         public static TerracottaStateJson Parse(string json)
         {
@@ -974,7 +1085,13 @@ public sealed partial class TerracottaService
             return new TerracottaStateJson(
                 root.TryGetProperty("state", out var state) && state.ValueKind == JsonValueKind.String ? state.GetString() ?? "unknown" : "unknown",
                 root.TryGetProperty("room", out var room) && room.ValueKind == JsonValueKind.String ? room.GetString() : null,
-                root.TryGetProperty("url", out var url) && url.ValueKind == JsonValueKind.String ? url.GetString() : null);
+                root.TryGetProperty("url", out var url) && url.ValueKind == JsonValueKind.String ? url.GetString() : null,
+                root.TryGetProperty("index", out var index) && index.ValueKind == JsonValueKind.Number && index.TryGetInt32(out var indexValue)
+                    ? indexValue
+                    : -1,
+                root.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.Number && type.TryGetInt32(out var typeValue)
+                    ? typeValue
+                    : null);
         }
     }
 }

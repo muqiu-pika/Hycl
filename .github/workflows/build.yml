@@ -39,7 +39,8 @@ jobs:
         run: dotnet build Hycl.Launcher.sln -c Release --nologo
 
   # 六平台产物：win / linux / mac × x64 / arm64。
-  # 单文件、R2R、压缩由 UI csproj 在 PublishSingleFile=true 时自动启用；
+  # 单文件与压缩由 UI csproj 在 PublishSingleFile=true 时自动启用。
+  # R2R 默认关闭：它让自包含单文件从 ~47.9 MB 涨到 ~59.2 MB，体积换来的首帧收益不划算。
   # 裁剪必须关闭：动态加载的插件 dll 引用 System.Runtime 等框架 facade，裁剪版会移除它们。
   # 交叉 RID 发布（含跨 OS 与跨架构）已在 Windows 主机上实测 linux-x64 / osx-arm64 通过。
   publish:
@@ -77,6 +78,7 @@ jobs:
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
           -p:PublishTrimmed=false
+          -p:PublishReadyToRun=false
           -p:DebugType=None -p:DebugSymbols=false
           -o publish
 

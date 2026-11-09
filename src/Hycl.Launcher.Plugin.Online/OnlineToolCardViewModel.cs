@@ -363,8 +363,21 @@ public partial class OnlineToolCardViewModel : ObservableObject
     {
         TerracottaPhase.Downloading => "正在下载陶瓦工具",
         TerracottaPhase.Starting => "正在启动陶瓦",
-        TerracottaPhase.Hosting => "正在创建房间",
-        TerracottaPhase.Joining => "正在加入房间",
+        // 上游状态机：host-scanning 需要本机 MC 已对局域网开放，host-starting 才是在打洞。
+        // 两者文案必须分开，否则用户看到「正在创建房间」一直转圈，不知道要先去开局域网。
+        TerracottaPhase.Hosting => state.StateRaw switch
+        {
+            "host-scanning" => "正在扫描本机 Minecraft 端口 —— 请先在游戏里「对局域网开放」世界",
+            "host-starting" => "房间码已生成，正在通过公共节点建立连接（网络较差时需 1-2 分钟）",
+            "host-ok" => "房间已就绪，把房间码发给好友即可",
+            _ => "正在创建房间",
+        },
+        TerracottaPhase.Joining => state.StateRaw switch
+        {
+            "guest-connecting" or "guest-starting" => "正在连接房主（网络较差时需 1-2 分钟）",
+            "guest-ok" => "连接就绪",
+            _ => "正在加入房间",
+        },
         TerracottaPhase.Ready => "连接就绪",
         _ => string.IsNullOrEmpty(state.Error) ? "未连接" : "连接未完成",
     };

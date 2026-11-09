@@ -32,9 +32,13 @@
   </ItemGroup>
 
   <!--
-    单文件发布时启用压缩与 ReadyToRun（均只在 PublishSingleFile=true 时生效，不影响日常构建）：
-    - EnableCompressionInSingleFile：压缩嵌入程序集，显著缩小 exe，启动耗时实测无差异；
-    - PublishReadyToRun：预编译托管代码，可见首帧从 ~2.9s 提前到 ~1.1s（win-x64 实测）。
+    单文件发布时启用压缩（仅在 PublishSingleFile=true 时生效，不影响日常构建）：
+    - EnableCompressionInSingleFile：压缩嵌入程序集，显著缩小 exe，启动耗时实测无差异。
+
+    PublishReadyToRun 保持 false：R2R 会把每个程序集的 IL 预编译成本机码、等于多存一份，
+    实测让 win-x64 自包含单文件（原生库已嵌入）从 47.9 MB 涨到 59.2 MB（+11.3 MB，约 24%），
+    换来的是首帧从 ~2.9s 提前到 ~1.1s。体积是用户最直接感知的成本，因此默认关闭；
+    需要更快的冷启动时，在命令行加 -p:PublishReadyToRun=true 即可单独开启。
 
     PublishTrimmed 必须保持 false：插件程序集是运行时通过 Assembly.LoadFrom 动态加载的，
     不参与宿主裁剪图。裁剪器会移除 System.Runtime / netstandard 这类 type-forwarder facade
@@ -47,7 +51,7 @@
   -->
   <PropertyGroup Condition="'$(PublishSingleFile)' == 'true'">
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
-    <PublishReadyToRun>true</PublishReadyToRun>
+    <PublishReadyToRun>false</PublishReadyToRun>
     <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
 
