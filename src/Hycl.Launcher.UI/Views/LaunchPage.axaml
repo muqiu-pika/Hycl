@@ -10,8 +10,14 @@
 
     <!-- 对应网页版 LaunchView：左栏玩家 / 档案（互斥切换），右栏启动 + 快捷方式
          大屏时内容按 MinHeight 绑定视口高度铺满；小屏时整页纵向滚动，不裁切 -->
+    <UserControl.Styles>
+        <!-- 整页纵向滚动条向内收 5px：贴边但避开圆角窗形裁切，不越出启动器范围 -->
+        <Style Selector="ScrollViewer.page-scroll /template/ ScrollBar#PART_VerticalScrollBar">
+            <Setter Property="Margin" Value="0,0,5,0" />
+        </Style>
+    </UserControl.Styles>
     <Panel>
-    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <ScrollViewer Classes="page-scroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <Grid ColumnDefinitions="300,*" MinHeight="{Binding $parent[ScrollViewer].Bounds.Height}">
             <!-- ================= 左栏（唯一弹性项） ================= -->
             <!-- MinHeight 为按内容量测的极小高度下限：
