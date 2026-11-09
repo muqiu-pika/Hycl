@@ -203,8 +203,9 @@ public sealed class PluginManager
     public bool IsLoaded(string pluginId) => _loaded.ContainsKey(pluginId);
 
     /// <summary>
-    /// 启用/禁用插件：只控制工具页入口的显示，不卸载程序集、不停止插件内部服务
-    /// （避免反复切换破坏插件状态；彻底停止请用卸载）。
+    /// 启用/禁用插件（热切换）：程序集无法卸载（默认 ALC），因此禁用是「隐藏入口 + 停止后台
+    /// 任务」——实现了 <see cref="IHyclPluginHotToggle"/> 的插件（如陶瓦联机）会立即结束联机
+    /// 会话并取消在途下载；重新启用时恢复。未实现该接口的旧插件退化为只切换入口显示。
     /// </summary>
     public void SetEnabled(string pluginId, bool enabled)
     {
@@ -216,8 +217,35 @@ public sealed class PluginManager
 
         SaveState();
         RefreshEnabledPlugins();
+        if (_loaded.TryGetValue(pluginId, out var plugin)
+            && plugin is IHyclPluginHotToggle toggle)
+        {
+            _ = RunHotToggleAsync(plugin, toggle, enabled);
+        }
+
         PluginsChanged?.Invoke(this, EventArgs.Empty);
-        _logger.Info($"[插件] {pluginId} 已{(enabled ? "启用" : "禁用")}");
+        _logger.Info($"[插件] {pluginId} 已{(enabled ? "启用" : "禁用")}（热切换）");
+    }
+
+    /// <summary>热切换回调限时执行：失败只记日志，不影响启用状态的落盘与界面刷新。</summary>
+    private async Task RunHotToggleAsync(IHyclPlugin plugin, IHyclPluginHotToggle toggle, bool enabled)
+    {
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            if (enabled)
+            {
+                await toggle.ResumeAsync().WaitAsync(timeout.Token).ConfigureAwait(false);
+            }
+            else
+            {
+                await toggle.SuspendAsync().WaitAsync(timeout.Token).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn($"[插件] {plugin.Id} 热{(enabled ? "启用" : "禁用")}回调失败：" + ex.Message);
+        }
     }
 
     private string StateFilePath => Path.Combine(_paths.DataDirectory, "plugins-state.json");

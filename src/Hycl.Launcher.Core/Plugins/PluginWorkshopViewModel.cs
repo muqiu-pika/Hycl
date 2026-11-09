@@ -235,7 +235,7 @@ public partial class PluginWorkshopViewModel : ObservableObject
         if (row is not null)
         {
             _plugins.SetEnabled(row.Id, true);
-            _toast?.Invoke($"{row.Name} 已启用，可在工具页打开");
+            _toast?.Invoke($"{row.Name} 已启用（立即生效，可在工具页打开）");
         }
     }
 
@@ -245,7 +245,7 @@ public partial class PluginWorkshopViewModel : ObservableObject
         if (row is not null)
         {
             _plugins.SetEnabled(row.Id, false);
-            _toast?.Invoke($"{row.Name} 已禁用，工具页入口已隐藏");
+            _toast?.Invoke($"{row.Name} 已禁用（立即生效，后台任务已停止）");
         }
     }
 

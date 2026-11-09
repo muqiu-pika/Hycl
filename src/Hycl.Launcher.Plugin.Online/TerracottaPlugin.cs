@@ -3,7 +3,7 @@ using Hycl.Launcher.PluginContract;
 namespace Hycl.Launcher.Plugin.Online;
 
 /// <summary>Hycl 联机插件入口：陶瓦联机（Terracotta）。版本号以 csproj 的 Version 为单一事实源。</summary>
-public sealed class TerracottaPlugin : IHyclPlugin, IHyclPluginFeaturePage
+public sealed class TerracottaPlugin : IHyclPlugin, IHyclPluginFeaturePage, IHyclPluginHotToggle
 {
     public string Id => "hycl.online";
 
@@ -53,5 +53,29 @@ public sealed class TerracottaPlugin : IHyclPlugin, IHyclPluginFeaturePage
         {
             await _service.StopAsync(silent: true).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>热禁用：停掉联机会话并取消在途的后台校验/下载（实例保持已初始化，重新启用直接恢复）。</summary>
+    public Task SuspendAsync()
+    {
+        if (_service is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        _service.CancelAutoPrepare();
+        return _service.StopAsync(silent: true);
+    }
+
+    /// <summary>热启用：恢复工具自检与自动准备（本地校验通过则静默就绪，缺失才下载）。</summary>
+    public Task ResumeAsync()
+    {
+        if (_service is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        _ = _service.AutoPrepareAsync();
+        return Task.CompletedTask;
     }
 }

@@ -111,6 +111,9 @@ public sealed partial class TerracottaService
     private int _operation;
     private CancellationTokenSource? _pollCts;
 
+    /// <summary>后台自动准备（校验/下载）的取消源；插件热禁用时取消，避免禁用后仍在下载。</summary>
+    private CancellationTokenSource? _autoPrepareCts;
+
     /// <summary>当前 Unix 会话目录（linux/mac 私有 TMPDIR/HOME；进程退出后清理）。</summary>
     private SessionDirectory? _session;
 
@@ -221,9 +224,12 @@ public sealed partial class TerracottaService
             return;
         }
 
+        // 挂到可取消源上：插件热禁用/停用时取消在途的后台校验与下载
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _autoPrepareCts = linked;
         try
         {
-            var asset = await ResolveAssetAsync(cancellationToken).ConfigureAwait(false);
+            var asset = await ResolveAssetAsync(linked.Token).ConfigureAwait(false);
             if (asset is null)
             {
                 Publish(s => s with
@@ -238,7 +244,7 @@ public sealed partial class TerracottaService
             var exePath = Path.Combine(ToolDirectory, asset.ExeName);
             if (File.Exists(exePath))
             {
-                if (await VerifySha256Async(exePath, asset.ExeSha256, cancellationToken).ConfigureAwait(false))
+                if (await VerifySha256Async(exePath, asset.ExeSha256, linked.Token).ConfigureAwait(false))
                 {
                     MakeExecutable(exePath);
                     Publish(s => s with { Phase = TerracottaPhase.Idle, BinaryReady = true, Error = null });
@@ -254,7 +260,7 @@ public sealed partial class TerracottaService
 
             // 首次安装（或文件被清理）：直接后台补好，用户不需要手动点下载
             Publish(s => s with { Phase = TerracottaPhase.Downloading, BinaryReady = false, Error = null });
-            await EnsureInstalledAsync(null, cancellationToken).ConfigureAwait(false);
+            await EnsureInstalledAsync(null, linked.Token).ConfigureAwait(false);
             Publish(s => s with { Phase = TerracottaPhase.Idle });
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -264,7 +270,25 @@ public sealed partial class TerracottaService
         }
         finally
         {
+            if (ReferenceEquals(_autoPrepareCts, linked))
+            {
+                _autoPrepareCts = null;
+            }
+
             Volatile.Write(ref _autoPreparing, 0);
+        }
+    }
+
+    /// <summary>取消在途的后台自动准备（热禁用时调用；正在进行的下载会被中止并保留断点临时文件）。</summary>
+    public void CancelAutoPrepare()
+    {
+        try
+        {
+            _autoPrepareCts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // 后台任务已自行结束
         }
     }
 
