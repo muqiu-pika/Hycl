@@ -84,8 +84,8 @@
                         </Grid>
                     </StackPanel>
 
-                    <!-- 建房 / 加入表单 -->
-                    <StackPanel Spacing="10" IsVisible="{Binding !IsBusy}">
+                    <!-- 建房 / 加入表单（会话存在期间隐藏：房间开着时不应再看到「创建房间」） -->
+                    <StackPanel Spacing="10" IsVisible="{Binding !IsSessionActive}">
                         <StackPanel Spacing="6">
                             <TextBlock Text="创建房间" FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" />
                             <TextBlock Text="先在游戏中对局域网开放世界，再点击创建，把房间码发给好友。"
@@ -107,9 +107,10 @@
                         </StackPanel>
                     </StackPanel>
 
-                    <Button Classes="mc-btn danger" Content="停止联机"
+                    <!-- 会话存在期间始终可见：等待中是「停止联机」，房间就绪后是「关闭房间」 -->
+                    <Button Classes="mc-btn danger" Content="{Binding StopButtonText}"
                             Command="{Binding StopCommand}"
-                            IsVisible="{Binding IsBusy}" />
+                            IsVisible="{Binding IsSessionActive}" />
                 </StackPanel>
 
                 <!-- 连接日志 + 插件设置（点进工具页后展开） -->

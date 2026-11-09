@@ -95,6 +95,13 @@ public partial class OnlineToolCardViewModel : ObservableObject
     [ObservableProperty]
     private bool _isBusy;
 
+    /// <summary>会话存在（启动中/建房/加入/已就绪）：期间隐藏建加表单并显示「关闭房间」按钮。</summary>
+    [ObservableProperty]
+    private bool _isSessionActive;
+
+    [ObservableProperty]
+    private string _stopButtonText = "停止联机";
+
     public ObservableCollection<string> Logs { get; } = [];
 
     public string UpstreamUrl => "https://github.com/burningtnt/Terracotta";
@@ -300,6 +307,13 @@ public partial class OnlineToolCardViewModel : ObservableObject
             GameAddress = state.Url ?? "";
             ErrorText = state.Error ?? "";
             IsBusy = state.Phase is TerracottaPhase.Starting or TerracottaPhase.Hosting or TerracottaPhase.Joining;
+            // 就绪后房间仍在运行：会话区保持展开，按钮切换为「关闭房间」，否则用户无从退出
+            IsSessionActive = state.Phase
+                is TerracottaPhase.Starting
+                or TerracottaPhase.Hosting
+                or TerracottaPhase.Joining
+                or TerracottaPhase.Ready;
+            StopButtonText = state.Phase == TerracottaPhase.Ready ? "关闭房间" : "停止联机";
             OnPropertyChanged(nameof(IsReady));
 
             // 工具态由引擎快照驱动：自动下载显示进度，校验失败显示补齐入口，通过后整块隐藏
