@@ -3,12 +3,14 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Hycl.Launcher.Core.Auth;
 using Hycl.Launcher.Core.Config;
 using Hycl.Launcher.Core.Game;
 using Hycl.Launcher.Core.Models;
+using Hycl.Launcher.Core.Platform;
 using Hycl.Launcher.Core.Services;
 
 namespace Hycl.Launcher.Core.ViewModels.Pages;
@@ -2440,6 +2442,13 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             return;
         }
 
+        // 命名规范对齐 PCL-CE（离线登录）：3-16 位，仅英文字母/数字/下划线。
+        // 不合规不硬拦——弹窗警告后允许「坚持使用」，与 PCL-CE 的可跳过警告一致。
+        if (!OfflineNamePattern().IsMatch(name) && !ConfirmNonStandardOfflineName(name))
+        {
+            return;
+        }
+
         // 离线组内按玩家名比较：允许与皮肤站/正版账号同名，但不允许离线档案之间重名
         var conflict = _services.Accounts.FindNameConflict("offline", name);
         if (conflict is not null)
@@ -2456,6 +2465,29 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         OfflineNameText = "";
         IsLoginDialogVisible = false;
         _toast?.Invoke($"已添加离线档案：{name}");
+    }
+
+    /// <summary>离线玩家名规范（对齐 PCL-CE）：3-16 位英文字母、数字或下划线。</summary>
+    [GeneratedRegex("^[A-Za-z0-9_]{3,16}$")]
+    private static partial Regex OfflineNamePattern();
+
+    /// <summary>
+    /// 不合规玩家名的继续确认（文案对齐 PCL-CE「玩家 ID 不符合规范」）。
+    /// 非 Windows 没有原生确认框：放行并以 toast 提示风险。
+    /// </summary>
+    private bool ConfirmNonStandardOfflineName(string name)
+    {
+        const string message =
+            "你输入的玩家名不符合标准（3 - 16 位，只可以包含英文字母、数字与下划线），"
+            + "可能导致部分版本的游戏无法启动或发生错误。\n\n"
+            + "强烈建议使用规范的玩家名！如果你坚持，仍然可以继续创建档案。";
+        if (OperatingSystem.IsWindows())
+        {
+            return NativeMessageBox.ShowYesNo("玩家名不符合规范", message, isError: true);
+        }
+
+        _toast?.Invoke($"玩家名 {name} 不符合规范，可能导致部分版本无法启动");
+        return true;
     }
 
     // ------------------------- 皮肤站登录（authlib-injector / Yggdrasil） -------------------------

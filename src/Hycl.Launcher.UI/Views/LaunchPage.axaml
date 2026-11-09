@@ -821,7 +821,8 @@
                                        FontSize="12.5" />
                             <TextBox Grid.Column="1"
                                      Text="{Binding OfflineNameText, Mode=TwoWay}"
-                                     PlaceholderText="例如：Steve（最长 16 字符）"
+                                     PlaceholderText="例如：Steve"
+                                     ToolTip.Tip="3 - 16 位，只可以包含英文字母、数字与下划线"
                                      MaxLength="16" />
                         </Grid>
                         <Button Classes="mc-btn primary"
