@@ -655,19 +655,7 @@ public sealed class PluginManager
         var directory = Path.Combine(_paths.PluginsDirectory, pluginId);
         if (Directory.Exists(directory))
         {
-            await Task.Run(() =>
-            {
-                try
-                {
-                    Directory.Delete(directory, recursive: true);
-                }
-                catch (IOException)
-                {
-                    var pending = directory + DeleteSuffix;
-                    CleanDirectory(pending);
-                    Directory.Move(directory, pending);
-                }
-            }, cancellationToken).ConfigureAwait(true);
+            await Task.Run(() => DeletePluginDirectory(directory), cancellationToken).ConfigureAwait(true);
         }
 
         _installed.Remove(pluginId);
@@ -825,6 +813,67 @@ public sealed class PluginManager
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _logger.Warn("[插件] 文件清理失败：" + file + "：" + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 稳妥删除插件目录：先清只读属性再删；个别文件被占用（如误存进目录的截图被看图软件
+    /// 锁住）导致删除中断时，把残留挪入 .pending-delete，待下次启动统一清理。
+    /// 卸载在逻辑上已生效（入口/安装态均已移除），任何文件删除失败都不向上抛。
+    /// </summary>
+    private void DeletePluginDirectory(string directory)
+    {
+        ClearReadOnlyAttributes(directory);
+        try
+        {
+            Directory.Delete(directory, recursive: true);
+            return;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.Warn("[插件] 卸载时删除目录失败，尝试标记重启后清理：" + ex.Message);
+        }
+
+        var pending = directory + DeleteSuffix;
+        try
+        {
+            if (Directory.Exists(directory))
+            {
+                CleanDirectory(pending);
+                Directory.Move(directory, pending);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // 移动也失败（目录仍被整体占用）：保留现场，下次启动继续清理
+            _logger.Warn("[插件] 残留文件将在重启启动器后自动清理：" + ex.Message);
+        }
+    }
+
+    /// <summary>递归清掉只读属性（只读文件会让 Directory.Delete 抛 UnauthorizedAccessException 并中断整树删除）。</summary>
+    private static void ClearReadOnlyAttributes(string directory)
+    {
+        try
+        {
+            foreach (var entry in Directory.EnumerateFileSystemEntries(directory, "*", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    var attributes = File.GetAttributes(entry);
+                    if ((attributes & FileAttributes.ReadOnly) != 0)
+                    {
+                        File.SetAttributes(entry, attributes & ~FileAttributes.ReadOnly);
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FileNotFoundException)
+                {
+                    // 单个文件清不掉就留给删除阶段兜底
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // 枚举中断不致命：删除阶段会按剩余内容继续
         }
     }
 }
