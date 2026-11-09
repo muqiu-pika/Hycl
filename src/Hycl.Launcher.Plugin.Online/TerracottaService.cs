@@ -46,6 +46,9 @@ public sealed record TerracottaState
 
     /// <summary>本地二进制已就绪且校验通过。</summary>
     public bool BinaryReady { get; init; }
+
+    /// <summary>非空表示上游清单已发布与本地不一致的陶瓦工具版本（延迟后台探测，不打扰启动）。</summary>
+    public string? ToolUpdateHint { get; init; }
 }
 
 /// <summary>
@@ -57,6 +60,10 @@ public sealed record TerracottaState
 public sealed partial class TerracottaService
 {
     private const string ToolVersion = "0.4.2";
+
+    /// <summary>断点续传临时文件后缀（与启动器 DownloadClient.TempSuffix 一致）。</summary>
+    private const string DownloadTempSuffix = ".hycl-dl";
+
     private static readonly Regex PortFilePattern = PortPattern();
     private static readonly Regex RoomCodePattern = new(@"^U/[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$", RegexOptions.Compiled);
 
@@ -64,6 +71,16 @@ public sealed partial class TerracottaService
     public const string RepairHint = "陶瓦工具文件缺失或完整性校验未通过，请点击「补齐文件后重试」重新下载联机工具";
 
     private const int StartTotalTimeoutSeconds = 120;
+
+    /// <summary>启动/联机前清单探测的时限：拉不通直接落内置兜底资产，不把自检卡在网络上。</summary>
+    private static readonly TimeSpan ManifestProbeTimeout = TimeSpan.FromSeconds(12);
+
+    /// <summary>上游更新探测：启动后延迟触发 + 限时，失败静默（快速自检已保证本地可用）。</summary>
+    private static readonly TimeSpan UpdateProbeDelay = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan UpdateProbeTimeout = TimeSpan.FromSeconds(20);
+
+    /// <summary>取消下载后保留的断点临时文件超过该时长即视为残件清理。</summary>
+    private static readonly TimeSpan StaleTempAge = TimeSpan.FromHours(24);
 
     // 超时参考 HMCL：TerracottaManager 对 host-ok / guest-ok 不做时间上限，只被动跟随状态机。
     // 这里保留上限只是为了不无限占住后台任务，但必须给足「扫描本机端口 + 公共节点打洞」的时间：
@@ -114,6 +131,9 @@ public sealed partial class TerracottaService
     /// <summary>后台自动准备（校验/下载）的取消源；插件热禁用时取消，避免禁用后仍在下载。</summary>
     private CancellationTokenSource? _autoPrepareCts;
 
+    /// <summary>上游更新探测的单飞标志（0=未在跑）。</summary>
+    private int _updateProbeRunning;
+
     /// <summary>当前 Unix 会话目录（linux/mac 私有 TMPDIR/HOME；进程退出后清理）。</summary>
     private SessionDirectory? _session;
 
@@ -152,8 +172,10 @@ public sealed partial class TerracottaService
     /// <summary>确保官方二进制就绪：本地校验 → 多镜像下载 → 双 SHA-256 → 解压。</summary>
     public async Task EnsureInstalledAsync(IProgress<double>? progress, CancellationToken cancellationToken)
     {
-        var asset = await ResolveAssetAsync(cancellationToken).ConfigureAwait(false)
+        // 下载前的清单解析限时：清单拉不通时立刻落到内置镜像链，别把「下载」卡在元数据上
+        var asset = await ResolveAssetAsync(cancellationToken, ManifestProbeTimeout).ConfigureAwait(false)
             ?? throw new PlatformNotSupportedException("陶瓦联机暂不支持当前平台");
+        CleanStaleTempFiles();
         var exePath = Path.Combine(ToolDirectory, asset.ExeName);
         if (File.Exists(exePath) && await VerifySha256Async(exePath, asset.ExeSha256, cancellationToken).ConfigureAwait(false))
         {
@@ -199,10 +221,24 @@ public sealed partial class TerracottaService
         Publish(s => s with { BinaryReady = true });
     }
 
-    /// <summary>本地二进制是否已就绪（快速校验）。</summary>
+    /// <summary>
+    /// 本地二进制是否已就绪。先用内置资产做零网络校验（启动自检主路径）；
+    /// 不通过时再尝试清单解析（限时），兼容上游已更换工具文件名的场景。
+    /// </summary>
     public async Task<bool> IsBinaryReadyAsync(CancellationToken cancellationToken = default)
     {
-        var asset = await ResolveAssetAsync(cancellationToken).ConfigureAwait(false);
+        var fast = ResolveAssetFast();
+        if (fast is not null)
+        {
+            var fastPath = Path.Combine(ToolDirectory, fast.ExeName);
+            if (File.Exists(fastPath)
+                && await VerifySha256Async(fastPath, fast.ExeSha256, cancellationToken).ConfigureAwait(false))
+            {
+                return true;
+            }
+        }
+
+        var asset = await ResolveAssetAsync(cancellationToken, ManifestProbeTimeout).ConfigureAwait(false);
         if (asset is null)
         {
             return false;
@@ -229,7 +265,28 @@ public sealed partial class TerracottaService
         _autoPrepareCts = linked;
         try
         {
-            var asset = await ResolveAssetAsync(linked.Token).ConfigureAwait(false);
+            // 零网络快速自检：内置资产键/文件名/SHA-256 全在编译期，坏网络下启动不再卡清单
+            var fast = ResolveAssetFast();
+            if (fast is not null)
+            {
+                var fastPath = Path.Combine(ToolDirectory, fast.ExeName);
+                if (File.Exists(fastPath))
+                {
+                    if (await VerifySha256Async(fastPath, fast.ExeSha256, linked.Token).ConfigureAwait(false))
+                    {
+                        MakeExecutable(fastPath);
+                        Publish(s => s with { Phase = TerracottaPhase.Idle, BinaryReady = true, Error = null });
+                        ScheduleUpdateProbe();
+                        return;
+                    }
+
+                    // 损坏时不要自动覆盖：交给用户点「补齐文件后重试」，避免启动期反复下载
+                    Publish(s => s with { Phase = TerracottaPhase.Idle, BinaryReady = false, Error = RepairHint });
+                    return;
+                }
+            }
+
+            var asset = await ResolveAssetAsync(linked.Token, ManifestProbeTimeout).ConfigureAwait(false);
             if (asset is null)
             {
                 Publish(s => s with
@@ -241,20 +298,14 @@ public sealed partial class TerracottaService
                 return;
             }
 
+            // 清单指向的文件名与内置兜底不同（上游已换包）时，按清单路径再核对一次本地文件
             var exePath = Path.Combine(ToolDirectory, asset.ExeName);
-            if (File.Exists(exePath))
+            if (File.Exists(exePath)
+                && await VerifySha256Async(exePath, asset.ExeSha256, linked.Token).ConfigureAwait(false))
             {
-                if (await VerifySha256Async(exePath, asset.ExeSha256, linked.Token).ConfigureAwait(false))
-                {
-                    MakeExecutable(exePath);
-                    Publish(s => s with { Phase = TerracottaPhase.Idle, BinaryReady = true, Error = null });
-                }
-                else
-                {
-                    // 损坏时不要自动覆盖：交给用户点「补齐文件后重试」，避免启动期反复下载
-                    Publish(s => s with { Phase = TerracottaPhase.Idle, BinaryReady = false, Error = RepairHint });
-                }
-
+                MakeExecutable(exePath);
+                Publish(s => s with { Phase = TerracottaPhase.Idle, BinaryReady = true, Error = null });
+                ScheduleUpdateProbe();
                 return;
             }
 
@@ -262,6 +313,7 @@ public sealed partial class TerracottaService
             Publish(s => s with { Phase = TerracottaPhase.Downloading, BinaryReady = false, Error = null });
             await EnsureInstalledAsync(null, linked.Token).ConfigureAwait(false);
             Publish(s => s with { Phase = TerracottaPhase.Idle });
+            ScheduleUpdateProbe();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -292,7 +344,9 @@ public sealed partial class TerracottaService
         }
     }
 
-    private async Task<ToolAsset?> ResolveAssetAsync(CancellationToken cancellationToken)
+    private async Task<ToolAsset?> ResolveAssetAsync(
+        CancellationToken cancellationToken,
+        TimeSpan? manifestTimeout = null)
     {
         var key = PlatformAssetKey();
         if (key is null || !FallbackAssets.TryGetValue(key, out var fallback))
@@ -300,7 +354,27 @@ public sealed partial class TerracottaService
             return null;
         }
 
-        var manifest = await _context.GetManifestAsync(cancellationToken).ConfigureAwait(false);
+        HyclOnlineManifest? manifest;
+        if (manifestTimeout is { } timeout)
+        {
+            // 启动期/联机前的清单探测必须限时：GetStringAsync 自带 90s×重试，网络不佳会把
+            // 「校验完整性」卡成数分钟。超时按清单不可达处理，直接落到内置兜底资产。
+            using var limited = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            limited.CancelAfter(timeout);
+            try
+            {
+                manifest = await _context.GetManifestAsync(limited.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                manifest = null;
+            }
+        }
+        else
+        {
+            manifest = await _context.GetManifestAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         var tool = manifest?.Tools.GetValueOrDefault("terracotta");
         var asset = tool?.Assets.GetValueOrDefault(key);
         var fileName = asset?.FileName ?? fallback.FileName;
@@ -315,23 +389,49 @@ public sealed partial class TerracottaService
         }
         else
         {
-            // 清单不可达时的兜底链：EdgeOne 托管（若已部署）→ gitee / cnb 官方镜像 →
-            // GitHub Release（启动器侧按 GitHubSources 镜像池自动展开，GitHub 原站托底）
-            var version = string.IsNullOrWhiteSpace(tool?.Version) ? ToolVersion : tool!.Version;
-            var fallbackUrls = new List<string>();
-            var edgeOne = HyclOnlineSites.EdgeOneToolFileUrl(version, fileName);
-            if (edgeOne is not null)
-            {
-                fallbackUrls.Add(edgeOne);
-            }
-
-            fallbackUrls.Add($"https://gitee.com/burningtnt/Terracotta/releases/download/v{version}/{fileName}");
-            fallbackUrls.Add($"https://cnb.cool/HMCL-Terracotta/Terracotta/-/releases/download/v{version}/{fileName}");
-            fallbackUrls.Add($"https://github.com/burningtnt/Terracotta/releases/download/v{version}/{fileName}");
-            urls = fallbackUrls;
+            urls = BuildFallbackUrls(string.IsNullOrWhiteSpace(tool?.Version) ? ToolVersion : tool!.Version, fileName);
         }
 
         return new ToolAsset(key, fileName, exeName, pkgSha, exeSha, size, urls);
+    }
+
+    /// <summary>
+    /// 不碰网络的资产解析：直接使用内置 0.4.2 资产（键、文件名与双 SHA-256 全部编译期内置）。
+    /// 启动自检与建房/加入前的快速校验走这里，坏网络下也不会把「校验完整性」卡成数分钟。
+    /// </summary>
+    private static ToolAsset? ResolveAssetFast()
+    {
+        var key = PlatformAssetKey();
+        if (key is null || !FallbackAssets.TryGetValue(key, out var fallback))
+        {
+            return null;
+        }
+
+        return new ToolAsset(
+            key,
+            fallback.FileName,
+            fallback.ExeName,
+            fallback.PkgSha256,
+            fallback.ExeSha256,
+            0,
+            BuildFallbackUrls(ToolVersion, fallback.FileName));
+    }
+
+    private static List<string> BuildFallbackUrls(string version, string fileName)
+    {
+        // 清单不可达时的兜底链：EdgeOne 托管（若已部署）→ gitee / cnb 官方镜像 →
+        // GitHub Release（启动器侧按 GitHubSources 镜像池自动展开，GitHub 原站托底）
+        var fallbackUrls = new List<string>();
+        var edgeOne = HyclOnlineSites.EdgeOneToolFileUrl(version, fileName);
+        if (edgeOne is not null)
+        {
+            fallbackUrls.Add(edgeOne);
+        }
+
+        fallbackUrls.Add($"https://gitee.com/burningtnt/Terracotta/releases/download/v{version}/{fileName}");
+        fallbackUrls.Add($"https://cnb.cool/HMCL-Terracotta/Terracotta/-/releases/download/v{version}/{fileName}");
+        fallbackUrls.Add($"https://github.com/burningtnt/Terracotta/releases/download/v{version}/{fileName}");
+        return fallbackUrls;
     }
 
     private sealed record ToolAsset(
@@ -367,7 +467,9 @@ public sealed partial class TerracottaService
         try
         {
             _starting = true;
-            var asset = await ResolveAssetAsync(cancellationToken).ConfigureAwait(false)
+            // 开房前的完整性自检走零网络快速路径：坏网络下点「创建房间」不该先卡几十秒清单
+            var asset = ResolveAssetFast()
+                ?? await ResolveAssetAsync(cancellationToken, ManifestProbeTimeout).ConfigureAwait(false)
                 ?? throw new PlatformNotSupportedException("陶瓦联机暂不支持当前平台");
             var exePath = Path.Combine(ToolDirectory, asset.ExeName);
             // 每次建房/加入前都做完整性自检：不通过就把状态切到「待补齐」，UI 出现补齐按钮
@@ -392,8 +494,9 @@ public sealed partial class TerracottaService
 
             var player = string.IsNullOrWhiteSpace(_context.PlayerName) ? "Hycl" : _context.PlayerName.Trim();
 
-            // 社区节点（密文清单）：与陶瓦内置节点合并，缓解内置节点 DNS 失效导致的「等待房间号超时」
-            var publicNodes = await _nodes.GetNodesAsync(cancellationToken).ConfigureAwait(false);
+            // 社区节点（密文清单）：与陶瓦内置节点合并，缓解内置节点 DNS 失效导致的「等待房间号超时」。
+            // 限时拉取：网络不佳时不能让开房流程停在节点清单上，超时改用陶瓦内置节点。
+            var publicNodes = await FetchNodesWithTimeoutAsync(cancellationToken).ConfigureAwait(false);
             var nodeQuery = BuildNodeQuery(publicNodes);
             if (publicNodes.Count > 0)
             {
@@ -973,6 +1076,22 @@ public sealed partial class TerracottaService
 
     // ---------- 小工具 ----------
 
+    /// <summary>限时拉取社区节点清单：超时返回空列表（陶瓦自动改用内置节点），不阻塞开房。</summary>
+    private async Task<IReadOnlyList<string>> FetchNodesWithTimeoutAsync(CancellationToken cancellationToken)
+    {
+        using var limited = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        limited.CancelAfter(TimeSpan.FromSeconds(12));
+        try
+        {
+            return await _nodes.GetNodesAsync(limited.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            Log?.Invoke("warn", "社区节点清单拉取超时，本次联机改用陶瓦内置节点");
+            return [];
+        }
+    }
+
     /// <summary>把节点列表拼成重复的 public_nodes 查询参数（Terracotta 会与内置节点合并）。</summary>
     private static string BuildNodeQuery(IReadOnlyList<string> nodes)
     {
@@ -1074,6 +1193,99 @@ public sealed partial class TerracottaService
             if (File.Exists(path))
             {
                 File.Delete(path);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
+
+    /// <summary>
+    /// 延迟探测上游清单是否有与本机不一致的陶瓦工具（新版本/换包）。快速自检已经保证本地可用，
+    /// 因此失败完全静默；只在清单可达且与本机不一致时给出「修复安装」提示，不自动覆盖下载。
+    /// </summary>
+    private void ScheduleUpdateProbe()
+    {
+        if (Interlocked.Exchange(ref _updateProbeRunning, 1) != 0)
+        {
+            return;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                // 整体上限 = 延迟 + 清单探测 + 余量；超时静默放弃（快速自检已保证本地可用）
+                using var timeout = new CancellationTokenSource(UpdateProbeDelay + ManifestProbeTimeout + TimeSpan.FromSeconds(5));
+                await Task.Delay(UpdateProbeDelay, timeout.Token).ConfigureAwait(false);
+                var asset = await ResolveAssetAsync(timeout.Token, ManifestProbeTimeout).ConfigureAwait(false);
+                if (asset is null)
+                {
+                    return;
+                }
+
+                var exePath = Path.Combine(ToolDirectory, asset.ExeName);
+                var consistent = File.Exists(exePath)
+                    && await VerifySha256Async(exePath, asset.ExeSha256, timeout.Token).ConfigureAwait(false);
+                if (consistent)
+                {
+                    return;
+                }
+
+                // 文件名形如 terracotta-0.4.2-...，能抽出就直接展示版本号
+                var version = "";
+                if (asset.FileName.StartsWith("terracotta-", StringComparison.Ordinal))
+                {
+                    var dash = asset.FileName.IndexOf('-', "terracotta-".Length);
+                    if (dash > 0)
+                    {
+                        version = asset.FileName["terracotta-".Length..dash];
+                    }
+                }
+
+                var hint = version.Length > 0
+                    ? $"检测到新版本陶瓦工具 v{version}，可在「插件设置 → 修复安装」更新（当前 v{ToolVersion} 不受影响）"
+                    : "上游陶瓦工具已更新，可在「插件设置 → 修复安装」更新（当前版本不受影响）";
+                Publish(s => s with { ToolUpdateHint = hint });
+                Log?.Invoke("info", hint);
+            }
+            catch (OperationCanceledException)
+            {
+                // 探测取消/超时：静默
+            }
+            catch (Exception ex)
+            {
+                Log?.Invoke("warn", "检查陶瓦工具更新失败（不影响使用）：" + ex.Message);
+            }
+            finally
+            {
+                Volatile.Write(ref _updateProbeRunning, 0);
+            }
+        });
+    }
+
+    /// <summary>清理工具目录里过期的断点临时文件（取消下载会保留 .hycl-dl 供续传，过期才算残件）。</summary>
+    private void CleanStaleTempFiles()
+    {
+        try
+        {
+            if (!Directory.Exists(ToolDirectory))
+            {
+                return;
+            }
+
+            foreach (var file in Directory.EnumerateFiles(ToolDirectory, "*" + DownloadTempSuffix))
+            {
+                try
+                {
+                    if (DateTime.UtcNow - File.GetLastWriteTimeUtc(file) > StaleTempAge)
+                    {
+                        File.Delete(file);
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                }
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

@@ -48,9 +48,14 @@
                                  Height="4" CornerRadius="2"
                                  Foreground="{DynamicResource PrimaryDeepBrush}"
                                  IsVisible="{Binding IsInstalling}" />
-                    <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding !IsInstalling}">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
                         <Button Classes="mc-btn primary-soft" Content="{Binding InstallButtonText}"
-                                Command="{Binding InstallCommand}" />
+                                Command="{Binding InstallCommand}"
+                                IsVisible="{Binding !IsInstalling}" />
+                        <!-- 取消保留断点：短时间内再次点击下载按钮会从中断处继续 -->
+                        <Button Classes="mc-btn" Content="取消下载"
+                                Command="{Binding InstallCancelCommand}"
+                                IsVisible="{Binding IsInstalling}" />
                     </StackPanel>
                 </StackPanel>
 
@@ -161,6 +166,9 @@
                                 <TextBlock Text="{Binding SettingsErrorText}" FontSize="12"
                                            Foreground="{DynamicResource ErrorDarkBrush}" TextWrapping="Wrap"
                                            IsVisible="{Binding SettingsErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                <TextBlock Text="{Binding ToolUpdateHint}" FontSize="12"
+                                           Foreground="{DynamicResource PrimaryDeepBrush}" TextWrapping="Wrap"
+                                           IsVisible="{Binding ToolUpdateHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                 <ProgressBar Minimum="0" Maximum="100" Value="{Binding DownloadPercent}"
                                              Height="4" CornerRadius="2"
                                              Foreground="{DynamicResource PrimaryDeepBrush}"
@@ -173,6 +181,9 @@
                                     <Button Classes="mc-btn" Content="修复安装"
                                             Command="{Binding RepairToolCommand}"
                                             IsEnabled="{Binding !IsRepairing}" />
+                                    <Button Classes="mc-btn" Content="取消下载"
+                                            Command="{Binding RepairToolCancelCommand}"
+                                            IsVisible="{Binding IsRepairing}" />
                                     <Button Classes="action-btn" Content="插件仓库"
                                             Command="{Binding OpenPluginHomeCommand}" />
                                 </StackPanel>

@@ -218,8 +218,8 @@ public sealed class DownloadClient : IDisposable
 
     /// <summary>
     /// 下载文件；若目标已存在且大小匹配则跳过。返回是否真正下载。
-    /// 多个 URL 按优先级依次尝试；网络中断后保留 .hycl-dl 临时文件供下次续传，
-    /// 用户取消时删除该临时文件并关闭文件句柄。
+    /// 多个 URL 按优先级依次尝试；网络中断或用户取消后保留 .hycl-dl 临时文件，
+    /// 短时间内再次下载同一目标时从断点续传（Range 请求 + 结尾哈希校验兜底）。
     /// </summary>
     public async Task<bool> DownloadFileAsync(
         string url,
@@ -317,8 +317,8 @@ public sealed class DownloadClient : IDisposable
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // 用户取消：文件流已随 using 关闭，这里删除本次未完成的续传临时文件，避免留下半截文件
-            TryDelete(tempFile);
+            // 用户取消：保留 .hycl-dl 断点临时文件，短时间内再次下载直接续传（Range 续传 +
+            // 结尾哈希校验兜底）。残件由「下载开始时按目标清理」与调用方的过期清理兜底。
             throw;
         }
 

@@ -69,6 +69,11 @@
                                         CommandParameter="{Binding}"
                                         IsVisible="{Binding ShowInstallButton}"
                                         IsEnabled="{Binding !IsInstalling}" />
+                                <!-- 取消保留断点：短时间内再次点「安装」会从中断处继续 -->
+                                <Button Classes="mc-btn" Content="取消"
+                                        Command="{Binding $parent[UserControl].((p:PluginWorkshopViewModel)DataContext).InstallCancelCommand}"
+                                        CommandParameter="{Binding}"
+                                        IsVisible="{Binding IsInstalling}" />
                                 <Button Classes="mc-btn danger" Content="卸载"
                                         Command="{Binding $parent[UserControl].((p:PluginWorkshopViewModel)DataContext).UninstallCommand}"
                                         CommandParameter="{Binding}"

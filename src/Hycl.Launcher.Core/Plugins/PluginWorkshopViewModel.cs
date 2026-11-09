@@ -140,8 +140,8 @@ public partial class PluginWorkshopViewModel : ObservableObject
     [RelayCommand]
     private Task Refresh() => LoadManifestAsync();
 
-    [RelayCommand]
-    private async Task InstallAsync(PluginWorkshopRow? row)
+    [RelayCommand(IncludeCancelCommand = true)]
+    private async Task InstallAsync(PluginWorkshopRow? row, CancellationToken cancellationToken)
     {
         if (row is null || IsBusy || row.IsInstalling)
         {
@@ -154,7 +154,7 @@ public partial class PluginWorkshopViewModel : ObservableObject
         try
         {
             var progress = new Progress<double>(value => row.Percent = Math.Clamp(value * 100, 0, 100));
-            await _plugins.InstallAsync(row.Id, progress).ConfigureAwait(true);
+            await _plugins.InstallAsync(row.Id, progress, cancellationToken).ConfigureAwait(true);
             // 安装成功但加载失败时不能报「已完成」：工具页不会出现入口，必须把原因告诉用户。
             var loadError = _plugins.Installed.TryGetValue(row.Id, out var installed) ? installed.LoadError : null;
             _toast?.Invoke(loadError is null
@@ -163,6 +163,8 @@ public partial class PluginWorkshopViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
+            // 用户取消：断点临时文件已保留，短时间内再次点「安装」会续传
+            _toast?.Invoke($"{row.Name} 已取消下载，进度已保留");
         }
         catch (Exception ex)
         {

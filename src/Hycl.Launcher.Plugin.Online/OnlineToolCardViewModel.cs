@@ -72,6 +72,10 @@ public partial class OnlineToolCardViewModel : ObservableObject
     [ObservableProperty]
     private bool _isRepairing;
 
+    /// <summary>上游清单探测到的陶瓦工具新版本提示（空 = 无更新信息）。</summary>
+    [ObservableProperty]
+    private string _toolUpdateHint = "";
+
     // ---------- 会话态 ----------
 
     [ObservableProperty]
@@ -121,7 +125,7 @@ public partial class OnlineToolCardViewModel : ObservableObject
 
     // ---------- 命令 ----------
 
-    [RelayCommand]
+    [RelayCommand(IncludeCancelCommand = true)]
     private async Task InstallAsync(CancellationToken cancellationToken)
     {
         if (IsInstalling)
@@ -141,7 +145,12 @@ public partial class OnlineToolCardViewModel : ObservableObject
             await RefreshBinaryStateAsync().ConfigureAwait(true);
             _context.Dispatch(() => InstallStatusText = $"陶瓦 v{_service.ToolVersionNumber} 已就绪");
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException)
+        {
+            // 用户取消：断点临时文件已保留，重新点击会从断点继续
+            _context.Dispatch(() => InstallStatusText = "已取消下载，进度已保留，再次点击「补齐文件后重试」将继续下载");
+        }
+        catch (Exception ex)
         {
             _context.Dispatch(() =>
             {
@@ -253,8 +262,8 @@ public partial class OnlineToolCardViewModel : ObservableObject
         }
     }
 
-    /// <summary>设置区：重新下载/修复工具（多镜像回退 + 双 SHA-256 校验）。</summary>
-    [RelayCommand]
+    /// <summary>设置区：重新下载/修复工具（多镜像回退 + 双 SHA-256 校验；可取消，取消保留断点）。</summary>
+    [RelayCommand(IncludeCancelCommand = true)]
     private async Task RepairToolAsync(CancellationToken cancellationToken)
     {
         if (IsRepairing)
@@ -273,7 +282,11 @@ public partial class OnlineToolCardViewModel : ObservableObject
             await RefreshToolAsync(CancellationToken.None).ConfigureAwait(true);
             _context.Dispatch(() => InstallStatusText = $"陶瓦 v{_service.ToolVersionNumber} 已就绪");
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException)
+        {
+            _context.Dispatch(() => SettingsErrorText = "已取消下载，进度已保留，再次点击「修复安装」将继续下载");
+        }
+        catch (Exception ex)
         {
             _context.Dispatch(() => SettingsErrorText = ex.Message);
         }
@@ -318,6 +331,7 @@ public partial class OnlineToolCardViewModel : ObservableObject
 
             // 工具态由引擎快照驱动：自动下载显示进度，校验失败显示补齐入口，通过后整块隐藏
             IsBinaryReady = state.BinaryReady;
+            ToolUpdateHint = state.ToolUpdateHint ?? "";
             if (state.Phase == TerracottaPhase.Downloading)
             {
                 IsInstalling = true;
