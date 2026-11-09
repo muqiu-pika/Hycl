@@ -45,6 +45,8 @@
     并重写宿主 IL 的引用，而插件 dll 未经过裁剪，其 AssemblyRef 仍指向
     "System.Runtime, Version=10.0.0.0" —— 实测裁剪版单文件加载插件必然抛
     FileNotFoundException（GetExportedTypes），表现为「插件已安装并启用，工具页却没有入口」。
+    更深一层：即使根住 facade，插件用到的框架成员若宿主未引用，也会被从 System.Private.CoreLib
+    等程序集里裁掉，插件运行期才炸、且炸点随插件实现漂移——插件宿主场景无法安全裁剪。
     关闭裁剪后所有框架程序集都进入 bundle，外部插件才能正常解析依赖。
     framework-dependent 发布同样需显式关闭压缩/裁剪/R2R（非自包含不支持压缩，
     R2R 在 framework-dependent 单文件下实测随机 coreclr fail-fast 0xc0000602）。
@@ -60,15 +62,57 @@
   </ItemGroup>
 
   <!--
-    单文件发布时第三方原生符号（libSkiaSharp.pdb / libHarfBuzzSharp.pdb）默认仍会被拷到发布目录，
-    在发布文件列表阶段剔除 .pdb，保证发布产物只有单个 exe。
+    发布文件列表阶段剔除非运行内容（AfterTargets 必须挂 ComputeResolvedFilesToPublishList，
+    少写一个 s 会静默失效——此前 pdb 剔除目标就因挂错名字从未生效）：
+    1) 第三方原生符号（libSkiaSharp.pdb / libHarfBuzzSharp.pdb），保证发布产物只有单个 exe；
+    2) 调试/诊断与开发工具组件；
+    3) 与目标平台无关的 Avalonia 平台头（参考 PCL-CE / HMCL「小启动器 + 按需运行时」的取舍，
+       在保持自包含单文件与插件动态加载的前提下剔除确定无用的内容）。
   -->
-  <Target Name="Hycl_ExcludeNativeSymbolsFromSingleFilePublish"
+  <Target Name="Hycl_TrimPublishOutputs"
           Condition="'$(PublishSingleFile)' == 'true'"
           AfterTargets="ComputeResolvedFilesToPublishList">
     <ItemGroup>
+      <!-- 全平台：.pdb 与托管 dump / 原生调试组件（启动器崩溃分析走文本日志，
+           LaunchFailureAnalyzer 不依赖 mscordaccore/mscordbi/createdump/DiaSymReader）；
+           原生库不参与单文件压缩，这部分是 1:1 的体积净收益。 -->
       <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
-                             Condition="'%(ResolvedFileToPublish.Extension)' == '.pdb'" />
+                             Condition="'%(ResolvedFileToPublish.Extension)' == '.pdb'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'mscordaccore'
+                                  or $([System.String]::new('%(ResolvedFileToPublish.FileName)').StartsWith('mscordaccore_'))
+                                  or '%(ResolvedFileToPublish.FileName)' == 'mscordbi'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'createdump'
+                                  or $([System.String]::new('%(ResolvedFileToPublish.FileName)').StartsWith('Microsoft.DiaSymReader.Native'))
+                                  or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.DesignerSupport'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.Remote.Protocol'" />
+      <!-- Windows 产物：Linux/macOS 专属 Avalonia 头（UsePlatformDetect 平台 guard 不会加载）；
+           Vulkan/Dialogs 在 Windows 未启用（渲染走 ANGLE/GLES，文件对话框走 Win32 原生实现） -->
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="('$(RuntimeIdentifier)' == 'win-x64' or '$(RuntimeIdentifier)' == 'win-arm64')
+                                  and ('%(ResolvedFileToPublish.FileName)' == 'Avalonia.X11'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.FreeDesktop'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.FreeDesktop.AtSpi'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.Native'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.Metal'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.Vulkan'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.Dialogs'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'Tmds.DBus.Protocol')" />
+      <!-- Linux 产物：Windows/macOS 专属 Avalonia 头 -->
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="('$(RuntimeIdentifier)' == 'linux-x64' or '$(RuntimeIdentifier)' == 'linux-arm64')
+                                  and ('%(ResolvedFileToPublish.FileName)' == 'Avalonia.Win32'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.Win32.Automation'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.Native'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.Metal')" />
+      <!-- macOS 产物：Windows/Linux 专属 Avalonia 头（保留 Avalonia.Native 与 Metal） -->
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="('$(RuntimeIdentifier)' == 'osx-x64' or '$(RuntimeIdentifier)' == 'osx-arm64')
+                                  and ('%(ResolvedFileToPublish.FileName)' == 'Avalonia.Win32'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.Win32.Automation'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.X11'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.FreeDesktop'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.FreeDesktop.AtSpi'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'Tmds.DBus.Protocol')" />
     </ItemGroup>
   </Target>
 
