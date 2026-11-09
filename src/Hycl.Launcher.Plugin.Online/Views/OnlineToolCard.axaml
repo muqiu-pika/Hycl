@@ -138,58 +138,79 @@
                     </Expander>
 
                     <Expander Header="插件设置" IsExpanded="False">
-                        <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="7" Padding="12"
+                        <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="7" Padding="14,12"
                                 Margin="0,8,0,0">
-                            <StackPanel Spacing="10">
+                            <StackPanel Spacing="12">
+
+                                <!-- 工具状态：状态点 + 文案，一眼可辨是否就绪 -->
+                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <Ellipse Width="8" Height="8" VerticalAlignment="Center"
+                                             Fill="{DynamicResource PrimaryDeepBrush}"
+                                             IsVisible="{Binding IsBinaryReady}" />
+                                    <Ellipse Width="8" Height="8" VerticalAlignment="Center"
+                                             Fill="{DynamicResource ErrorDarkBrush}"
+                                             IsVisible="{Binding !IsBinaryReady}" />
+                                    <TextBlock Text="联机工具" FontSize="12.5" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextBrush}" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding ToolStatusText}" FontSize="12"
+                                               Foreground="{DynamicResource Gray2Brush}" VerticalAlignment="Center"
+                                               TextWrapping="Wrap" />
+                                </StackPanel>
+
+                                <Border Height="1" Background="{DynamicResource SoftLineBrush}" />
+
+                                <!-- 版本与平台信息：两列对齐，目录用等宽字体 -->
                                 <Grid ColumnDefinitions="110,*" RowDefinitions="Auto,Auto,Auto,Auto">
                                     <TextBlock Grid.Row="0" Grid.Column="0" Text="插件版本" FontSize="12"
-                                               Foreground="{DynamicResource Gray2Brush}" Margin="0,0,0,6" />
+                                               Foreground="{DynamicResource Gray3Brush}" Margin="0,0,0,7" />
                                     <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding PluginVersion}" FontSize="12"
-                                               Foreground="{DynamicResource TextBrush}" Margin="0,0,0,6" />
+                                               Foreground="{DynamicResource TextBrush}" Margin="0,0,0,7" />
                                     <TextBlock Grid.Row="1" Grid.Column="0" Text="陶瓦工具版本" FontSize="12"
-                                               Foreground="{DynamicResource Gray2Brush}" Margin="0,0,0,6" />
+                                               Foreground="{DynamicResource Gray3Brush}" Margin="0,0,0,7" />
                                     <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ToolVersion}" FontSize="12"
-                                               Foreground="{DynamicResource TextBrush}" Margin="0,0,0,6" />
+                                               Foreground="{DynamicResource TextBrush}" Margin="0,0,0,7" />
                                     <TextBlock Grid.Row="2" Grid.Column="0" Text="当前平台" FontSize="12"
-                                               Foreground="{DynamicResource Gray2Brush}" Margin="0,0,0,6" />
+                                               Foreground="{DynamicResource Gray3Brush}" Margin="0,0,0,7" />
                                     <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding PlatformKey}" FontSize="12"
-                                               Foreground="{DynamicResource TextBrush}" Margin="0,0,0,6" />
+                                               Foreground="{DynamicResource TextBrush}" Margin="0,0,0,7" />
                                     <TextBlock Grid.Row="3" Grid.Column="0" Text="工具目录" FontSize="12"
-                                               Foreground="{DynamicResource Gray2Brush}" />
+                                               Foreground="{DynamicResource Gray3Brush}" VerticalAlignment="Top" />
                                     <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding ToolDirectory}" FontSize="11.5"
                                                FontFamily="Consolas" Foreground="{DynamicResource TextBrush}"
                                                TextWrapping="Wrap" />
                                 </Grid>
 
-                                <TextBlock Text="{Binding ToolStatusText}" FontSize="12"
-                                           Foreground="{DynamicResource Gray2Brush}" TextWrapping="Wrap" />
-                                <TextBlock Text="{Binding SettingsErrorText}" FontSize="12"
-                                           Foreground="{DynamicResource ErrorDarkBrush}" TextWrapping="Wrap"
-                                           IsVisible="{Binding SettingsErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                <TextBlock Text="{Binding ToolUpdateHint}" FontSize="12"
-                                           Foreground="{DynamicResource PrimaryDeepBrush}" TextWrapping="Wrap"
-                                           IsVisible="{Binding ToolUpdateHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                <ProgressBar Minimum="0" Maximum="100" Value="{Binding DownloadPercent}"
-                                             Height="4" CornerRadius="2"
-                                             Foreground="{DynamicResource PrimaryDeepBrush}"
-                                             IsVisible="{Binding IsRepairing}" />
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="{Binding SettingsErrorText}" FontSize="12"
+                                               Foreground="{DynamicResource ErrorDarkBrush}" TextWrapping="Wrap"
+                                               IsVisible="{Binding SettingsErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                    <TextBlock Text="{Binding ToolUpdateHint}" FontSize="12"
+                                               Foreground="{DynamicResource PrimaryDeepBrush}" TextWrapping="Wrap"
+                                               IsVisible="{Binding ToolUpdateHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                    <ProgressBar Minimum="0" Maximum="100" Value="{Binding DownloadPercent}"
+                                                 Height="4" CornerRadius="2"
+                                                 Foreground="{DynamicResource PrimaryDeepBrush}"
+                                                 IsVisible="{Binding IsRepairing}" />
 
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <Button Classes="mc-btn" Content="重新校验"
-                                            Command="{Binding RefreshToolCommand}"
-                                            IsEnabled="{Binding !IsCheckingTool}" />
-                                    <Button Classes="mc-btn" Content="修复安装"
-                                            Command="{Binding RepairToolCommand}"
-                                            IsEnabled="{Binding !IsRepairing}" />
-                                    <Button Classes="mc-btn" Content="取消下载"
-                                            Command="{Binding RepairToolCancelCommand}"
-                                            IsVisible="{Binding IsRepairing}" />
-                                    <Button Classes="action-btn" Content="插件仓库"
-                                            Command="{Binding OpenPluginHomeCommand}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Classes="mc-btn" Content="重新校验"
+                                                Command="{Binding RefreshToolCommand}"
+                                                IsEnabled="{Binding !IsCheckingTool}" />
+                                        <Button Classes="mc-btn primary-soft" Content="修复安装"
+                                                Command="{Binding RepairToolCommand}"
+                                                IsEnabled="{Binding !IsRepairing}" />
+                                        <Button Classes="mc-btn" Content="取消下载"
+                                                Command="{Binding RepairToolCancelCommand}"
+                                                IsVisible="{Binding IsRepairing}" />
+                                        <Button Classes="action-btn" Content="插件仓库"
+                                                Command="{Binding OpenPluginHomeCommand}" />
+                                    </StackPanel>
                                 </StackPanel>
 
+                                <Border Height="1" Background="{DynamicResource SoftLineBrush}" />
                                 <TextBlock FontSize="11.5" Foreground="{DynamicResource Gray3Brush}" TextWrapping="Wrap"
-                                           Text="工具由 Hycl-online 清单分发，下载包与可执行文件双重 SHA-256 校验；清单源地址、插件启用/禁用与更新请在「设置 → 插件工坊」中配置。Terracotta 采用 AGPL-3.0 授权。" />
+                                           LineHeight="18"
+                                           Text="联机工具由 Hycl-online 清单分发，下载包与可执行文件双重 SHA-256 校验；取消下载会保留进度，短时间内继续可断点续传。清单源地址、插件启用/禁用与更新请在「设置 → 插件工坊」中配置。Terracotta 采用 AGPL-3.0 授权。" />
                             </StackPanel>
                         </Border>
                     </Expander>
