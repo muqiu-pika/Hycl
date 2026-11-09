@@ -2704,13 +2704,13 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                 NavigateRequested?.Invoke(this, "instances");
                 _toast?.Invoke("已打开版本管理，请点击「导入整合包」选择本地文件或文件夹");
                 return;
+            case "快速联机":
+                // 由主窗口根据陶瓦联机插件的安装/启用状态决定跳功能页还是插件工坊
+                NavigateRequested?.Invoke(this, "online");
+                return;
         }
 
-        _toast?.Invoke(link.Title switch
-        {
-            "快速联机" => "联机功能暂未支持",
-            _ => "整合包安装暂未支持"
-        });
+        _toast?.Invoke("整合包安装暂未支持");
     }
 }
 

@@ -172,7 +172,7 @@ public sealed class LauncherServices
             logger);
         var modpackExport = new Game.Comp.ModpackExportService(compModrinth, curseForge, versionResolver, logger);
 
-        // 插件系统：清单拉取 + 安装/加载（工具页插件中心与动态工具卡的数据源）
+        // 插件系统：清单拉取 + 安装/加载（设置页插件工坊与工具页插件入口的数据源）
         var pluginManifests = new Plugins.PluginManifestClient(downloadClient, configStore.Config, logger);
         var plugins = new Plugins.PluginManager(
             logger, paths, downloadClient, accounts, configStore.Config, system, dispatcher, pluginManifests);

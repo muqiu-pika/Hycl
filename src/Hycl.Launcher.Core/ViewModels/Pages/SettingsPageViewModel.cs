@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using Hycl.Launcher.Core.Config;
 using Hycl.Launcher.Core.Game;
 using Hycl.Launcher.Core.Models;
+using Hycl.Launcher.Core.Plugins;
 using Hycl.Launcher.Core.Services;
 
 namespace Hycl.Launcher.Core.ViewModels.Pages;
@@ -19,6 +20,11 @@ public partial class SettingsPageViewModel : ObservableObject
     private readonly object _loadLock = new();
     private Task? _loadTask;
     private int _saveVersion;
+    private readonly PluginWorkshopViewModel _workshop;
+    private string? _pendingSectionTitle;
+
+    /// <summary>插件工坊分区标题（首页联机入口跳转时使用）。</summary>
+    public const string PluginWorkshopSectionTitle = "插件工坊";
 
     private static readonly string[] MemoryOptions =
     [
@@ -238,6 +244,7 @@ public partial class SettingsPageViewModel : ObservableObject
     {
         _services = services;
         _toast = toast;
+        _workshop = new PluginWorkshopViewModel(services.Plugins, toast);
         Groups =
         [
             new("游戏",
@@ -249,7 +256,7 @@ public partial class SettingsPageViewModel : ObservableObject
             ]),
             new("工具",
             [
-                new NavItemViewModel("联机与局域网", "network"),
+                new NavItemViewModel("插件工坊", "package"),
             ]),
             new("启动器",
             [
@@ -291,6 +298,34 @@ public partial class SettingsPageViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// 请求选中某个设置分区（供首页联机入口跳转插件工坊）。
+    /// 设置页尚未异步构建完成时先记下目标，<see cref="LoadAsyncCore"/> 完成后补选。
+    /// </summary>
+    public void RequestSection(string title)
+    {
+        if (_sections.ContainsKey(title))
+        {
+            ApplyRequestedSection(title);
+            _pendingSectionTitle = null;
+        }
+        else
+        {
+            _pendingSectionTitle = title;
+        }
+    }
+
+    private void ApplyRequestedSection(string title)
+    {
+        var item = Groups
+            .SelectMany(group => group.Items)
+            .FirstOrDefault(nav => string.Equals(nav.Title, title, StringComparison.Ordinal));
+        if (item is not null)
+        {
+            SelectedSection = item;
+        }
+    }
+
     /// <summary>重新检测本机 Java 并更新结果行（对应 PCL-CE Java 管理的刷新按钮）。</summary>
     private async Task RefreshJavaListAsync()
     {
@@ -321,6 +356,15 @@ public partial class SettingsPageViewModel : ObservableObject
         IsLoading = false;
         IsReady = true;
         PerfTrace.Mark("settings_loaded");
+
+        // 首页联机入口可能在设置页尚未加载时就请求跳转，此时补选目标分区
+        if (_pendingSectionTitle is not null)
+        {
+            ApplyRequestedSection(_pendingSectionTitle);
+            _pendingSectionTitle = null;
+        }
+        // 进入设置页时才拉插件清单（缓存 TTL 内复用），避免启动期多余网络请求
+        _ = _workshop.LoadManifestAsync();
         // 设置页就绪后异步刷新 Java 检测结果（对应 PCL-CE Java 管理的自动扫描）
         _ = RefreshJavaListAsync();
     }
@@ -562,17 +606,7 @@ public partial class SettingsPageViewModel : ObservableObject
             expanded: false),
         ]);
 
-        _sections["联机与局域网"] = new SettingsSectionViewModel("联机与局域网",
-        [
-            new SettingCardViewModel("联机插件",
-            [
-                new TextLineRowViewModel("联机功能以插件形式提供：工具页 → 插件中心 → 安装「陶瓦联机」。插件包由 Hycl-online 仓库分发，SHA-256 校验后安装。"),
-                _onlineManifestUrlRow = new TextRowViewModel(
-                    "插件清单源地址",
-                    "留空使用默认源（Hycl-online raw 直链 + 镜像）",
-                    config.OnlineManifestUrl),
-            ]),
-        ]);
+        _sections[PluginWorkshopSectionTitle] = BuildPluginWorkshopSection();
 
         _sections["个性化"] = new SettingsSectionViewModel("个性化",
         [
@@ -718,6 +752,31 @@ public partial class SettingsPageViewModel : ObservableObject
                         () => CleanOldLogs()),
                 ]),
                 _logTailRow = new MutableLogRowViewModel(ReadLogTail()),
+            ]),
+        ]);
+
+    }
+
+    /// <summary>
+    /// 「插件工坊」分区：清单源设置 + 插件管理面板（启用/禁用/下载/更新/卸载）。
+    /// 面板自身订阅 PluginsChanged，安装/卸载/启停后即时刷新，无需重建设置分区。
+    /// </summary>
+    private SettingsSectionViewModel BuildPluginWorkshopSection()
+    {
+        var config = _services.Config;
+        return new SettingsSectionViewModel(PluginWorkshopSectionTitle,
+        [
+            new SettingCardViewModel("插件源",
+            [
+                new TextLineRowViewModel("联机等功能以插件形式提供：在本页安装并启用插件后，工具页会出现对应入口，点进去即可使用该插件的功能设置页。"),
+                _onlineManifestUrlRow = new TextRowViewModel(
+                    "插件清单源地址",
+                    "留空使用默认源（Hycl-online raw 直链 + 镜像）",
+                    config.OnlineManifestUrl),
+            ]),
+            new SettingCardViewModel("插件管理",
+            [
+                new PluginWorkshopRowViewModel(_workshop),
             ]),
         ]);
     }
@@ -1344,7 +1403,13 @@ public partial class SettingsPageViewModel : ObservableObject
 
         if (_onlineManifestUrlRow is not null)
         {
-            config.OnlineManifestUrl = _onlineManifestUrlRow.Text?.Trim() ?? "";
+            var newUrl = _onlineManifestUrlRow.Text?.Trim() ?? "";
+            if (!string.Equals(config.OnlineManifestUrl, newUrl, StringComparison.Ordinal))
+            {
+                config.OnlineManifestUrl = newUrl;
+                // 换源后让插件工坊的下一次「刷新清单」走新地址，不被 5 分钟缓存挡住
+                _services.Plugins.Manifests.Invalidate();
+            }
         }
 
         await _services.ConfigStore.SaveAsync().ConfigureAwait(true);

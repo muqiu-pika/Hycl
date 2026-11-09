@@ -75,7 +75,7 @@ internal static class Program
                 $"启动器需要 .NET {StartupEnvironmentCheck.RequiredDotNetMajorVersion} 或更高版本的运行环境才能启动。\n" +
                 $"下载地址：{StartupEnvironmentCheck.DotNetDownloadUrl}\n\n" +
                 "是否现在打开下载页面？";
-            if (NativeMessageBox.ShowYesNo(DialogTitle, text, isError: true))
+            if (ConfirmOpenDotNetDownload(text))
             {
                 OpenDotNetDownload();
             }
@@ -105,7 +105,7 @@ internal static class Program
                 $"详细日志：{logPath}\n" +
                 $"下载地址：{StartupEnvironmentCheck.DotNetDownloadUrl}\n\n" +
                 "是否现在打开下载页面？";
-            if (NativeMessageBox.ShowYesNo(DialogTitle, text, isError: true))
+            if (ConfirmOpenDotNetDownload(text))
             {
                 OpenDotNetDownload();
             }
@@ -163,6 +163,21 @@ internal static class Program
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// 非 Windows 没有原生弹窗（ShowYesNo 只会写 stderr 并返回 false），
+    /// GUI 启动时看不到控制台，因此直接打开下载页而不是静默退出。
+    /// </summary>
+    private static bool ConfirmOpenDotNetDownload(string text)
+    {
+        if (PlatformInfo.IsWindows)
+        {
+            return NativeMessageBox.ShowYesNo(DialogTitle, text, isError: true);
+        }
+
+        Console.Error.WriteLine(text);
+        return true;
     }
 
     private static void OpenDotNetDownload()

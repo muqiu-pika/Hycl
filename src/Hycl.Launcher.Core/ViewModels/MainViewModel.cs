@@ -10,7 +10,11 @@ namespace Hycl.Launcher.Core.ViewModels;
 /// </summary>
 public partial class MainViewModel : ObservableObject
 {
+    /// <summary>首页「快速联机」入口对应的插件 id。</summary>
+    private const string OnlinePluginId = "hycl.online";
+
     private readonly LauncherServices _services;
+    private readonly Task _pluginsReady;
 
     private int _toastVersion;
 
@@ -67,6 +71,7 @@ public partial class MainViewModel : ObservableObject
     public MainViewModel(LauncherServices services)
     {
         _services = services;
+        _pluginsReady = Task.CompletedTask;
         Launch = new LaunchPageViewModel(services, ShowToast);
         PerfTrace.Mark("launch_vm_ctor_done");
         LaunchProgress = new LaunchProgressViewModel(Launch);
@@ -85,8 +90,9 @@ public partial class MainViewModel : ObservableObject
         Tools = new ToolsPageViewModel(services, ShowToast);
         PerfTrace.Mark("tools_vm_ctor_done");
 
-        // 插件加载（本地 IO + 反射，个别失败不影响其余）：卡片就绪后工具页自动出现
-        _ = _services.Plugins.LoadInstalledAsync();
+        // 插件加载（本地 IO + 反射，个别失败不影响其余）：保存 Task，
+        // 首页联机入口跳转前会等待它完成，避免启动瞬间点击误判为「未安装」
+        _pluginsReady = _services.Plugins.LoadInstalledAsync();
         _currentPage = Launch;
 
         // 启动开始/成功返回时在启动页与独立启动中页面之间切换（仍走 PageHost 的串行淡入淡出）
@@ -150,17 +156,7 @@ public partial class MainViewModel : ObservableObject
                 MinimizeRequested?.Invoke(this, EventArgs.Empty);
             }
         };
-        Launch.NavigateRequested += (_, key) =>
-        {
-            if (key == "download")
-            {
-                SelectedTabIndex = 1;
-            }
-            else if (key == "instances")
-            {
-                SelectedTabIndex = 2;
-            }
-        };
+        Launch.NavigateRequested += (_, key) => _ = HandleNavigateAsync(key);
 
         // 右下角悬浮下载按钮：安装/下载任务进行中且不在下载页时显示（进度实时跟随 Install）
         Download.Install.PropertyChanged += (_, e) =>
@@ -242,6 +238,60 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(FloatingDownloadTip));
         OnPropertyChanged(nameof(FloatingDownloadPercentText));
         OnPropertyChanged(nameof(FloatingDownloadIndeterminate));
+    }
+
+    private async Task HandleNavigateAsync(string key)
+    {
+        try
+        {
+            switch (key)
+            {
+                case "download":
+                    SelectedTabIndex = 1;
+                    return;
+                case "instances":
+                    SelectedTabIndex = 2;
+                    return;
+                case "online":
+                    await OpenOnlineFeatureAsync().ConfigureAwait(true);
+                    return;
+            }
+        }
+        catch (Exception ex)
+        {
+            // 事件回调是 fire-and-forget：异常只落日志，不让启动器崩溃
+            _services.Logger.Warn("[导航] 页面跳转失败：" + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 首页「快速联机」：陶瓦联机插件已安装且启用 → 直接打开它的功能设置页；
+    /// 未安装 / 未启用 / 加载失败 → 打开设置页插件工坊，让用户安装或启用。
+    /// </summary>
+    private async Task OpenOnlineFeatureAsync()
+    {
+        try
+        {
+            await _pluginsReady.ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            _services.Logger.Warn("[插件] 等待插件加载失败：" + ex.Message);
+        }
+
+        // EnabledPlugins 只含「已加载 + 已启用」的插件，天然满足安装且启用的判定
+        var entry = _services.Plugins.EnabledPlugins
+            .FirstOrDefault(item => string.Equals(item.Id, OnlinePluginId, StringComparison.Ordinal));
+        if (entry is not null)
+        {
+            Tools.OpenPluginEntry(entry);
+            SelectedTabIndex = 4;
+            return;
+        }
+
+        Settings.RequestSection(SettingsPageViewModel.PluginWorkshopSectionTitle);
+        SelectedTabIndex = 3;
+        ShowToast("尚未安装或启用陶瓦联机插件，已打开插件工坊");
     }
 
     partial void OnSelectedTabIndexChanged(int value)

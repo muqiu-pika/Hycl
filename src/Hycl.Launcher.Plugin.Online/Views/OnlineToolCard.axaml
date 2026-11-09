@@ -110,23 +110,76 @@
                             IsVisible="{Binding IsBusy}" />
                 </StackPanel>
 
-                <!-- 日志 -->
-                <Expander Grid.Row="2" Header="连接日志" IsExpanded="False" Margin="0,12,0,0">
-                    <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="7" Padding="10"
-                            MaxHeight="180">
-                        <ScrollViewer VerticalScrollBarVisibility="Auto">
-                            <ItemsControl ItemsSource="{Binding Logs}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding}" FontSize="11.5" FontFamily="Consolas"
-                                                   Foreground="{DynamicResource Gray2Brush}"
-                                                   TextWrapping="Wrap" Margin="0,1" />
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
-                    </Border>
-                </Expander>
+                <!-- 连接日志 + 插件设置（点进工具页后展开） -->
+                <StackPanel Grid.Row="2" Margin="0,12,0,0" Spacing="8">
+                    <Expander Header="连接日志" IsExpanded="False">
+                        <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="7" Padding="10"
+                                MaxHeight="180" Margin="0,8,0,0">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <ItemsControl ItemsSource="{Binding Logs}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding}" FontSize="11.5" FontFamily="Consolas"
+                                                       Foreground="{DynamicResource Gray2Brush}"
+                                                       TextWrapping="Wrap" Margin="0,1" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </Border>
+                    </Expander>
+
+                    <Expander Header="插件设置" IsExpanded="False">
+                        <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="7" Padding="12"
+                                Margin="0,8,0,0">
+                            <StackPanel Spacing="10">
+                                <Grid ColumnDefinitions="110,*" RowDefinitions="Auto,Auto,Auto,Auto">
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="插件版本" FontSize="12"
+                                               Foreground="{DynamicResource Gray2Brush}" Margin="0,0,0,6" />
+                                    <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding PluginVersion}" FontSize="12"
+                                               Foreground="{DynamicResource TextBrush}" Margin="0,0,0,6" />
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="陶瓦工具版本" FontSize="12"
+                                               Foreground="{DynamicResource Gray2Brush}" Margin="0,0,0,6" />
+                                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ToolVersion}" FontSize="12"
+                                               Foreground="{DynamicResource TextBrush}" Margin="0,0,0,6" />
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="当前平台" FontSize="12"
+                                               Foreground="{DynamicResource Gray2Brush}" Margin="0,0,0,6" />
+                                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding PlatformKey}" FontSize="12"
+                                               Foreground="{DynamicResource TextBrush}" Margin="0,0,0,6" />
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="工具目录" FontSize="12"
+                                               Foreground="{DynamicResource Gray2Brush}" />
+                                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding ToolDirectory}" FontSize="11.5"
+                                               FontFamily="Consolas" Foreground="{DynamicResource TextBrush}"
+                                               TextWrapping="Wrap" />
+                                </Grid>
+
+                                <TextBlock Text="{Binding ToolStatusText}" FontSize="12"
+                                           Foreground="{DynamicResource Gray2Brush}" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding SettingsErrorText}" FontSize="12"
+                                           Foreground="{DynamicResource ErrorDarkBrush}" TextWrapping="Wrap"
+                                           IsVisible="{Binding SettingsErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                <ProgressBar Minimum="0" Maximum="100" Value="{Binding DownloadPercent}"
+                                             Height="4" CornerRadius="2"
+                                             Foreground="{DynamicResource PrimaryDeepBrush}"
+                                             IsVisible="{Binding IsRepairing}" />
+
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button Classes="mc-btn" Content="重新校验"
+                                            Command="{Binding RefreshToolCommand}"
+                                            IsEnabled="{Binding !IsCheckingTool}" />
+                                    <Button Classes="mc-btn" Content="修复安装"
+                                            Command="{Binding RepairToolCommand}"
+                                            IsEnabled="{Binding !IsRepairing}" />
+                                    <Button Classes="action-btn" Content="插件仓库"
+                                            Command="{Binding OpenPluginHomeCommand}" />
+                                </StackPanel>
+
+                                <TextBlock FontSize="11.5" Foreground="{DynamicResource Gray3Brush}" TextWrapping="Wrap"
+                                           Text="工具由 Hycl-online 清单分发，下载包与可执行文件双重 SHA-256 校验；清单源地址、插件启用/禁用与更新请在「设置 → 插件工坊」中配置。Terracotta 采用 AGPL-3.0 授权。" />
+                            </StackPanel>
+                        </Border>
+                    </Expander>
+                </StackPanel>
             </Grid>
         </Grid>
     </Border>

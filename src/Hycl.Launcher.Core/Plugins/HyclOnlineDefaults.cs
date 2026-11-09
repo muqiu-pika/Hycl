@@ -7,7 +7,7 @@ public static class HyclOnlineDefaults
 {
     /// <summary>
     /// Hycl-online 仓库标识。
-    /// 用户也可在设置页 → 联机与局域网里自定义清单源地址，优先级更高。
+    /// 用户也可在设置页 → 插件工坊里自定义清单源地址，优先级更高。
     /// </summary>
     public const string OnlineRepository = "muqiu-pika/Hycl-online";
 

@@ -634,6 +634,13 @@ public sealed class LaunchService
             $"-Dminecraft.launcher.version={LauncherVersion}"
         };
 
+        // macOS 上 LWJGL 2（1.12.2 及更早）必须把 JVM 主线程交给 Cocoa，
+        // 否则启动时直接报 "Please use -XstartOnFirstThread"；LWJGL 3（1.13+）用 GLFW，不需要。
+        if (OperatingSystem.IsMacOS() && UsesLwjgl2(info))
+        {
+            arguments.Add("-XstartOnFirstThread");
+        }
+
         // 皮肤站账号：注入 authlib-injector javaagent（对应 PCL-CE _AddAuthlibInjectorJvmArgs，插在最前）
         // 经 ArgumentList 逐个传递参数（由 .NET 负责引号转义），这里不能再手写引号，
         // 否则引号会成为 jar 路径的一部分，导致 Agent_OnLoad 打不开 jar。
@@ -952,6 +959,26 @@ public sealed class LaunchService
         }
     }
 
+    /// <summary>
+    /// 是否为 LWJGL 2 版本：优先按库坐标判断（org.lwjgl.lwjgl:lwjgl:2.x），
+    /// 第三方版本 JSON 未列出继承库时按版本 id 兜底（1.12.2 及更早）。
+    /// </summary>
+    private static bool UsesLwjgl2(VersionInfo info)
+    {
+        if (info.Libraries.Any(library =>
+                library.Name.StartsWith("org.lwjgl.lwjgl:lwjgl:", StringComparison.Ordinal)
+                || library.Name.StartsWith("org.lwjgl.lwjgl:lwjgl_util:", StringComparison.Ordinal)))
+        {
+            return true;
+        }
+
+        var parts = info.Id.Split('.');
+        return parts.Length >= 2
+            && parts[0] == "1"
+            && int.TryParse(parts[1], out var minor)
+            && minor <= 12;
+    }
+
     /// <summary>应用游戏进程优先级（对应 PCL-CE LaunchArgumentPriority）。</summary>
     private static void ApplyProcessPriority(Process process, int priority)
     {
@@ -966,9 +993,10 @@ public sealed class LaunchService
                 _ => ProcessPriorityClass.Normal
             };
         }
-        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException
+            or PlatformNotSupportedException or UnauthorizedAccessException)
         {
-            // 优先级设置失败不影响启动
+            // 优先级设置失败不影响启动：Unix 上 High/RealTime 需要提权，可能抛平台相关异常
         }
     }
 

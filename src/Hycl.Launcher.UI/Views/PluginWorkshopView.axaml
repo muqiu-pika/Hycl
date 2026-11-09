@@ -1,0 +1,78 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:p="clr-namespace:Hycl.Launcher.Core.Plugins;assembly=Hycl.Launcher.Core"
+             x:Class="Hycl.Launcher.UI.Views.PluginWorkshopView"
+             x:DataType="p:PluginWorkshopViewModel"
+             x:CompileBindings="True">
+
+    <!-- 插件工坊：设置页「插件工坊」分区的管理面板（对照 KAMUCL 设置页功能与插件分类） -->
+    <StackPanel Spacing="10">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <TextBlock Grid.Column="0" Text="{Binding ManifestStatusText}"
+                       FontSize="12" Foreground="{DynamicResource Gray2Brush}"
+                       TextWrapping="Wrap" VerticalAlignment="Center" />
+            <Button Grid.Column="1" Classes="action-btn" Content="刷新清单"
+                    Command="{Binding RefreshCommand}" IsEnabled="{Binding !IsBusy}" />
+        </Grid>
+
+        <TextBlock Text="插件清单源不可达，当前仅显示本机已安装插件。"
+                   FontSize="12" Foreground="{DynamicResource ErrorDarkBrush}"
+                   IsVisible="{Binding IsManifestOffline}" TextWrapping="Wrap" />
+
+        <ItemsControl ItemsSource="{Binding Rows}">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="p:PluginWorkshopRow">
+                    <Border Background="{DynamicResource SurfaceBrush}"
+                            BorderBrush="{DynamicResource CardBorderBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="14,12" Margin="0,0,0,8">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                            <StackPanel Grid.Column="0" Spacing="4">
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="Bold"
+                                               Foreground="{DynamicResource TextBrush}" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding StateText}" FontSize="11.5"
+                                               Foreground="{DynamicResource Gray3Brush}" VerticalAlignment="Center" />
+                                    <TextBlock Text="需重启启动器" FontSize="11"
+                                               Foreground="{DynamicResource ErrorDarkBrush}" VerticalAlignment="Center"
+                                               IsVisible="{Binding RestartRequired}" />
+                                </StackPanel>
+                                <TextBlock Text="{Binding Description}" FontSize="12"
+                                           Foreground="{DynamicResource Gray2Brush}" TextWrapping="Wrap"
+                                           IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                <ProgressBar Minimum="0" Maximum="100" Value="{Binding Percent}"
+                                             Height="4" CornerRadius="2"
+                                             Foreground="{DynamicResource PrimaryDeepBrush}"
+                                             IsVisible="{Binding IsInstalling}" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <Button Classes="mc-btn" Content="启用"
+                                        Command="{Binding $parent[UserControl].((p:PluginWorkshopViewModel)DataContext).EnableCommand}"
+                                        CommandParameter="{Binding}"
+                                        IsVisible="{Binding !IsEnabled}"
+                                        IsEnabled="{Binding IsInstalled}" />
+                                <Button Classes="mc-btn danger" Content="禁用"
+                                        Command="{Binding $parent[UserControl].((p:PluginWorkshopViewModel)DataContext).DisableCommand}"
+                                        CommandParameter="{Binding}"
+                                        IsVisible="{Binding IsEnabled}"
+                                        IsEnabled="{Binding IsInstalled}" />
+                                <Button Classes="mc-btn" Content="{Binding ButtonText}"
+                                        Command="{Binding $parent[UserControl].((p:PluginWorkshopViewModel)DataContext).InstallCommand}"
+                                        CommandParameter="{Binding}"
+                                        IsVisible="{Binding ShowInstallButton}"
+                                        IsEnabled="{Binding !IsInstalling}" />
+                                <Button Classes="mc-btn danger" Content="卸载"
+                                        Command="{Binding $parent[UserControl].((p:PluginWorkshopViewModel)DataContext).UninstallCommand}"
+                                        CommandParameter="{Binding}"
+                                        IsVisible="{Binding ShowUninstallButton}" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <TextBlock FontSize="11.5" Foreground="{DynamicResource Gray3Brush}" TextWrapping="Wrap"
+                   Text="插件包由 Hycl-online 仓库分发，下载后经 SHA-256 校验安装。新装插件默认启用；启用的插件会出现在工具页，点进去可打开该插件的功能设置页。更新已加载的插件需重启启动器，卸载会同时移除工具页入口。" />
+    </StackPanel>
+</UserControl>

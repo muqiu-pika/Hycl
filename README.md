@@ -1,6 +1,6 @@
 # Hyplay Craft Launcher (HYCL)
 
-Hyplay Craft Launcher（简称 **HYCL**）是使用 Avalonia 12 + .NET 10 编写的跨平台 Minecraft 启动器，目标是在 Windows 上完整可用，同时保持 macOS / Linux 可构建。
+Hyplay Craft Launcher（简称 **HYCL**）是使用 Avalonia 12 + .NET 10 编写的跨平台 Minecraft 启动器，完整支持 **Windows / Linux / macOS 的 x64 与 arm64**，游戏启动、Java 探测、插件与联机工具均按平台分发。
 
 ## 名称约定
 
@@ -16,6 +16,30 @@ dotnet run --project src/Hycl.Launcher.UI
 ```
 
 要求 .NET SDK 10 与 Avalonia 12.1.4；`Directory.Build.props` 已启用 `TreatWarningsAsErrors` 与 `Nullable=enable`，构建应为 0 警告 0 错误。
+
+## 多平台发布
+
+`.github/workflows/build.yml` 的 `publish` 矩阵覆盖 6 个 RID：`win-x64 / win-arm64 / linux-x64 / linux-arm64 / osx-x64 / osx-arm64`。每个 RID 产出两份单文件：
+
+| 产物 | 说明 |
+| --- | --- |
+| `Hycl-<rid>`（Windows 为 `.exe`） | 自包含单文件，启用压缩 / R2R / 裁剪，目标机器无需安装 .NET |
+| `Hycl-<rid>-framework-dependent` | 框架依赖单文件，需目标机器已装 .NET 10 Desktop Runtime |
+| `Hycl-osx-*-app` | macOS 额外打包的 `.app` bundle（裸可执行文件没有 Dock 图标 / 菜单栏） |
+
+- 交叉 RID 发布（含跨 OS 与跨架构）已实测：`linux-x64` 约 40 MB、`osx-arm64` 约 37 MB，均只输出单个可执行文件。
+- `app.manifest` / `hycl.ico` 是 Win32 资源，仅在无 RID 或 `win-*` 目标时应用；非 Windows 目标跳过。
+- macOS 的 `.app` 未签名，首次打开若被 Gatekeeper 拦截，执行 `xattr -dr com.apple.quarantine Hycl.app`。
+- 陶瓦联机插件（`Hycl.Online.dll`）是 anycpu 托管程序集，与平台无关；真正的平台差异在 Hycl-online 清单的 6 个 Terracotta 资产（win/linux/mac × x64/arm64），由插件按 `HyclOnlineTools.ToolAssetKey` 挑选，Unix 上自动 `chmod +x`。
+- 游戏启动的跨平台处理集中在 `PlatformInfo` / `JavaDetector` / `RuleEvaluator`：Java 可执行文件与搜索路径、classpath 分隔符、`java.library.path`、natives 目录均按平台取值；Win32 窗口标题注入 / 窗口探测只在 Windows 分支生效。macOS 上的 LWJGL 2 版本（1.12.2 及更早）会自动补 `-XstartOnFirstThread`。
+
+本地交叉发布示例：
+
+```bash
+dotnet publish src/Hycl.Launcher.UI/Hycl.Launcher.UI.csproj -c Release -r osx-arm64 \
+  --self-contained true -p:PublishSingleFile=true \
+  -p:IncludeNativeLibrariesForSelfExtract=true -o publish
+```
 
 ## 配置
 

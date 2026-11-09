@@ -10,8 +10,10 @@
     <AssemblyTitle>Hyplay Craft Launcher</AssemblyTitle>
     <Description>Hyplay Craft Launcher（HYCL）：基于 Avalonia 与 .NET 10 的跨平台 Minecraft 启动器</Description>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon>Assets/hycl.ico</ApplicationIcon>
+    <!-- Win32 清单与 ico 图标只属于 Windows PE 产物；发布到 linux-* / osx-* 时跳过，
+         避免非 Windows 目标携带无意义的 Win32 资源（跨平台发布实测交叉编译均通过）。 -->
+    <ApplicationManifest Condition="'$(RuntimeIdentifier)' == '' or $(RuntimeIdentifier.StartsWith('win-'))">app.manifest</ApplicationManifest>
+    <ApplicationIcon Condition="'$(RuntimeIdentifier)' == '' or $(RuntimeIdentifier.StartsWith('win-'))">Assets/hycl.ico</ApplicationIcon>
     <!-- 运行时内置 COM 激活（ComActivator）与裁剪不兼容；Hycl 只通过 ComImport 消费 COM，
          不向 COM 暴露托管类，Avalonia 的 Win32 互操作也不依赖该开关。 -->
     <BuiltInComInteropSupport>false</BuiltInComInteropSupport>

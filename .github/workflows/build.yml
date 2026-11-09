@@ -22,10 +22,10 @@ env:
   DOTNET_NOLOGO: '1'
 
 jobs:
-  build:
-    name: Build win-x64 single-file
+  # 快速编译检查：TreatWarningsAsErrors=true，任何平台相关警告都会在这里先暴露
+  compile:
+    name: Compile check
     runs-on: windows-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -35,48 +35,62 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Build
-        run: dotnet build Hycl.Launcher.sln -c Release
+      - name: Build solution
+        run: dotnet build Hycl.Launcher.sln -c Release --nologo
 
-      # 自包含 + 单文件 + 裁剪（csproj 内随 PublishSingleFile 启用压缩/R2R/裁剪）：
-      # 目标机器无需安装 .NET 运行时，发布产物只有一个可双击运行的 exe。
+  # 六平台产物：win / linux / mac × x64 / arm64。
+  # 单文件、R2R、裁剪、压缩均由 UI csproj 在 PublishSingleFile=true 时自动启用；
+  # 交叉 RID 发布（含跨 OS 与跨架构）已在 Windows 主机上实测 linux-x64 / osx-arm64 通过。
+  publish:
+    name: Publish ${{ matrix.rid }}
+    needs: compile
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rid: win-x64,     os: windows-latest, ext: '.exe' }
+          - { rid: win-arm64,   os: windows-latest, ext: '.exe' }
+          - { rid: linux-x64,   os: ubuntu-latest,  ext: '' }
+          - { rid: linux-arm64, os: ubuntu-latest,  ext: '' }
+          - { rid: osx-x64,     os: macos-latest,   ext: '' }
+          - { rid: osx-arm64,   os: macos-latest,   ext: '' }
+    env:
+      RID: ${{ matrix.rid }}
+      EXT: ${{ matrix.ext }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      # 自包含 + 单文件：目标机器无需安装 .NET 运行时
       - name: Publish self-contained single-file
+        shell: bash
         run: >
           dotnet publish src/Hycl.Launcher.UI/Hycl.Launcher.UI.csproj
-          -c Release -r win-x64 --self-contained true
+          -c Release -r "$RID" --self-contained true
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
           -p:DebugType=None -p:DebugSymbols=false
           -o publish
 
-      - name: Verify single-file output
-        shell: pwsh
+      - name: Verify self-contained output
+        shell: bash
         run: |
-          $files = @(Get-ChildItem -Path publish -File)
-          if ($files.Count -ne 1) {
-            throw "发布目录应只包含一个 exe，实际为 $($files.Count) 个文件：$($files.Name -join ', ')"
-          }
-          $exe = $files[0]
-          if ($exe.Extension -ne '.exe') {
-            throw "发布产物不是 exe：$($exe.Name)"
-          }
-          # 自包含单文件应明显大于纯托管程序集，用于识别误发布为框架依赖/多文件的情况
-          # 启用压缩 + R2R + 裁剪后产物约 40MB 量级，阈值从 50MB 下调避免误判
-          if ($exe.Length -lt 25MB) {
-            throw "发布产物大小异常（$([math]::Round($exe.Length / 1MB, 1)) MB），可能不是自包含单文件"
-          }
-          Rename-Item -Path $exe.FullName -NewName 'Hycl.exe'
-          $renamed = Get-Item -Path publish/Hycl.exe
-          Write-Host "产物：$($renamed.Name)，大小 $([math]::Round($renamed.Length / 1MB, 1)) MB"
+          node .github/scripts/verify-publish.cjs publish "Hycl$EXT" 12 150
+          if [ "$RUNNER_OS" != "Windows" ]; then chmod +x "publish/Hycl$EXT"; fi
 
-      # 框架依赖（对齐 PCL-CE 的 --no-self-contained 分发）：体积小一个数量级，
-      # 要求目标机器已装 .NET 10 Desktop Runtime——Hycl 启动时的环境检测会拦截并给出下载入口。
-      # 压缩/裁剪仅支持自包含；R2R 在 framework-dependent 单文件下实测会随机 coreclr fail-fast
-      # （0xc0000602，自包含不受影响），一并关闭。
+      # 框架依赖单文件：体积小一个数量级，要求目标机器已装 .NET 10 Desktop Runtime。
+      # 压缩/裁剪不支持非自包含；R2R 在 framework-dependent 单文件下实测会随机 fail-fast，一并关闭。
       - name: Publish framework-dependent single-file
+        shell: bash
         run: >
           dotnet publish src/Hycl.Launcher.UI/Hycl.Launcher.UI.csproj
-          -c Release -r win-x64 --self-contained false
+          -c Release -r "$RID" --self-contained false
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
           -p:PublishTrimmed=false
@@ -86,34 +100,58 @@ jobs:
           -o publish-ff
 
       - name: Verify framework-dependent output
-        shell: pwsh
+        shell: bash
         run: |
-          $files = @(Get-ChildItem -Path publish-ff -File)
-          if ($files.Count -ne 1) {
-            throw "发布目录应只包含一个 exe，实际为 $($files.Count) 个文件：$($files.Name -join ', ')"
-          }
-          $exe = $files[0]
-          if ($exe.Extension -ne '.exe') {
-            throw "发布产物不是 exe：$($exe.Name)"
-          }
-          # 框架依赖单文件含 R2R 预编译代码约 15MB 量级；过小说明丢了托管程序集，过大说明误发布了运行时
-          if ($exe.Length -lt 3MB -or $exe.Length -gt 40MB) {
-            throw "框架依赖产物大小异常（$([math]::Round($exe.Length / 1MB, 1)) MB）"
-          }
-          Rename-Item -Path $exe.FullName -NewName 'Hycl-ff.exe'
-          $renamed = Get-Item -Path publish-ff/Hycl-ff.exe
-          Write-Host "产物：$($renamed.Name)，大小 $([math]::Round($renamed.Length / 1MB, 1)) MB"
+          node .github/scripts/verify-publish.cjs publish-ff "Hycl-ff$EXT" 1 80
+          if [ "$RUNNER_OS" != "Windows" ]; then chmod +x "publish-ff/Hycl-ff$EXT"; fi
 
-      - name: Upload artifact
+      # macOS 裸可执行文件没有 Dock 图标/菜单栏，额外打成 .app bundle 便于双击运行
+      - name: Package macOS .app bundle
+        if: startsWith(matrix.rid, 'osx-')
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "Hycl.app/Contents/MacOS" "Hycl.app/Contents/Resources"
+          cp "publish/Hycl" "Hycl.app/Contents/MacOS/Hycl"
+          chmod +x "Hycl.app/Contents/MacOS/Hycl"
+          cat > "Hycl.app/Contents/Info.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key><string>Hycl</string>
+            <key>CFBundleDisplayName</key><string>Hyplay Craft Launcher</string>
+            <key>CFBundleIdentifier</key><string>eu.muqiu.hycl</string>
+            <key>CFBundleExecutable</key><string>Hycl</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>1.0</string>
+            <key>CFBundleVersion</key><string>1</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict>
+          </plist>
+          PLIST
+          zip -qr "Hycl-$RID.zip" "Hycl.app"
+          ls -lh "Hycl-$RID.zip"
+
+      - name: Upload self-contained artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: Hycl-win-x64
-          path: publish/Hycl.exe
+          name: Hycl-${{ matrix.rid }}
+          path: publish/Hycl${{ matrix.ext }}
           if-no-files-found: error
 
       - name: Upload framework-dependent artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: Hycl-win-x64-framework-dependent
-          path: publish-ff/Hycl-ff.exe
+          name: Hycl-${{ matrix.rid }}-framework-dependent
+          path: publish-ff/Hycl-ff${{ matrix.ext }}
+          if-no-files-found: error
+
+      - name: Upload macOS .app artifact
+        if: startsWith(matrix.rid, 'osx-')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Hycl-${{ matrix.rid }}-app
+          path: Hycl-${{ matrix.rid }}.zip
           if-no-files-found: error

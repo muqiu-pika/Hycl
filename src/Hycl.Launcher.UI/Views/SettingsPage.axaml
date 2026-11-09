@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:c="clr-namespace:Hycl.Launcher.UI.Controls"
+             xmlns:local="clr-namespace:Hycl.Launcher.UI.Views"
              xmlns:m="clr-namespace:Hycl.Launcher.Core.Models;assembly=Hycl.Launcher.Core"
              xmlns:vm="clr-namespace:Hycl.Launcher.Core.ViewModels.Pages;assembly=Hycl.Launcher.Core"
              x:Class="Hycl.Launcher.UI.Views.SettingsPage"
@@ -178,8 +179,14 @@
                                                                                  FontSize="12" />
                                                         </Border>
                                                     </DataTemplate>
-                                                    <DataTemplate x:DataType="m:ButtonsRowViewModel">
-                                                        <ItemsControl ItemsSource="{Binding Buttons}" Margin="0,4,0,2">
+                                    <DataTemplate x:DataType="m:PluginWorkshopRowViewModel">
+                                        <!-- 插件工坊：设置页里的插件管理面板（启用/禁用/下载/更新/卸载） -->
+                                        <local:PluginWorkshopView DataContext="{Binding Workshop}"
+                                                                  HorizontalAlignment="Stretch"
+                                                                  Margin="0,2,0,4" />
+                                    </DataTemplate>
+                                    <DataTemplate x:DataType="m:ButtonsRowViewModel">
+                                        <ItemsControl ItemsSource="{Binding Buttons}" Margin="0,4,0,2">
                                                             <ItemsControl.ItemsPanel>
                                                                 <ItemsPanelTemplate>
                                                                     <!-- 小窗口下按钮自动换行，不撑出横向滚动条 -->

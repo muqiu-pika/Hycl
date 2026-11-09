@@ -1,83 +1,87 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:c="clr-namespace:Hycl.Launcher.UI.Controls;assembly=Hycl.Launcher.UI"
+             xmlns:p="clr-namespace:Hycl.Launcher.Core.Plugins;assembly=Hycl.Launcher.Core"
              xmlns:vm="clr-namespace:Hycl.Launcher.Core.ViewModels.Pages;assembly=Hycl.Launcher.Core"
              x:Class="Hycl.Launcher.UI.Views.ToolsPage"
              x:DataType="vm:ToolsPageViewModel"
              x:CompileBindings="True">
 
+    <!-- 已启用的插件 → 入口卡 → 点进去显示该插件的功能/设置页 -->
     <Grid RowDefinitions="Auto,*">
         <TextBlock Classes="page-heading" Text="工具" Margin="22,18,18,0" />
 
         <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
             <StackPanel Margin="22,14,22,20" Spacing="14">
 
-                <!-- 插件中心 -->
-                <c:McCard Title="插件中心">
-                    <StackPanel Spacing="10">
-                        <Grid ColumnDefinitions="*,Auto">
-                            <TextBlock Grid.Column="0" Text="{Binding ManifestStatusText}"
-                                       FontSize="12" Foreground="{DynamicResource Gray2Brush}"
-                                       TextWrapping="Wrap" VerticalAlignment="Center" />
-                            <Button Grid.Column="1" Classes="action-btn" Content="刷新"
-                                    Command="{Binding RefreshCommand}" IsEnabled="{Binding !IsBusy}" />
-                        </Grid>
+                <!-- 入口列表 -->
+                <StackPanel Spacing="12"
+                            IsVisible="{Binding CurrentPluginPage, Converter={x:Static ObjectConverters.IsNull}}">
+                    <TextBlock Text="已启用的插件" FontSize="14" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextBrush}" />
 
-                        <TextBlock Text="插件清单源不可达，当前仅显示本机已安装插件。"
-                                   FontSize="12" Foreground="{DynamicResource ErrorDarkBrush}"
-                                   IsVisible="{Binding IsManifestOffline}" />
+                    <Border Background="{DynamicResource SurfaceBrush}"
+                            BorderBrush="{DynamicResource CardBorderBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="16,14"
+                            IsVisible="{Binding !HasEnabledPlugins}">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="还没有已启用的插件" FontSize="13" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextBrush}" />
+                            <TextBlock FontSize="12" Foreground="{DynamicResource Gray2Brush}" TextWrapping="Wrap"
+                                       Text="请到「设置 → 插件工坊」下载并启用插件。启用后这里会出现入口，点进去即可打开插件的功能设置页。" />
+                        </StackPanel>
+                    </Border>
 
-                        <ItemsControl ItemsSource="{Binding Catalog}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="vm:PluginListRowViewModel">
-                                    <Border Background="{DynamicResource SurfaceBrush}"
-                                            BorderBrush="{DynamicResource CardBorderBrush}"
-                                            BorderThickness="1" CornerRadius="8" Padding="14,12" Margin="0,0,0,8">
-                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                                            <StackPanel Grid.Column="0" Spacing="4">
-                                                <Grid ColumnDefinitions="Auto,Auto,*,Auto">
-                                                    <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="Bold"
-                                                               Foreground="{DynamicResource TextBrush}" VerticalAlignment="Center" />
-                                                    <TextBlock Grid.Column="1" Text="{Binding StateText}" FontSize="11.5"
-                                                               Margin="10,0,0,0" VerticalAlignment="Center"
-                                                               Foreground="{DynamicResource Gray3Brush}" />
-                                                    <TextBlock Grid.Column="3" Text="需重启启动器"
-                                                               FontSize="11" Margin="0,0,10,0" VerticalAlignment="Center"
-                                                               Foreground="{DynamicResource ErrorDarkBrush}"
-                                                               IsVisible="{Binding RestartRequired}" />
-                                                </Grid>
-                                                <TextBlock Text="{Binding Description}" FontSize="12"
-                                                           Foreground="{DynamicResource Gray2Brush}" TextWrapping="Wrap" />
-                                                <ProgressBar Minimum="0" Maximum="100" Value="{Binding Percent}"
-                                                             Height="4" CornerRadius="2"
-                                                             Foreground="{DynamicResource PrimaryDeepBrush}"
-                                                             IsVisible="{Binding IsInstalling}" />
+                    <ItemsControl ItemsSource="{Binding EnabledPlugins}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="p:PluginEntryInfo">
+                                <Border Background="{DynamicResource CardBrush}"
+                                        BorderBrush="{DynamicResource SoftLineBrush}"
+                                        BorderThickness="1" CornerRadius="10" Padding="18,14" Margin="0,0,0,10">
+                                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+                                        <c:HyclIcon Grid.Column="0" Kind="package" Width="22" Height="22"
+                                                    VerticalAlignment="Center"
+                                                    Foreground="{DynamicResource PrimaryDeepBrush}" />
+                                        <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+                                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                                <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="Bold"
+                                                           Foreground="{DynamicResource TextBrush}" />
+                                                <TextBlock Text="{Binding Version}" FontSize="11.5"
+                                                           Foreground="{DynamicResource Gray3Brush}"
+                                                           VerticalAlignment="Center" />
                                             </StackPanel>
-                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                                <Button Classes="mc-btn" Content="{Binding ButtonText}"
-                                                        Command="{Binding $parent[UserControl].((vm:ToolsPageViewModel)DataContext).InstallCommand}"
-                                                        CommandParameter="{Binding}"
-                                                        IsVisible="{Binding ShowInstallButton}"
-                                                        IsEnabled="{Binding !IsInstalling}" />
-                                                <Button Classes="mc-btn danger" Content="卸载"
-                                                        Command="{Binding $parent[UserControl].((vm:ToolsPageViewModel)DataContext).UninstallCommand}"
-                                                        CommandParameter="{Binding}"
-                                                        IsVisible="{Binding ShowUninstallButton}"
-                                                        IsEnabled="{Binding $parent[UserControl].((vm:ToolsPageViewModel)DataContext).IsBusy, Converter={x:Static BoolConverters.Not}}" />
-                                            </StackPanel>
-                                        </Grid>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                                            <TextBlock Text="{Binding Description}" FontSize="12"
+                                                       Foreground="{DynamicResource Gray2Brush}" TextWrapping="Wrap"
+                                                       IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                        </StackPanel>
+                                        <Button Grid.Column="2" Classes="mc-btn primary-soft" Content="进入 →"
+                                                VerticalAlignment="Center"
+                                                IsEnabled="{Binding HasFeaturePage}"
+                                                Command="{Binding $parent[UserControl].((vm:ToolsPageViewModel)DataContext).OpenPluginCommand}"
+                                                CommandParameter="{Binding}" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
 
-                        <TextBlock Text="插件由 Hycl-online 仓库分发，下载包经 SHA-256 校验后安装到启动器数据目录。"
-                                   FontSize="11.5" Foreground="{DynamicResource Gray3Brush}" TextWrapping="Wrap" />
-                    </StackPanel>
-                </c:McCard>
+                    <TextBlock FontSize="11.5" Foreground="{DynamicResource Gray3Brush}" TextWrapping="Wrap"
+                               Text="插件的安装、更新、卸载与启用/禁用在「设置 → 插件工坊」中管理。" />
+                </StackPanel>
 
-                <!-- 已加载插件的动态工具卡 -->
-                <ItemsControl ItemsSource="{Binding PluginCards}" Margin="0,0,0,-4" />
+                <!-- 插件功能/设置页 -->
+                <Grid RowDefinitions="Auto,*" RowSpacing="12"
+                      IsVisible="{Binding CurrentPluginPage, Converter={x:Static ObjectConverters.IsNotNull}}">
+                    <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                        <Button Grid.Column="0" Classes="action-btn" Content="← 返回工具"
+                                Command="{Binding ClosePluginCommand}" />
+                        <TextBlock Grid.Column="1" Text="{Binding CurrentPluginTitle}" FontSize="15"
+                                   FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}"
+                                   VerticalAlignment="Center" />
+                    </Grid>
+                    <ContentControl Grid.Row="1" Content="{Binding CurrentPluginPage}"
+                                    HorizontalAlignment="Stretch" />
+                </Grid>
 
             </StackPanel>
         </ScrollViewer>

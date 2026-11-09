@@ -13,7 +13,28 @@ using Hycl.Launcher.PluginContract;
 
 namespace Hycl.Launcher.Core.Plugins;
 
-/// <summary>清单条目 + 本地安装态的聚合视图（工具页插件中心渲染用）。</summary>
+/// <summary>插件启用状态（plugins-state.json）：只记录被禁用的 id，未记录视为启用。</summary>
+public sealed class PluginState
+{
+    public List<string> Disabled { get; init; } = [];
+}
+
+/// <summary>
+/// 工具页的插件入口描述：只有已启用的插件才会出现在这里。
+/// <paramref name="FeaturePageFactory"/> 延迟创建「点进去」后的功能/设置页控件，
+/// 避免启动加载插件时就构造 Avalonia 控件并触发插件内部的后台校验。
+/// </summary>
+public sealed record PluginEntryInfo(
+    string Id,
+    string Title,
+    string Description,
+    string Version,
+    Func<object?>? FeaturePageFactory)
+{
+    public bool HasFeaturePage => FeaturePageFactory is not null;
+}
+
+/// <summary>清单条目 + 本地安装态的聚合视图（设置页插件工坊渲染用）。</summary>
 public sealed class PluginCatalogItem
 {
     public PluginCatalogItem(HyclPluginEntry entry, InstalledPluginInfo? installed, bool restartRequired)
@@ -114,9 +135,11 @@ public sealed class PluginManager
     private readonly Dictionary<string, IHyclPlugin> _loaded = new(StringComparer.Ordinal);
     private readonly Dictionary<string, InstalledPluginInfo> _installed = new(StringComparer.Ordinal);
     private readonly HashSet<string> _restartRequired = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PluginEntryInfo> _entries = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _disabled = new(StringComparer.Ordinal);
 
-    /// <summary>已加载插件的工具卡（按加载顺序；绑定到工具页 ItemsControl）。</summary>
-    public ObservableCollection<object> ToolCards { get; } = [];
+    /// <summary>已启用插件的工具页入口（按加载顺序；绑定到工具页 ItemsControl）。</summary>
+    public ObservableCollection<PluginEntryInfo> EnabledPlugins { get; } = [];
 
     /// <summary>安装/卸载/首次加载完成后触发（UI 线程）。</summary>
     public event EventHandler? PluginsChanged;
@@ -140,6 +163,7 @@ public sealed class PluginManager
         _dispatcher = dispatcher;
         _manifests = manifests;
         CleanupLeftoverDirectories();
+        LoadState();
     }
 
     public PluginManifestClient Manifests => _manifests;
@@ -150,6 +174,86 @@ public sealed class PluginManager
 
     /// <summary>需要重启启动器才能完成更新的插件（已加载插件被覆盖安装时标记）。</summary>
     public bool IsRestartRequired(string pluginId) => _restartRequired.Contains(pluginId);
+
+    // ---------- 启用 / 禁用 ----------
+
+    /// <summary>插件是否启用（默认启用，仅显式禁用的 id 落盘）。</summary>
+    public bool IsEnabled(string pluginId) => !_disabled.Contains(pluginId);
+
+    /// <summary>插件实例是否仍在进程中（卸载后为 false；禁用不影响）。</summary>
+    public bool IsLoaded(string pluginId) => _loaded.ContainsKey(pluginId);
+
+    /// <summary>
+    /// 启用/禁用插件：只控制工具页入口的显示，不卸载程序集、不停止插件内部服务
+    /// （避免反复切换破坏插件状态；彻底停止请用卸载）。
+    /// </summary>
+    public void SetEnabled(string pluginId, bool enabled)
+    {
+        var changed = enabled ? _disabled.Remove(pluginId) : _disabled.Add(pluginId);
+        if (!changed)
+        {
+            return;
+        }
+
+        SaveState();
+        RefreshEnabledPlugins();
+        PluginsChanged?.Invoke(this, EventArgs.Empty);
+        _logger.Info($"[插件] {pluginId} 已{(enabled ? "启用" : "禁用")}");
+    }
+
+    private string StateFilePath => Path.Combine(_paths.DataDirectory, "plugins-state.json");
+
+    private void LoadState()
+    {
+        try
+        {
+            if (!File.Exists(StateFilePath))
+            {
+                return;
+            }
+
+            var state = JsonSerializer.Deserialize(
+                File.ReadAllText(StateFilePath), NetJsonContext.Default.PluginState);
+            foreach (var id in state?.Disabled ?? [])
+            {
+                if (!string.IsNullOrWhiteSpace(id))
+                {
+                    _disabled.Add(id);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        {
+            _logger.Warn("[插件] 启用状态读取失败，按全部启用处理：" + ex.Message);
+        }
+    }
+
+    private void SaveState()
+    {
+        try
+        {
+            var state = new PluginState { Disabled = _disabled.Order(StringComparer.Ordinal).ToList() };
+            File.WriteAllText(StateFilePath,
+                JsonSerializer.Serialize(state, NetJsonContext.Default.PluginState));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.Warn("[插件] 启用状态保存失败：" + ex.Message);
+        }
+    }
+
+    /// <summary>按当前启用状态重建工具页入口集合（UI 线程调用）。</summary>
+    private void RefreshEnabledPlugins()
+    {
+        EnabledPlugins.Clear();
+        foreach (var entry in _entries.Values)
+        {
+            if (IsEnabled(entry.Id))
+            {
+                EnabledPlugins.Add(entry);
+            }
+        }
+    }
 
     // ---------- 清单 ----------
 
@@ -286,7 +390,20 @@ public sealed class PluginManager
             package.Abi,
             directory,
             IsLoaded: true);
-        ToolCards.Add(plugin.CreateToolCard());
+        // 功能页工厂：新插件通过可选接口显式声明；旧包（ABI v1）回退到 CreateToolCard()，
+        // 这样即使线上还是 v1.0.0 插件包，工具页也能「点进去」看到页面。
+        Func<object?> featurePageFactory = plugin is IHyclPluginFeaturePage feature
+            ? feature.CreateFeaturePage
+            : plugin.CreateToolCard;
+        var description = (_manifests.Cached?.Plugins ?? [])
+            .FirstOrDefault(item => item.Id == package.Id)?.Description ?? "";
+        _entries[package.Id] = new PluginEntryInfo(
+            package.Id,
+            string.IsNullOrWhiteSpace(package.Name) ? plugin.DisplayName : package.Name,
+            description,
+            package.Version,
+            featurePageFactory);
+        RefreshEnabledPlugins();
         _logger.Info($"[插件] 已加载：{package.Id} v{package.Version}");
     }
 
@@ -405,6 +522,15 @@ public sealed class PluginManager
                 _logger.Warn("[插件] 卸载时关闭失败：" + pluginId + "：" + ex.Message);
             }
         }
+
+        // 同步移除工具页入口与功能页，否则卸载后界面会残留已失效的控件。
+        _entries.Remove(pluginId);
+        if (_disabled.Remove(pluginId))
+        {
+            SaveState();
+        }
+
+        RefreshEnabledPlugins();
 
         var directory = Path.Combine(_paths.PluginsDirectory, pluginId);
         if (Directory.Exists(directory))

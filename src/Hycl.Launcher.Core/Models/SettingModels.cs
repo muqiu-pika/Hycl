@@ -1,5 +1,7 @@
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Hycl.Launcher.Core.Plugins;
 
 namespace Hycl.Launcher.Core.Models;
 
@@ -242,6 +244,17 @@ public sealed class ButtonsRowViewModel : SettingRowViewModel
     public IReadOnlyList<SettingButtonViewModel> Buttons { get; }
 }
 
+/// <summary>
+/// 「插件工坊」内容行：承载插件工坊 ViewModel，由 UI 层的 DataTemplate 渲染成完整管理面板。
+/// 设置页本身是数据驱动的通用行渲染器，这里只负责把它接进分区。
+/// </summary>
+public sealed class PluginWorkshopRowViewModel : SettingRowViewModel
+{
+    public PluginWorkshopRowViewModel(PluginWorkshopViewModel workshop) : base(string.Empty) => Workshop = workshop;
+
+    public PluginWorkshopViewModel Workshop { get; }
+}
+
 public partial class SettingCardViewModel : ObservableObject
 {
     public SettingCardViewModel(
@@ -283,12 +296,13 @@ public sealed class SettingsSectionViewModel
     public SettingsSectionViewModel(string title, IReadOnlyList<SettingCardViewModel> cards)
     {
         Title = title;
-        Cards = cards;
+        Cards = new ObservableCollection<SettingCardViewModel>(cards);
     }
 
     public string Title { get; }
 
-    public IReadOnlyList<SettingCardViewModel> Cards { get; }
+    /// <summary>可变卡片集合：插件安装/卸载后可在不重建整个分区的前提下增删插件设置卡。</summary>
+    public ObservableCollection<SettingCardViewModel> Cards { get; }
 
     public void Reset()
     {

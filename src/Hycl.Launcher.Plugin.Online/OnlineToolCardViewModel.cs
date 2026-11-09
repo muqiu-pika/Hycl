@@ -55,6 +55,20 @@ public partial class OnlineToolCardViewModel : ObservableObject
     [ObservableProperty]
     private string _platformUnsupportedText = "";
 
+    // ---------- 插件设置区（功能页内「插件设置」） ----------
+
+    [ObservableProperty]
+    private string _toolStatusText = "正在校验…";
+
+    [ObservableProperty]
+    private string _settingsErrorText = "";
+
+    [ObservableProperty]
+    private bool _isCheckingTool;
+
+    [ObservableProperty]
+    private bool _isRepairing;
+
     // ---------- 会话态 ----------
 
     [ObservableProperty]
@@ -81,6 +95,17 @@ public partial class OnlineToolCardViewModel : ObservableObject
     public ObservableCollection<string> Logs { get; } = [];
 
     public string UpstreamUrl => "https://github.com/burningtnt/Terracotta";
+
+    public string PluginHomeUrl => "https://github.com/muqiu-pika/Hycl-online";
+
+    /// <summary>插件版本（与 plugin.json / csproj 同源）。</summary>
+    public string PluginVersion => typeof(OnlineToolCardViewModel).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
+
+    public string ToolVersion => _service.ToolVersionNumber;
+
+    public string PlatformKey => TerracottaService.PlatformAssetKey() ?? "当前平台不受支持";
+
+    public string ToolDirectory => _service.ToolDirectory;
 
     private bool IsReady => !string.IsNullOrEmpty(GameAddress) || _service.Current.Phase == TerracottaPhase.Ready;
 
@@ -171,6 +196,77 @@ public partial class OnlineToolCardViewModel : ObservableObject
     [RelayCommand]
     private void OpenUpstream() => _context.OpenUrl(UpstreamUrl);
 
+    [RelayCommand]
+    private void OpenPluginHome() => _context.OpenUrl(PluginHomeUrl);
+
+    /// <summary>设置区：重新校验本地二进制（对应 KAMUCL 陶瓦面板的「重新校验」）。</summary>
+    [RelayCommand]
+    private async Task RefreshToolAsync(CancellationToken cancellationToken)
+    {
+        if (IsCheckingTool)
+        {
+            return;
+        }
+
+        IsCheckingTool = true;
+        SettingsErrorText = "";
+        ToolStatusText = "正在校验…";
+        try
+        {
+            var ready = await _service.IsBinaryReadyAsync(cancellationToken).ConfigureAwait(true);
+            _context.Dispatch(() =>
+            {
+                IsBinaryReady = ready;
+                ToolStatusText = ready
+                    ? "已安装并通过 SHA-256 校验"
+                    : "未安装或校验失败，可用「修复安装」重新下载";
+                InstallStatusText = ready ? $"陶瓦 v{_service.ToolVersionNumber} 已就绪" : "尚未安装陶瓦工具";
+            });
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _context.Dispatch(() =>
+            {
+                ToolStatusText = "校验失败";
+                SettingsErrorText = ex.Message;
+            });
+        }
+        finally
+        {
+            _context.Dispatch(() => IsCheckingTool = false);
+        }
+    }
+
+    /// <summary>设置区：重新下载/修复工具（多镜像回退 + 双 SHA-256 校验）。</summary>
+    [RelayCommand]
+    private async Task RepairToolAsync(CancellationToken cancellationToken)
+    {
+        if (IsRepairing)
+        {
+            return;
+        }
+
+        IsRepairing = true;
+        SettingsErrorText = "";
+        DownloadPercent = 0;
+        try
+        {
+            var progress = new Progress<double>(value =>
+                _context.Dispatch(() => DownloadPercent = Math.Clamp(value * 100, 0, 100)));
+            await _service.EnsureInstalledAsync(progress, cancellationToken).ConfigureAwait(true);
+            await RefreshToolAsync(CancellationToken.None).ConfigureAwait(true);
+            _context.Dispatch(() => InstallStatusText = $"陶瓦 v{_service.ToolVersionNumber} 已就绪");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _context.Dispatch(() => SettingsErrorText = ex.Message);
+        }
+        finally
+        {
+            _context.Dispatch(() => IsRepairing = false);
+        }
+    }
+
     // ---------- 引擎事件 ----------
 
     private void OnServiceLog(string level, string message)
@@ -206,6 +302,7 @@ public partial class OnlineToolCardViewModel : ObservableObject
         if (!supported)
         {
             InstallStatusText = "平台不受支持";
+            ToolStatusText = "当前平台不受支持，无法下载工具";
             return;
         }
 
@@ -216,6 +313,9 @@ public partial class OnlineToolCardViewModel : ObservableObject
             {
                 IsBinaryReady = ready;
                 InstallStatusText = ready ? $"陶瓦 v{_service.ToolVersionNumber} 已就绪" : "尚未安装陶瓦工具";
+                ToolStatusText = ready
+                    ? "已安装并通过 SHA-256 校验"
+                    : "未安装或校验失败，可用「修复安装」重新下载";
             });
         }
         catch (Exception ex)
