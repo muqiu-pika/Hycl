@@ -1234,6 +1234,99 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
 
     public static readonly IReadOnlyList<string> BuiltInSkinKeys = ["steve", "alex", "zuri"];
 
+    // ------------------------- 离线本地皮肤 -------------------------
+
+    /// <summary>原版皮肤参考上限（对齐 PCL-CE 上传校验）；本地皮肤仅启动器展示，超限只提示。</summary>
+    private const long SkinMaxBytes = 24 * 1024;
+
+    /// <summary>本地皮肤持久目录（DataDirectory/skins）：用户自选文件不可再下载，不能放 cache。</summary>
+    private string LocalSkinDirectory => Path.Combine(_services.Paths.DataDirectory, "skins");
+
+    /// <summary>
+    /// 应用本地皮肤文件（文件选择在视图层完成后回调到这里）：
+    /// 校验 64x32 / 64x64 PNG → 复制进数据目录 → 询问手臂模型 → 写回当前离线档案。
+    /// 对齐 PCL-CE 的本地皮肤选择流程；仅离线档案（正版/皮肤站皮肤自动获取，不在此更换）。
+    /// </summary>
+    public async Task ApplyLocalSkinAsync(string? selectedFile)
+    {
+        var account = _services.Accounts.SelectedAccount;
+        if (account is null || account.Type != "offline")
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(selectedFile) || !File.Exists(selectedFile))
+        {
+            return; // 用户在文件选择框点了取消
+        }
+
+        try
+        {
+            if (!IsVanillaSkinTexture(selectedFile, out var width, out var height))
+            {
+                _toast?.Invoke(width == 0
+                    ? "皮肤文件无效：请选择 PNG 图片"
+                    : $"皮肤尺寸不支持：需要 64x32 或 64x64 的 PNG（当前 {width}x{height}）");
+                return;
+            }
+
+            var info = new FileInfo(selectedFile);
+            if (info.Length > SkinMaxBytes)
+            {
+                _toast?.Invoke($"皮肤文件 {info.Length / 1024d:0.#} KiB 偏大（建议小于 24 KiB），已照常应用");
+            }
+
+            Directory.CreateDirectory(LocalSkinDirectory);
+            var targetPath = Path.Combine(LocalSkinDirectory, $"offline-{account.Uuid}.png");
+            File.Copy(selectedFile, targetPath, overwrite: true);
+
+            // 手臂模型对齐 PCL-CE：由用户确认 slim（Alex）/经典（Steve）；非 Windows 无原生确认框，按经典处理
+            var isSlim = OperatingSystem.IsWindows()
+                && NativeMessageBox.ShowYesNo(
+                    "选择皮肤模型",
+                    "此皮肤是哪种手臂模型？\n\n是 = Alex 模型（细手臂）\n否 = Steve 模型（粗手臂）\n\n不确定时请选「否」。",
+                    isError: false);
+
+            account.SkinKey = "";
+            account.SkinPath = targetPath;
+            account.SkinModel = isSlim ? "slim" : "";
+            await _services.Accounts.SaveAsync().ConfigureAwait(true);
+            BuildProfiles();
+            IsSkinPickerVisible = false;
+            _toast?.Invoke($"已应用本地皮肤：{Path.GetFileName(selectedFile)}");
+            _services.Logger.Info($"离线档案已应用本地皮肤：{account.Name} ← {selectedFile}");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _toast?.Invoke($"应用本地皮肤失败：{ex.Message}");
+        }
+    }
+
+    /// <summary>校验 PNG 且为原版皮肤布局（64x32 旧版 / 64x64 现版）；直接解析 IHDR，不引图像库。</summary>
+    private static bool IsVanillaSkinTexture(string path, out int width, out int height)
+    {
+        width = 0;
+        height = 0;
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var header = new byte[24];
+            stream.ReadExactly(header, 0, header.Length);
+            if (header[0] != 0x89 || header[1] != 0x50 || header[2] != 0x4E || header[3] != 0x47)
+            {
+                return false;
+            }
+
+            width = (header[16] << 24) | (header[17] << 16) | (header[18] << 8) | header[19];
+            height = (header[20] << 24) | (header[21] << 16) | (header[22] << 8) | header[23];
+            return width == 64 && height is 32 or 64;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or EndOfStreamException)
+        {
+            return false;
+        }
+    }
+
     private static string DescribeAccountType(PlayerAccount account) => account.Type switch
     {
         "msa" => "微软正版",

@@ -2,6 +2,7 @@ using System.ComponentModel;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Hycl.Launcher.Core.ViewModels.Pages;
 
@@ -83,6 +84,40 @@ public partial class LaunchPage : UserControl
         {
             viewModel.ShowToast($"复制失败，请手动输入代码 {viewModel.MsUserCode}（{ex.Message}）");
         }
+    }
+
+    /// <summary>离线皮肤弹窗里的「本地皮肤文件」：选好 PNG 后交给 ViewModel 校验与应用。</summary>
+    private async void OnPickLocalSkinClick(object? sender, RoutedEventArgs e)
+    {
+        if (_viewModel is not { } viewModel)
+        {
+            return;
+        }
+
+        var file = await PickLocalSkinFileAsync().ConfigureAwait(true);
+        await viewModel.ApplyLocalSkinAsync(file).ConfigureAwait(true);
+    }
+
+    private async Task<string?> PickLocalSkinFileAsync()
+    {
+        var top = TopLevel.GetTopLevel(this);
+        if (top?.StorageProvider is null)
+        {
+            return null;
+        }
+
+        var pngType = new Avalonia.Platform.Storage.FilePickerFileType("皮肤图片（PNG）")
+        {
+            Patterns = ["*.png"]
+        };
+        var allFilesType = new Avalonia.Platform.Storage.FilePickerFileType("所有文件") { Patterns = ["*"] };
+        var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "选择本地皮肤文件",
+            AllowMultiple = false,
+            FileTypeFilter = [pngType, allFilesType]
+        }).ConfigureAwait(true);
+        return files.Count > 0 ? files[0].TryGetLocalPath() : null;
     }
 
     /// <summary>弹窗打开时把焦点移到确认按钮，并在 Tunnel 阶段拦截 Esc / Enter。</summary>
