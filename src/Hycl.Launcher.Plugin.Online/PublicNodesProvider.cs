@@ -8,6 +8,7 @@ namespace Hycl.Launcher.Plugin.Online;
 /// <summary>
 /// 社区 EasyTier 公共节点清单（AES-256-GCM 密文）：
 /// 清单声明地址 → EdgeOne 主源 → GitHub raw 兜底。
+/// 另实时拉取官方陶瓦节点与 LCTN 公共节点清单，三源合并去重。
 /// 仓库与站点只托管 <c>public-nodes.enc</c>，明文仅在内存中短暂存在；
 /// 内存缓存 10 分钟，密文原文落盘供离线回退。
 /// 全部不可达时返回空数组，陶瓦仍使用自身内置节点，不影响启动。
@@ -26,6 +27,14 @@ internal sealed class PublicNodesProvider
     private static readonly TimeSpan OfficialCacheTtl = TimeSpan.FromMinutes(30);
 
     /// <summary>
+    /// LCTN 维护的 EasyTier 公共节点清单（纯文本，每行一个 peer URI，支持 txt:// DNS 解析形式）。
+    /// 与官方/社区清单一样按链接实时拉取，不落明文节点，失效节点由陶瓦自行跳过。
+    /// </summary>
+    private const string LctnNodesUrl = "https://et-public.lctn.top";
+    private static readonly TimeSpan LctnCacheTtl = TimeSpan.FromMinutes(30);
+    private const string LctnCacheFileName = "public-nodes.lctn.cache.txt";
+
+    /// <summary>
     /// 种子分片：故意打乱顺序存放，运行时按 <see cref="SeedOrder"/> 重组。
     /// 必须与 Hycl-online <c>scripts/sync-public-nodes.cjs</c> 的 HYCL_NODES_SEED 一致；
     /// 轮换种子后需重新发版（旧客户端会因 GCM 认证失败而回退内置节点）。
@@ -40,6 +49,8 @@ internal sealed class PublicNodesProvider
     private DateTime _fetchedUtc;
     private string[] _official = [];
     private DateTime _officialFetchedUtc;
+    private string[] _lctn = [];
+    private DateTime _lctnFetchedUtc;
 
     public PublicNodesProvider(IPluginContext context) => _context = context;
 
@@ -63,7 +74,9 @@ internal sealed class PublicNodesProvider
                 return cached;
             }
 
-            var official = await GetOfficialNodesAsync(cancellationToken).ConfigureAwait(false);
+            // 官方与 LCTN 清单互相独立，并发拉取缩短联机前等待
+            var officialTask = GetOfficialNodesAsync(cancellationToken);
+            var lctnTask = GetLctnNodesAsync(cancellationToken);
 
             var urls = new List<string>();
             try
@@ -100,7 +113,7 @@ internal sealed class PublicNodesProvider
                 _context.Log.Warn("社区节点清单不可用：" + ex.Message);
             }
 
-            var merged = MergeNodes(official, community);
+            var merged = MergeNodes(await officialTask.ConfigureAwait(false), community, await lctnTask.ConfigureAwait(false));
             if (merged.Length > 0)
             {
                 _nodes = merged;
@@ -110,14 +123,16 @@ internal sealed class PublicNodesProvider
                     TrySaveCache(envelope);
                 }
 
-                _context.Log.Info($"可用公共节点 {merged.Length} 个（官方 {official.Length} + 社区 {community.Length}）");
+                var officialCount = Volatile.Read(ref _official).Length;
+                _context.Log.Info($"可用公共节点 {merged.Length} 个（官方 {officialCount} + 社区 {community.Length} + LCTN {Volatile.Read(ref _lctn).Length}）");
                 return merged;
             }
 
             var offline = TryLoadCache();
-            if (offline.Length > 0)
+            var lctnOffline = TryLoadLctnCache();
+            if (offline.Length > 0 || lctnOffline.Length > 0)
             {
-                _nodes = MergeNodes(official, offline);
+                _nodes = MergeNodes(await officialTask.ConfigureAwait(false), offline, lctnOffline);
                 _fetchedUtc = DateTime.UtcNow;
                 return _nodes;
             }
@@ -195,12 +210,63 @@ internal sealed class PublicNodesProvider
         return _official;
     }
 
-    /// <summary>官方陶瓦节点优先（专为陶瓦网络维护），再接社区清单，按序去重。</summary>
-    private static string[] MergeNodes(IReadOnlyList<string> official, IReadOnlyList<string> community)
+    /// <summary>
+    /// LCTN 公共节点清单：纯文本，每行一个 peer URI（形如 <c>txt://et.lctn.cc.cd</c> 或 <c>tcp://host:port</c>），
+    /// 忽略空行与 <c>#</c> 注释。原文落盘作离线兜底，与社区密文清单的缓存策略一致。
+    /// </summary>
+    private async Task<string[]> GetLctnNodesAsync(CancellationToken cancellationToken)
+    {
+        if (_lctn.Length > 0 && DateTime.UtcNow - _lctnFetchedUtc < LctnCacheTtl)
+        {
+            return _lctn;
+        }
+
+        try
+        {
+            var text = await _context.Downloads.GetStringAsync([LctnNodesUrl], cancellationToken).ConfigureAwait(false);
+            var parsed = ParseLctnText(text);
+            if (parsed.Length > 0)
+            {
+                _lctn = parsed;
+                _lctnFetchedUtc = DateTime.UtcNow;
+                TrySaveLctnCache(text);
+                _context.Log.Info($"LCTN 公共节点 {parsed.Length} 个");
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _context.Log.Warn("LCTN 公共节点清单不可用：" + ex.Message);
+        }
+
+        return _lctn;
+    }
+
+    /// <summary>逐行解析纯文本清单：去空白、去注释、要求含 "://"（同社区清单的宽容校验），按序去重。</summary>
+    private static string[] ParseLctnText(string text)
+    {
+        var result = new List<string>();
+        foreach (var rawLine in text.Split('\n'))
+        {
+            var line = rawLine.Trim().TrimEnd('\r');
+            if (line.Length == 0 || line.StartsWith('#')
+                || !line.Contains("://", StringComparison.Ordinal)
+                || result.Contains(line, StringComparer.Ordinal))
+            {
+                continue;
+            }
+
+            result.Add(line);
+        }
+
+        return [.. result];
+    }
+
+    /// <summary>官方陶瓦节点优先（专为陶瓦网络维护），社区清单次之，LCTN 清单补充，按序去重。</summary>
+    private static string[] MergeNodes(IReadOnlyList<string> official, IReadOnlyList<string> community, IReadOnlyList<string> lctn)
     {
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        var result = new List<string>(official.Count + community.Count);
-        foreach (var node in official.Concat(community))
+        var result = new List<string>(official.Count + community.Count + lctn.Count);
+        foreach (var node in official.Concat(community).Concat(lctn))
         {
             if (!string.IsNullOrWhiteSpace(node) && seen.Add(node))
             {
@@ -294,6 +360,32 @@ internal sealed class PublicNodesProvider
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // 缓存只是离线兜底，写失败不影响本次联机
+        }
+    }
+
+    private string LctnCachePath => Path.Combine(_context.DataDirectory, LctnCacheFileName);
+
+    private void TrySaveLctnCache(string text)
+    {
+        try
+        {
+            File.WriteAllText(LctnCachePath, text);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // 缓存只是离线兜底，写失败不影响本次联机
+        }
+    }
+
+    private string[] TryLoadLctnCache()
+    {
+        try
+        {
+            return File.Exists(LctnCachePath) ? ParseLctnText(File.ReadAllText(LctnCachePath)) : [];
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return [];
         }
     }
 
