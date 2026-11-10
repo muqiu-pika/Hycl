@@ -320,6 +320,12 @@ public sealed partial class TerracottaService
             Publish(s => s with { Phase = TerracottaPhase.Idle, BinaryReady = false, Error = RepairHint });
             Log?.Invoke("warn", "自动准备陶瓦工具失败：" + ex.Message);
         }
+        catch (OperationCanceledException)
+        {
+            // 后台任务是 fire-and-forget：取消（插件停用/启动器退出）必须就地吞掉并复位状态，
+            // 否则取消异常会作为未观察异常浮出，调试器与日志里都会看到穿透堆栈
+            Log?.Invoke("info", "自动准备陶瓦工具已取消");
+        }
         finally
         {
             if (ReferenceEquals(_autoPrepareCts, linked))

@@ -70,8 +70,9 @@ public sealed class PluginManifestClient
             _logger.Info($"[插件] 清单已刷新：{(manifest.Plugins ?? []).Count} 个插件（{ManifestUrls[0]}）");
             return manifest;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
+            // 真取消（调用方 token 生效）向上传；其余取消型异常（超时等）按失败兜底，返回缓存
             _logger.Warn("[插件] 清单拉取失败：" + LogSanitizer.Sanitize(ex.Message));
             return _cached;
         }
