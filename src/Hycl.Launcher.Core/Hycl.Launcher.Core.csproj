@@ -23,6 +23,11 @@
     <EmbeddedResource Include="Download\Resources\forge-installer.jar" />
     <!-- PCL-CE 内置的 MC 百科模组译名数据库（GZip + Protobuf，Apache-2.0），用于社区资源中文标题 -->
     <EmbeddedResource Include="Resources\mcmod.buf" />
+    <!-- 离线档案内置皮肤（Steve/Alex/Zuri）：更换内置皮肤时落盘到数据目录，
+         与本地皮肤同一条链路进游戏（本地 Yggdrasil + authlib-injector），不只是启动器预览 -->
+    <EmbeddedResource Include="Resources\Skins\steve.png" />
+    <EmbeddedResource Include="Resources\Skins\alex.png" />
+    <EmbeddedResource Include="Resources\Skins\zuri.png" />
   </ItemGroup>
 
 </Project>

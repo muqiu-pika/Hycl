@@ -1200,7 +1200,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         return changed;
     }
 
-    /// <summary>离线皮肤更换：把内置皮肤键写回当前账号。</summary>
+    /// <summary>离线皮肤更换：内置皮肤落盘后写回当前账号，让皮肤同样走进游戏链路（本地 Yggdrasil + authlib-injector）。</summary>
     [RelayCommand]
     private async Task ApplySkinAsync(string skinKey)
     {
@@ -1225,11 +1225,38 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         }
 
         account.SkinKey = skinKey;
-        account.SkinPath = "";
+        // 内置皮肤也落到 skins 目录：LaunchService 只对有 SkinPath 的档案注入本地皮肤服务，
+        // 只写 SkinKey 的话 Alex/Zuri 在游戏里仍会显示成默认 Steve
+        try
+        {
+            account.SkinPath = ExtractBuiltinSkin(skinKey);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            account.SkinPath = "";
+            _services.Logger.Warn($"内置皮肤落盘失败（仅启动器内预览生效）：{ex.Message}");
+        }
+
         await _services.Accounts.SaveAsync().ConfigureAwait(true);
         BuildProfiles();
         IsSkinPickerVisible = false;
         _toast?.Invoke($"已更换皮肤：{skinKey}");
+    }
+
+    /// <summary>
+    /// 把内置皮肤从嵌入资源释放到 <c>skins/builtin-&lt;key&gt;.png</c> 并返回路径；
+    /// 每次重写保证程序更新皮肤素材后落盘内容跟随更新。
+    /// </summary>
+    private string ExtractBuiltinSkin(string skinKey)
+    {
+        Directory.CreateDirectory(LocalSkinDirectory);
+        var targetPath = Path.Combine(LocalSkinDirectory, $"builtin-{skinKey}.png");
+        var resource = $"Hycl.Launcher.Core.Resources.Skins.{skinKey}.png";
+        using var stream = typeof(LaunchPageViewModel).Assembly.GetManifestResourceStream(resource)
+            ?? throw new IOException($"缺少内置皮肤资源：{resource}");
+        using var file = File.Create(targetPath);
+        stream.CopyTo(file);
+        return targetPath;
     }
 
     public static readonly IReadOnlyList<string> BuiltInSkinKeys = ["steve", "alex", "zuri"];

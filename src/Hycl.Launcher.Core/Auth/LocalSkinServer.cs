@@ -210,10 +210,11 @@ public sealed class LocalSkinServer : IDisposable
     {
         contentType = "application/json; charset=utf-8";
 
-        // authlib-injector 启动时探测 API 根，返回 Yggdrasil 元数据即可（字段缺失走它的默认值）
+        // authlib-injector 启动时探测 API 根，返回 Yggdrasil 元数据即可（字段缺失走它的默认值）。
+        // skinDomains 声明本机域名，标记皮肤 URL 属于本服务（与 HMCL 本地 Yggdrasil 的元数据同思路）
         if (path is "/" or "")
         {
-            body = Encoding.UTF8.GetBytes("{\"skinDomains\":[],\"signaturePublicKeys\":[]}");
+            body = Encoding.UTF8.GetBytes("{\"skinDomains\":[\"127.0.0.1\",\"localhost\"],\"signaturePublicKeys\":[]}");
             return 200;
         }
 
@@ -238,7 +239,8 @@ public sealed class LocalSkinServer : IDisposable
         var profilePrefix = "/sessionserver/session/minecraft/profile/";
         if (path.StartsWith(profilePrefix, StringComparison.OrdinalIgnoreCase))
         {
-            var requested = path[profilePrefix.Length..].Trim('/');
+            // 与原版 sessionserver 一致用无连字符 UUID；带连字符的请求去掉后再比对，宽容处理
+            var requested = path[profilePrefix.Length..].Trim('/').Replace("-", "", StringComparison.Ordinal);
             if (string.Equals(requested, _uuidUnsigned, StringComparison.OrdinalIgnoreCase))
             {
                 body = Encoding.UTF8.GetBytes(_profileJson);
