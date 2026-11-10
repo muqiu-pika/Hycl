@@ -590,7 +590,16 @@ public sealed partial class TerracottaService
                 }
             }
 
-            await KillTreeAsync().ConfigureAwait(false);
+            try
+            {
+                await KillTreeAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // 杀进程失败（权限/进程瞬时消失）不能中断停止流程：状态必须复位，否则卡片卡在旧状态
+                Log?.Invoke("warn", "清理陶瓦进程失败：" + ex.Message);
+            }
+
             lock (_stateLock)
             {
                 _state = new TerracottaState();

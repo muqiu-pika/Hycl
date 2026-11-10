@@ -177,7 +177,13 @@ public partial class OnlineToolCardViewModel : ObservableObject
         {
             await _service.StartAsync(TerracottaMode.Host, null, cancellationToken).ConfigureAwait(true);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException)
+        {
+            // 「关闭房间 / 停止联机」取消了轮询：状态复位由 StopAsync 负责。
+            // 取消绝不能逃出命令 —— AsyncRelayCommand.AwaitAndThrowIfFailed 会把它抛到 UI 线程，
+            // 冒泡出主消息循环后被当成「启动失败」弹框并退出整个启动器。
+        }
+        catch (Exception ex)
         {
             _context.Dispatch(() => ErrorText = ex.Message);
         }
@@ -191,14 +197,29 @@ public partial class OnlineToolCardViewModel : ObservableObject
         {
             await _service.StartAsync(TerracottaMode.Join, JoinCodeInput, cancellationToken).ConfigureAwait(true);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException)
+        {
+            // 同 CreateRoomAsync：取消来自「关闭房间 / 停止联机」，状态已由 StopAsync 复位
+        }
+        catch (Exception ex)
         {
             _context.Dispatch(() => ErrorText = ex.Message);
         }
     }
 
     [RelayCommand]
-    private Task StopAsync(CancellationToken cancellationToken) => _service.StopAsync();
+    private async Task StopAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _service.StopAsync().ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            // 关闭房间的失败要显示在卡片上，不能逃出命令（会弹「启动失败」并关掉启动器）
+            _context.Dispatch(() => ErrorText = "关闭房间时出错：" + ex.Message);
+        }
+    }
 
     [RelayCommand]
     private async Task CopyRoomAsync(CancellationToken cancellationToken)
