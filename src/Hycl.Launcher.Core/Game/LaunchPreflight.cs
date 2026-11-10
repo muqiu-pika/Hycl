@@ -60,7 +60,9 @@ public static class LaunchPreflight
         JavaDetector javaDetector,
         Action<int>? onStep = null,
         CancellationToken cancellationToken = default,
-        VersionInstaller? installer = null)
+        VersionInstaller? installer = null,
+        Action<string>? onStage = null,
+        JavaRuntimeInstaller? javaRuntimeInstaller = null)
     {
         var items = new List<LaunchCheckItem>();
         var gameDirectory = Path.GetFullPath(options.GameDirectory);
@@ -88,7 +90,17 @@ public static class LaunchPreflight
                            ?? JavaDetector.RequiredMajorVersion(resolved.RootId);
         var java = await ResolveJavaAsync(options, javaDetector, requiredJava, cancellationToken)
             .ConfigureAwait(false);
-        items.Add(CheckJava(options.JavaPath, java, requiredJava));
+        var javaIssue = (string?)null;
+        if (java is null && string.IsNullOrWhiteSpace(options.JavaPath) && javaRuntimeInstaller is not null)
+        {
+            // 没有可用 Java 时自动下载安装（PCL-CE / HMCL 同款链路），失败原因并入检查项文案
+            var ensured = await EnsureJavaAsync(javaRuntimeInstaller, javaDetector, requiredJava, onStage, cancellationToken)
+                .ConfigureAwait(false);
+            java = ensured.Java;
+            javaIssue = ensured.Issue;
+        }
+
+        items.Add(CheckJava(options.JavaPath, java, requiredJava, javaIssue));
         items.Add(CheckMemory(options));
         return new LaunchPreflightResult(items, DescribeJava(java), requiredJava);
     }
@@ -268,15 +280,48 @@ public static class LaunchPreflight
         return best;
     }
 
-    private static LaunchCheckItem CheckJava(string? configuredPath, JavaInstallation? java, int requiredMajor)
+    /// <summary>
+    /// 没有可用 Java 时自动下载安装并重新识别。
+    /// Issue 为 null 表示没有错误；Java 与 Issue 同时为 null 表示清单里没有满足要求的运行时。
+    /// </summary>
+    private static async Task<(JavaInstallation? Java, string? Issue)> EnsureJavaAsync(
+        JavaRuntimeInstaller installer,
+        JavaDetector javaDetector,
+        int requiredMajor,
+        Action<string>? onStage,
+        CancellationToken cancellationToken)
+    {
+        var outcome = await installer.EnsureAsync(requiredMajor, onStage, cancellationToken).ConfigureAwait(false);
+        if (outcome.Directory is null)
+        {
+            return (null, outcome.Error);
+        }
+
+        var installed = await javaDetector
+            .DetectInRootsAsync([outcome.Directory], cancellationToken)
+            .ConfigureAwait(false);
+        var best = JavaDetector.FindBest(installed, requiredMajor);
+        return best is null || best.MajorVersion < requiredMajor
+            ? (null, $"自动下载的 Java 未能被识别：{outcome.Directory}")
+            : (best, null);
+    }
+
+    private static LaunchCheckItem CheckJava(
+        string? configuredPath,
+        JavaInstallation? java,
+        int requiredMajor,
+        string? issue = null)
     {
         if (java is null)
         {
+            var missingDetail =
+                $"未检测到可用的 Java（该版本需要 Java {requiredMajor} 或更高）。"
+                + (string.IsNullOrWhiteSpace(issue) ? "" : $"\n{issue}");
             return string.IsNullOrWhiteSpace(configuredPath)
                 ? Failed(
                     "java",
                     "Java 运行环境",
-                    $"未检测到可用的 Java（该版本需要 Java {requiredMajor} 或更高）。",
+                    missingDetail,
                     "安装对应版本的 Java（1.20.5 及以上建议 21，1.17~1.20.4 建议 17），"
                     + "或在「设置 → Java 设置」手动指定 javaw.exe。")
                 : Failed(

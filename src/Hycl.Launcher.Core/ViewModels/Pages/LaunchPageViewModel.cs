@@ -1449,9 +1449,12 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                 .RunPreflightAsync(
                     checkOptions,
                     account,
-                    step => _services.Dispatcher.Post(() => AdvanceLaunchStep(step)))
+                    step => _services.Dispatcher.Post(() => AdvanceLaunchStep(step)),
+                    onStage: stage => _services.Dispatcher.Post(() => LaunchStageText = stage))
                 .ConfigureAwait(true);
             ApplyPreflightResult(preflight);
+            // 检查阶段的进度文案（如自动下载 Java 的分步进度）不残留到后续阶段
+            LaunchStageText = "";
 
             if (!preflight.Passed || account is null)
             {
@@ -2160,6 +2163,10 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     {
         "正在检查版本文件…" => 0.10,
         "正在检测 Java 运行环境…" => 0.22,
+        // 缺 Java 时的自动下载属于第 3 步（Java 与内存）内部进度，不越过该步
+        "正在获取 Java 运行时清单…" => 0.22,
+        string s when s.StartsWith("正在下载 Java 运行环境", StringComparison.Ordinal) => 0.24,
+        string s when s.StartsWith("正在安装 Java 运行环境", StringComparison.Ordinal) => 0.26,
         "正在准备启动参数…" => 0.36,
         "正在启动游戏…" => 0.48,
         _ => 0.52

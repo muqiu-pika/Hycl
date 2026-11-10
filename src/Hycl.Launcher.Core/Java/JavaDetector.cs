@@ -291,6 +291,13 @@ public sealed class JavaDetector
 
     private static IEnumerable<string> GetSearchRoots()
     {
+        // 启动器自动下载安装的 Java（HYCL\java，JavaRuntimeInstaller 的落点）
+        var launcherJavaRoot = Path.Combine(PlatformInfo.LauncherDataDirectory, "java");
+        if (Directory.Exists(launcherJavaRoot))
+        {
+            yield return launcherJavaRoot;
+        }
+
         var home = PlatformInfo.GetUserHome();
         if (PlatformInfo.IsWindows)
         {
