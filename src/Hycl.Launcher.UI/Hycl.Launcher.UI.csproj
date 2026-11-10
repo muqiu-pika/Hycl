@@ -85,17 +85,17 @@
                                   or $([System.String]::new('%(ResolvedFileToPublish.FileName)').StartsWith('Microsoft.DiaSymReader.Native'))
                                   or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.DesignerSupport'
                                   or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.Remote.Protocol'" />
-      <!-- Windows 产物：Linux/macOS 专属 Avalonia 头（UsePlatformDetect 平台 guard 不会加载）；
-           Vulkan/Dialogs 在 Windows 未启用（渲染走 ANGLE/GLES，文件对话框走 Win32 原生实现） -->
+      <!-- Windows 产物：仅剔除 Linux/macOS 专属 Avalonia 头（UsePlatformDetect 的平台 guard 不会 JIT 到）。
+           Avalonia.Vulkan / Avalonia.Metal / Avalonia.Dialogs 必须保留：
+           它们分别被 Avalonia.Win32（Win32GlManager.InitializeCore）、Avalonia.Skia 与
+           Avalonia.Themes.Fluent（启动即加载）以 AssemblyRef 引用，剔除后启动即抛
+           FileNotFoundException: Avalonia.Vulkan 并被误判为“缺少 .NET 运行环境”。 -->
       <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
                              Condition="('$(RuntimeIdentifier)' == 'win-x64' or '$(RuntimeIdentifier)' == 'win-arm64')
                                   and ('%(ResolvedFileToPublish.FileName)' == 'Avalonia.X11'
                                   or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.FreeDesktop'
                                   or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.FreeDesktop.AtSpi'
                                   or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.Native'
-                                  or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.Metal'
-                                  or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.Vulkan'
-                                  or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.Dialogs'
                                   or '%(ResolvedFileToPublish.FileName)' == 'Tmds.DBus.Protocol')" />
       <!-- Linux 产物：Windows/macOS 专属 Avalonia 头 -->
       <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"

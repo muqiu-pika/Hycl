@@ -100,8 +100,22 @@ internal static class Program
     private static void ReportStartupFailure(Exception ex)
     {
         var logPath = TryLogStartupFailure(ex);
-        var runtimeIssue = LooksLikeRuntimeLoadFailure(ex);
         var summary = $"{ex.GetType().Name}: {ex.Message}";
+
+        // 缺失的是启动器自身组件时，与本机已安装的 .NET 版本无关（自包含发布更是自带运行时），
+        // 不能引导用户去安装 .NET —— 这正是“明明装了 .NET 却提示缺 .NET”的来源。
+        if (IsLauncherComponentMissing(ex))
+        {
+            NativeMessageBox.ShowInfo(
+                DialogTitle,
+                $"启动器启动组件缺失，无法启动。\n\n{summary}\n\n" +
+                "这不是 .NET 运行环境问题：请重新获取完整的启动器文件，或检查是否被杀毒软件拦截。\n" +
+                $"详细日志：{logPath}",
+                isError: true);
+            return;
+        }
+
+        var runtimeIssue = LooksLikeRuntimeLoadFailure(ex);
 
         if (runtimeIssue)
         {
@@ -163,6 +177,35 @@ internal static class Program
                 message.Contains("assembly", StringComparison.OrdinalIgnoreCase) ||
                 message.Contains("coreclr", StringComparison.OrdinalIgnoreCase) ||
                 message.Contains("hostfxr", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 加载失败的文件属于启动器自身组件（Avalonia / Hycl / SkiaSharp 等）而非 .NET 框架程序集时返回 true：
+    /// 这类缺失说明发布包不完整或文件被拦截，与本机已安装的 .NET 版本无关，不应引导用户去安装 .NET。
+    /// </summary>
+    private static bool IsLauncherComponentMissing(Exception ex)
+    {
+        string[] components = ["Avalonia", "Hycl", "SkiaSharp", "HarfBuzzSharp"];
+
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            string? missing = current switch
+            {
+                FileNotFoundException notFound => notFound.FileName,
+                FileLoadException loadFailed => loadFailed.FileName,
+                BadImageFormatException badImage => badImage.FileName,
+                DllNotFoundException notFound => notFound.Message,
+                _ => null
+            };
+
+            if (missing is not null &&
+                components.Any(component => missing.Contains(component, StringComparison.OrdinalIgnoreCase)))
             {
                 return true;
             }
