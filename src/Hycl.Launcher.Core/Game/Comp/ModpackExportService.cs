@@ -118,7 +118,11 @@ public sealed class ModpackExportService(
     {
         WriteIndented = true,
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        TypeInfoResolver = NetJsonContext.Default
+        TypeInfoResolver = NetJsonContext.Default,
+        // 关键：context 作为 TypeInfoResolver 挂到"外部" options 时，元数据按调用方 options 重新生成，
+        // context 自带的 CamelCase 策略不会生效——缺了这行，modrinth.index.json / manifest.json /
+        // mmc-pack.json 会写成 PascalCase，Hycl 自己的导入器与 Modrinth/Prism/CurseForge 全都读不了
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
     public async Task<ModpackExportResult> ExportAsync(
