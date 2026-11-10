@@ -33,7 +33,9 @@ jobs:
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: '10.0.x'
+          # 钉住与 global.json 一致的 SDK：10.0.404 的运行时包（10.0.15）与 nuget.org 存在
+          # 发布错位（NU1102），自包含发布在所有 RID 上还原失败，等包索引补齐后再升
+          dotnet-version: '10.0.403'
 
       - name: Build solution
         run: dotnet build Hycl.Launcher.sln -c Release --nologo
@@ -70,7 +72,8 @@ jobs:
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: '10.0.x'
+          # 与 compile job / global.json 同版本（10.0.404 运行时包与 nuget.org 错位，见上）
+          dotnet-version: '10.0.403'
 
       # 自包含 + 单文件：目标机器无需安装 .NET 运行时
       - name: Publish self-contained single-file
@@ -121,6 +124,8 @@ jobs:
           mkdir -p "Hycl.app/Contents/MacOS" "Hycl.app/Contents/Resources"
           cp "publish/Hycl" "Hycl.app/Contents/MacOS/Hycl"
           chmod +x "Hycl.app/Contents/MacOS/Hycl"
+          # 多分辨率 .icns（16~1024，packaging/macos/hycl.icns）：Dock / 访达 / 预览窗按 DPI 取帧
+          cp "packaging/macos/hycl.icns" "Hycl.app/Contents/Resources/hycl.icns"
           cat > "Hycl.app/Contents/Info.plist" <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -135,6 +140,8 @@ jobs:
             <key>CFBundleVersion</key><string>1</string>
             <key>LSMinimumSystemVersion</key><string>11.0</string>
             <key>NSHighResolutionCapable</key><true/>
+            <key>CFBundleIconFile</key><string>hycl</string>
+            <key>CFBundleIconName</key><string>hycl</string>
           </dict>
           </plist>
           PLIST

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- HYCL 图标：brilliant 切面钻石（青钻配色对齐初版像素图标）。由 Releases/tools/IconGen 生成 -->
+  <g stroke-linejoin="round">
+    <path d="M36 22 L92 22 L112 50 L64 110 L16 50 Z" fill="#17646E" stroke="#17646E" stroke-width="7"/>
+        <polygon points="36 22 16 50 46 50" fill="#A9EDE9"/>
+        <polygon points="36 22 92 22 82 50 46 50" fill="#5FC5C4"/>
+        <polygon points="92 22 112 50 82 50" fill="#45AEB2"/>
+        <polygon points="16 50 46 50 64 110" fill="#3FA0A8"/>
+        <polygon points="46 50 82 50 64 110" fill="#2E8D96"/>
+        <polygon points="82 50 112 50 64 110" fill="#257A87"/>
+    <g stroke="#FFFFFF" stroke-opacity="0.27" stroke-width="1.4">
+      <line x1="16" y1="50" x2="112" y2="50"/>
+      <line x1="46" y1="50" x2="64" y2="110"/>
+      <line x1="82" y1="50" x2="64" y2="110"/>
+      <line x1="36" y1="22" x2="46" y2="50"/>
+      <line x1="92" y1="22" x2="82" y2="50"/>
+    </g>
+    <path d="M41 27.5 Q41 37 50.5 37 Q41 37 41 46.5 Q41 37 31.5 37 Q41 37 41 27.5 Z" fill="#FFFFFF"/>
+    <circle cx="56" cy="30" r="3.2" fill="#FFFFFF"/>
+  </g>
+</svg>
