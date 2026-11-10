@@ -62,7 +62,7 @@ public sealed class LaunchOptions
     /// <summary>auth_xuid 占位符（正版登录的 Xbox XUID）。</summary>
     public string AuthXuid { get; init; } = "";
 
-    /// <summary>皮肤站 Yggdrasil 根地址；非空时注入 authlib-injector javaagent。</summary>
+    /// <summary>authlib-injector 的 API 根地址：皮肤站站点根，或离线自定义皮肤的本地服务根；非空时注入 javaagent。</summary>
     public string AuthlibServer { get; init; } = "";
 
     /// <summary>authlib-injector.jar 的完整路径（随 AuthlibServer 一起提供）。</summary>
@@ -654,7 +654,7 @@ public sealed class LaunchService
             arguments.Add("-XstartOnFirstThread");
         }
 
-        // 皮肤站账号：注入 authlib-injector javaagent（对应 PCL-CE _AddAuthlibInjectorJvmArgs，插在最前）
+        // 皮肤站账号 / 离线自定义皮肤：注入 authlib-injector javaagent（对应 PCL-CE _AddAuthlibInjectorJvmArgs，插在最前）
         // 经 ArgumentList 逐个传递参数（由 .NET 负责引号转义），这里不能再手写引号，
         // 否则引号会成为 jar 路径的一部分，导致 Agent_OnLoad 打不开 jar。
         if (!string.IsNullOrWhiteSpace(options.AuthlibServer) && !string.IsNullOrWhiteSpace(options.AuthlibJarPath))

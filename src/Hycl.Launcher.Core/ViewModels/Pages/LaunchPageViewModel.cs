@@ -1528,8 +1528,27 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                 }
             }
 
+            // 离线账号自定义皮肤：本地 Yggdrasil 皮肤服务 + authlib-injector，让皮肤在游戏内生效
+            // （PCL-CE 的离线皮肤只做启动器内预览）；准备失败只提示不阻断，游戏照常启动
+            string? localSkinServer = null;
+            if (account.Type == "offline")
+            {
+                var prepared = await _services.AuthlibAuth
+                    .PrepareOfflineSkinAsync(account, _services.Paths.CacheDirectory, _services.DownloadClient)
+                    .ConfigureAwait(true);
+                if (prepared.Jar is not null && prepared.ApiRoot is not null)
+                {
+                    authlibJar = prepared.Jar;
+                    localSkinServer = prepared.ApiRoot;
+                }
+                else if (!string.IsNullOrWhiteSpace(account.SkinPath))
+                {
+                    _toast?.Invoke("离线皮肤未能生效（原因见日志），游戏将正常启动");
+                }
+            }
+
             AdvanceLaunchStep(4);
-            var options = BuildLaunchOptions(instance, account, authlibJar, authlibPrefetched);
+            var options = BuildLaunchOptions(instance, account, authlibJar, authlibPrefetched, localSkinServer);
 
             var session = await _services.Launch
                 .LaunchAsync(
@@ -1632,9 +1651,16 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             _toast?.Invoke($"已启动 {instance.Name}（PID {session.Id}）");
 
             // 启动器可见性（对应 PCL-CE LaunchArgumentVisible）：0 立即关闭 / 4 最小化 / 其余保持
-            if (config.LauncherVisibility == 0 || config.CloseLauncherAfterLaunch)
+            var wantsClose = config.LauncherVisibility == 0 || config.CloseLauncherAfterLaunch;
+            if (wantsClose && localSkinServer is null)
             {
                 CloseRequested?.Invoke(this, EventArgs.Empty);
+            }
+            else if (wantsClose)
+            {
+                // 离线皮肤服务依附启动器进程存活：游戏取完皮肤前不能退出，改为最小化
+                LauncherVisibilityChanged?.Invoke(this, 4);
+                _toast?.Invoke("离线皮肤生效中，启动器改为最小化而不是退出");
             }
             else
             {
@@ -1861,8 +1887,9 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         MinecraftInstance instance,
         PlayerAccount? account,
         string? authlibJar,
-        string? authlibPrefetched)
-        => LaunchOptionsBuilder.Build(_services.Config, instance, account, authlibJar, authlibPrefetched);
+        string? authlibPrefetched,
+        string? authlibServer = null)
+        => LaunchOptionsBuilder.Build(_services.Config, instance, account, authlibJar, authlibPrefetched, authlibServer);
 
     private void AppendLaunchLog(string line)
     {

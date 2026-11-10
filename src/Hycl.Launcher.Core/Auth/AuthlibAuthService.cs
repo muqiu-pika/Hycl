@@ -296,6 +296,42 @@ public sealed partial class AuthlibAuthService
     private const string AuthlibFallbackSha256 = "9c7f4343e6c82034958ffb48c14a2cb0c85928be7283103ce17da00c6d5a7b10";
 
     /// <summary>
+    /// 离线账号自定义皮肤：确保 authlib-injector.jar 与本地 Yggdrasil 皮肤服务就绪，
+    /// 返回 (javaagent jar, API 根地址)；没有本地皮肤文件或准备失败返回 (null, null)，
+    /// 调用方据此降级为不注入（游戏照常启动，仅皮肤不生效）。
+    /// </summary>
+    public async Task<(string? Jar, string? ApiRoot)> PrepareOfflineSkinAsync(
+        PlayerAccount account,
+        string cacheDirectory,
+        DownloadClient download,
+        CancellationToken cancellationToken = default)
+    {
+        if (account.Type != "offline" ||
+            string.IsNullOrWhiteSpace(account.SkinPath) ||
+            !File.Exists(account.SkinPath))
+        {
+            return (null, null);
+        }
+
+        try
+        {
+            var jar = await EnsureAuthlibInjectorJarAsync(cacheDirectory, download, cancellationToken)
+                .ConfigureAwait(false);
+            var server = LocalSkinServer.EnsureStarted(account, _logger);
+            return server is null ? (null, null) : (jar, server.ApiRoot);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn("[本地皮肤] 准备失败（游戏照常启动，仅皮肤不生效）：" + ex.Message);
+            return (null, null);
+        }
+    }
+
+    /// <summary>
     /// 确保 authlib-injector.jar 就绪并返回路径：读取 latest.json（官方源 + BMCLAPI 镜像），
     /// 元数据不可用时回退到固定版本规则；与缓存版本不一致时重新下载。
     /// </summary>

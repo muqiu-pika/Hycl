@@ -258,7 +258,25 @@ public sealed partial class HomeViewModel : ObservableObject
                 }
             }
 
-            var options = LaunchOptionsBuilder.Build(config, instance, account0, authlibJar, authlibPrefetched);
+            // 离线账号自定义皮肤：本地皮肤服务 + authlib-injector（与启动页一致）；失败只提示不阻断
+            string? localSkinServer = null;
+            if (account0.Type == "offline")
+            {
+                var prepared = await _services.AuthlibAuth
+                    .PrepareOfflineSkinAsync(account0, _services.Paths.CacheDirectory, _services.DownloadClient)
+                    .ConfigureAwait(true);
+                if (prepared.Jar is not null && prepared.ApiRoot is not null)
+                {
+                    authlibJar = prepared.Jar;
+                    localSkinServer = prepared.ApiRoot;
+                }
+                else if (!string.IsNullOrWhiteSpace(account0.SkinPath))
+                {
+                    AppendLog("[提示] 离线皮肤未能生效（原因见日志），游戏将正常启动");
+                }
+            }
+
+            var options = LaunchOptionsBuilder.Build(config, instance, account0, authlibJar, authlibPrefetched, localSkinServer);
 
             var session = await _services.Launch.LaunchAsync(options, AppendLog).ConfigureAwait(true);
             _session = session;
@@ -266,7 +284,16 @@ public sealed partial class HomeViewModel : ObservableObject
             AppendLog($"[HYCL] 游戏进程已启动，PID={session.Id}");
             if (config.LauncherVisibility == 0 || config.CloseLauncherAfterLaunch)
             {
-                CloseRequested?.Invoke(this, EventArgs.Empty);
+                // 离线皮肤服务依附启动器进程：取皮肤期间不退出，只最小化
+                if (localSkinServer is null)
+                {
+                    CloseRequested?.Invoke(this, EventArgs.Empty);
+                }
+                else
+                {
+                    // 离线皮肤服务依附启动器进程：取皮肤期间不退出（主页没有可见性切换事件，保持窗口即可）
+                    AppendLog("[提示] 离线皮肤生效中，启动器保持运行而不是退出");
+                }
             }
 
             _ = WatchSessionAsync(session);

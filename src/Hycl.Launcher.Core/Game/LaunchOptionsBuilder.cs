@@ -14,7 +14,8 @@ public static class LaunchOptionsBuilder
         MinecraftInstance instance,
         PlayerAccount? account,
         string? authlibJar = null,
-        string? authlibPrefetched = null)
+        string? authlibPrefetched = null,
+        string? authlibServer = null)
     {
         var instanceSettings = config.FindInstanceSettings(instance.Id);
         var isolated = instanceSettings?.VersionIsolation ?? true;
@@ -63,7 +64,8 @@ public static class LaunchOptionsBuilder
             },
             AuthClientId = account?.Type == "msa" ? HyclSecrets.MicrosoftOAuthClientId : "",
             AuthXuid = account?.Xuid ?? "",
-            AuthlibServer = account?.Type == "authlib" ? account.Server : "",
+            // 皮肤站填站点根；离线自定义皮肤填本地皮肤服务根（两者都通过 authlib-injector 注入）
+            AuthlibServer = authlibServer ?? (account?.Type == "authlib" ? account.Server : ""),
             AuthlibJarPath = authlibJar ?? "",
             AuthlibPrefetched = authlibPrefetched ?? "",
             WindowTitle = string.IsNullOrWhiteSpace(instanceSettings?.WindowTitle)
