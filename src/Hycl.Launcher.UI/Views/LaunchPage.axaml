@@ -9,22 +9,24 @@
              x:CompileBindings="True">
 
     <!-- 对应网页版 LaunchView：左栏玩家 / 档案（互斥切换），右栏启动 + 快捷方式
-         大屏时内容按 MinHeight 绑定视口高度铺满；小屏时整页纵向滚动，不裁切 -->
+         顶部保持与顶栏固定间距；底部不设固定长度，内容多长就多长：
+         超出视口由整页纵向滚动承载，放得下就原样完整显示 -->
     <UserControl.Styles>
-        <!-- 整页纵向滚动条向内收 5px：贴边但避开圆角窗形裁切，不越出启动器范围 -->
+        <!-- 整页纵向滚动条向内收 3px：比原先更贴启动器右缘，仍留 3px 余量不越出圆角窗形 -->
         <Style Selector="ScrollViewer.page-scroll /template/ ScrollBar#PART_VerticalScrollBar">
-            <Setter Property="Margin" Value="0,0,5,0" />
+            <Setter Property="Margin" Value="0,0,3,0" />
         </Style>
     </UserControl.Styles>
     <Panel>
     <ScrollViewer Classes="page-scroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-    <Grid ColumnDefinitions="300,*" MinHeight="{Binding $parent[ScrollViewer].Bounds.Height}">
-            <!-- ================= 左栏（唯一弹性项） ================= -->
+    <Grid ColumnDefinitions="300,*">
+            <!-- ================= 左栏（顶部对齐，高度随内容，底部不设固定范围） ================= -->
             <!-- MinHeight 为按内容量测的极小高度下限：
                  头像 178 + 名称（12+24）36 + 账号行（4+15）19 + 操作按钮（12+32）44 + 启动按钮（16+54）70 = 347
                  卡片内边距 14/16 + 标题 16 + 正文间距 10 = 56 → 内容下限 403，取 404 留 1px 余量
-                 低于该高度时由外层 ScrollViewer 纵向滚动，卡片不再压缩内容 -->
-            <Grid Margin="18,18,15,18" MinHeight="404">
+                 低于该高度时由外层 ScrollViewer 纵向滚动，卡片不再压缩内容；
+                 顶部与右栏同为 18 间距，放得下时自然完整显示、不再拉伸到窗口底边 -->
+            <Grid Margin="18,18,15,18" MinHeight="404" VerticalAlignment="Top">
                 <!-- 玩家卡（无档案时整卡隐藏，改用下方空状态卡） -->
                 <c:McCard Title="玩家" IsVisible="{Binding ShowPlayerCard}">
                     <Grid RowDefinitions="*,Auto">

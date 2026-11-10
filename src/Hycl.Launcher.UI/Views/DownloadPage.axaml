@@ -9,10 +9,10 @@
 
     <!-- 对应 PCL-CE 的 PageDownloadInstall：安装新版本 → 选游戏版本 → 选需要安装的内容 → 命名安装 -->
     <UserControl.Styles>
-        <!-- 页面级纵向滚动条向启动器右缘靠 12px（内容边距本就留白，文字位置不动，
-             落点距窗口右缘约 6px，不越出圆角窗形范围） -->
+        <!-- 页面级纵向滚动条向启动器右缘靠到距边缘 3px（内容边距本就留白，文字位置不动，
+             落点仍在圆角窗形范围内，不越出启动器） -->
         <Style Selector="ScrollViewer.page-scroll /template/ ScrollBar#PART_VerticalScrollBar">
-            <Setter Property="Margin" Value="0,0,-12,0" />
+            <Setter Property="Margin" Value="0,0,-15,0" />
         </Style>
     </UserControl.Styles>
     <Grid ColumnDefinitions="186,*">
