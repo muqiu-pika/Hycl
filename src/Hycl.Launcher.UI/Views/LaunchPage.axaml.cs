@@ -36,19 +36,20 @@ public partial class LaunchPage : UserControl
         _viewModel = viewModel;
         if (_viewModel is null)
         {
-            UpdateDialogState(false);
+            RefreshDialogState();
             return;
         }
 
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
-        UpdateDialogState(_viewModel.IsCloseGameConfirmVisible);
+        RefreshDialogState();
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs args)
     {
-        if (args.PropertyName == nameof(LaunchPageViewModel.IsCloseGameConfirmVisible))
+        if (args.PropertyName is nameof(LaunchPageViewModel.IsCloseGameConfirmVisible)
+            or nameof(LaunchPageViewModel.IsMsCancelConfirmVisible))
         {
-            UpdateDialogState(_viewModel?.IsCloseGameConfirmVisible == true);
+            RefreshDialogState();
         }
         else if (args.PropertyName == nameof(LaunchPageViewModel.MsUserCode)
                  && !string.IsNullOrEmpty(_viewModel?.MsUserCode))
@@ -120,24 +121,27 @@ public partial class LaunchPage : UserControl
         return files.Count > 0 ? files[0].TryGetLocalPath() : null;
     }
 
-    /// <summary>弹窗打开时把焦点移到确认按钮，并在 Tunnel 阶段拦截 Esc / Enter。</summary>
-    private void UpdateDialogState(bool open)
+    /// <summary>弹窗打开时把焦点移到确认按钮，并在 Tunnel 阶段拦截 Esc / Enter；两个确认弹窗同时只显示最上层的。</summary>
+    private void RefreshDialogState()
     {
-        if (open)
+        var msConfirm = _viewModel?.IsMsCancelConfirmVisible == true;
+        var anyDialog = msConfirm || _viewModel?.IsCloseGameConfirmVisible == true;
+        if (_viewModel is null || !anyDialog)
         {
-            _topLevel ??= TopLevel.GetTopLevel(this);
-            if (!_dialogKeyHandlerAttached && _topLevel is not null)
-            {
-                _topLevel.AddHandler(KeyDownEvent, OnDialogKeyDown, RoutingStrategies.Tunnel);
-                _dialogKeyHandlerAttached = true;
-            }
-
-            Dispatcher.UIThread.Post(() => this.FindControl<Button>("ConfirmCloseButton")?.Focus());
+            RemoveDialogKeyHandler();
+            Dispatcher.UIThread.Post(() => this.FindControl<Button>("LaunchButton")?.Focus());
             return;
         }
 
-        RemoveDialogKeyHandler();
-        Dispatcher.UIThread.Post(() => this.FindControl<Button>("LaunchButton")?.Focus());
+        _topLevel ??= TopLevel.GetTopLevel(this);
+        if (!_dialogKeyHandlerAttached && _topLevel is not null)
+        {
+            _topLevel.AddHandler(KeyDownEvent, OnDialogKeyDown, RoutingStrategies.Tunnel);
+            _dialogKeyHandlerAttached = true;
+        }
+
+        var focusName = msConfirm ? "ConfirmMsCancelButton" : "ConfirmCloseButton";
+        Dispatcher.UIThread.Post(() => this.FindControl<Button>(focusName)?.Focus());
     }
 
     private void RemoveDialogKeyHandler()
@@ -153,19 +157,41 @@ public partial class LaunchPage : UserControl
 
     private void OnDialogKeyDown(object? sender, KeyEventArgs args)
     {
-        if (_viewModel?.IsCloseGameConfirmVisible != true)
+        if (_viewModel is not { } viewModel)
+        {
+            return;
+        }
+
+        // 正版登录取消确认叠在最上层，优先响应
+        if (viewModel.IsMsCancelConfirmVisible)
+        {
+            if (args.Key == Key.Escape)
+            {
+                viewModel.CancelMsCancelConfirmCommand.Execute(null);
+                args.Handled = true;
+            }
+            else if (args.Key == Key.Enter)
+            {
+                viewModel.ConfirmCancelMsLoginCommand.Execute(null);
+                args.Handled = true;
+            }
+
+            return;
+        }
+
+        if (viewModel.IsCloseGameConfirmVisible != true)
         {
             return;
         }
 
         if (args.Key == Key.Escape)
         {
-            _viewModel.CancelCloseGameCommand.Execute(null);
+            viewModel.CancelCloseGameCommand.Execute(null);
             args.Handled = true;
         }
         else if (args.Key == Key.Enter)
         {
-            _viewModel.ConfirmCloseGameCommand.Execute(null);
+            viewModel.ConfirmCloseGameCommand.Execute(null);
             args.Handled = true;
         }
     }

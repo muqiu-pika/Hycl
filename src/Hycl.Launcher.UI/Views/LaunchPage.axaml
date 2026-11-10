@@ -862,6 +862,50 @@
             </Border>
         </Panel>
 
+        <!-- 正版登录取消二次确认：设备码已显示、登录进行中时点「关闭」先确认（Esc 返回 / Enter 确认取消，键盘处理在代码后置） -->
+        <Panel IsVisible="{Binding IsMsCancelConfirmVisible}"
+               Background="{DynamicResource DialogScrimBrush}"
+               ZIndex="4">
+            <Border Classes="dialog-card"
+                    Width="440"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="9">
+                        <c:HyclIcon Kind="power"
+                                    Width="19"
+                                    Height="19"
+                                    Foreground="{DynamicResource ErrorBrush}"
+                                    VerticalAlignment="Center" />
+                        <TextBlock Text="取消正版登录？"
+                                   Classes="dialog-title"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+
+                    <TextBlock Classes="dialog-body"
+                               Margin="0,12,0,0"
+                               Text="设备码尚未完成授权，取消后将停止等待并丢弃本次登录，需要重新获取设备码。确定要取消吗？"
+                               TextWrapping="Wrap" />
+
+                    <StackPanel Orientation="Horizontal"
+                                Spacing="10"
+                                HorizontalAlignment="Right"
+                                Margin="0,20,0,0">
+                        <Button x:Name="CancelMsCancelButton"
+                                Classes="mc-btn"
+                                MinWidth="88"
+                                Content="继续登录"
+                                Command="{Binding CancelMsCancelConfirmCommand}" />
+                        <Button x:Name="ConfirmMsCancelButton"
+                                Classes="mc-btn danger"
+                                MinWidth="104"
+                                Content="确认取消"
+                                Command="{Binding ConfirmCancelMsLoginCommand}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Panel>
+
         <!-- 运行中：右下角固定悬浮的停止按钮（点击仍走既有的关闭游戏二次确认）。
              下载按钮存在时叠在它上方保持固定间距，只有它自己时贴最底部。 -->
         <Button Classes="stop-fab"

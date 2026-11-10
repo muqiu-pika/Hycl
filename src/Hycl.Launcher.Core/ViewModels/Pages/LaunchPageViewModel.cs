@@ -2342,6 +2342,10 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     [ObservableProperty]
     private bool _isMsLoginBusy;
 
+    /// <summary>已拿到设备码且登录进行中时点「关闭」弹出的二次确认（防止误触打断轮询）。</summary>
+    [ObservableProperty]
+    private bool _isMsCancelConfirmVisible;
+
     [ObservableProperty]
     private string _msLoginStage = "";
 
@@ -2384,11 +2388,34 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         AuthlibLoginStage = "";
         IsAuthlibLoginBusy = false;
         LoginTabIndex = 0;
+        IsMsCancelConfirmVisible = false;
         IsLoginDialogVisible = true;
     }
 
     [RelayCommand]
     private void CloseLoginDialog()
+    {
+        // 设备码已显示、轮询进行中：先二次确认，避免误触把登录打断
+        if (IsMsLoginBusy && HasMsUserCode)
+        {
+            IsMsCancelConfirmVisible = true;
+            return;
+        }
+
+        CloseLoginDialogCore();
+    }
+
+    [RelayCommand]
+    private void CancelMsCancelConfirm() => IsMsCancelConfirmVisible = false;
+
+    [RelayCommand]
+    private void ConfirmCancelMsLogin()
+    {
+        IsMsCancelConfirmVisible = false;
+        CloseLoginDialogCore();
+    }
+
+    private void CloseLoginDialogCore()
     {
         _msLoginCts?.Cancel();
         IsLoginDialogVisible = false;
@@ -2483,6 +2510,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                     await _services.ConfigStore.SaveAsync(cts.Token).ConfigureAwait(true);
                     BuildProfiles();
                     _toast?.Invoke($"正版登录成功：{poll.Result.UserName}");
+                    IsMsCancelConfirmVisible = false;
                     IsLoginDialogVisible = false;
 
                     // 登录后自动拉取玩家真实皮肤/披风并刷新首页纸娃娃

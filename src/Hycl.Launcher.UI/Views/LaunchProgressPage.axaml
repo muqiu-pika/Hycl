@@ -11,21 +11,21 @@
     <Panel>
 
         <!-- ─────────────── 启动中：过程简要概述（PCL-CE 信息密度） ─────────────── -->
-        <!-- 主体内容栏：宽度不固定；竖向从顶部往下排（顶部留 18），高度随内容：
-             放得下就完整显示，窗口不够时由外层滚动承接（底部不设固定长度）。
-             右留白拆成两段：滚动条只留 3px（贴启动器右缘），内容右缘靠 Border 右内边距 55 补回原位，
-             与改前完全一致（40+18 = 3+55），文字横向位置不变。 -->
-        <ScrollViewer Classes="progress-page"
+        <!-- 竖向布局规则：内容放得下时整体垂直居中，顶部仍保有最小距离（外边距 18 + 内边距 16）；
+             放不下时内容顶对齐、交给外层滚动（MinHeight 绑定视口高度实现该切换），
+             滚动条贴启动器右缘 3px。左右留白拆成两段：外边距 40 / 3px + Border 右内边距 55
+             补回内容右缘（40+18 = 3+55），文字横向位置不变。 -->
+        <ScrollViewer x:Name="ContentScroller"
+                      Classes="progress-page"
                       HorizontalScrollBarVisibility="Disabled"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalAlignment="Stretch"
-                      VerticalAlignment="Top"
-                      HorizontalContentAlignment="Stretch"
                       Margin="40,18,3,18"
                       IsVisible="{Binding !Launch.IsLaunchFailed}">
-            <Border Padding="18,16,55,16">
-                <ScrollViewer HorizontalScrollBarVisibility="Disabled"
-                              VerticalScrollBarVisibility="Auto">
+            <Grid MinHeight="{Binding #ContentScroller.Bounds.Height}">
+                <Border Padding="18,16,55,16"
+                        HorizontalAlignment="Stretch"
+                        VerticalAlignment="Center">
             <StackPanel>
 
                 <!-- 图标动画 + 当前步骤 + 耗时 -->
@@ -134,17 +134,23 @@
                 </Grid>
 
             </StackPanel>
-                </ScrollViewer>
             </Border>
+            </Grid>
         </ScrollViewer>
 
         <!-- ─────────────── 失败 / 崩溃：上半结论，下半可滚动日志 ─────────────── -->
-        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+        <!-- 同一套竖向规则：放得下居中（顶部最小距离 = 外边距 22），放不下滚动；
+             滚动条贴右缘 3px，内容右缘由 StackPanel 右外边距 41 补回 44（3+41=44）。 -->
+        <ScrollViewer x:Name="FailureScroller"
+                      HorizontalScrollBarVisibility="Disabled"
                       VerticalScrollBarVisibility="Auto"
+                      Margin="44,22,3,26"
                       IsVisible="{Binding Launch.IsLaunchFailed}">
-            <StackPanel MaxWidth="660"
-                        Margin="44,22,44,26"
-                        HorizontalAlignment="Center">
+            <Grid MinHeight="{Binding #FailureScroller.Bounds.Height}">
+                <StackPanel MaxWidth="660"
+                            Margin="0,0,41,0"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center">
 
                 <StackPanel Orientation="Horizontal"
                             Spacing="8"
@@ -311,6 +317,7 @@
                             Command="{Binding Launch.OpenCrashReportCommand}" />
                 </WrapPanel>
             </StackPanel>
+            </Grid>
         </ScrollViewer>
     </Panel>
 </UserControl>

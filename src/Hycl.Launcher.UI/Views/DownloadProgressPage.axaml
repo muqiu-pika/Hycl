@@ -9,19 +9,22 @@
     <!-- 独立下载进度页：从右下角悬浮图标/下载页任务条进入，可返回进入前的页面。
          构图与启动过程页保持一致（图标动画/进度圈 + 步骤清单 + 参数卡 + 总进度），
          进度、步骤、文件数据全部复用 InstallTaskViewModel，不另建状态。
-         主体内容栏：竖向从顶部往下排（顶部留 18），高度随内容：放得下就完整显示，
-         窗口不够时由外层滚动承接（底部不设固定长度）。右留白拆两段：滚动条只留 3px
-         贴启动器右缘，内容右缘靠 Border 右内边距 33 补回原位（18+18 = 3+33），文字横向位置不变。 -->
+         竖向布局规则（与启动过程页同款）：内容放得下时整体垂直居中，顶部仍保有最小距离
+         （外边距 18 + 内边距 16）；放不下时内容顶对齐、交给外层滚动（MinHeight 绑定视口高度
+         实现该切换），滚动条贴启动器右缘 3px。右留白拆两段：外边距 3px + Border 右内边距 33
+         补回内容右缘（18+18 = 3+33），文字横向位置不变。 -->
     <Panel>
-        <ScrollViewer Classes="progress-page"
+        <ScrollViewer x:Name="ContentScroller"
+                      Classes="progress-page"
                       HorizontalScrollBarVisibility="Disabled"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalAlignment="Stretch"
-                      VerticalAlignment="Top"
-                      HorizontalContentAlignment="Stretch"
                       Margin="22,18,3,14">
-            <Border Padding="18,16,33,16">
-                <Grid RowDefinitions="Auto,*">
+            <Grid MinHeight="{Binding #ContentScroller.Bounds.Height}">
+                <Border Padding="18,16,33,16"
+                        HorizontalAlignment="Stretch"
+                        VerticalAlignment="Center">
+                    <StackPanel>
 
         <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,12">
 
@@ -61,10 +64,7 @@
                        VerticalAlignment="Center" />
         </Grid>
 
-        <ScrollViewer Grid.Row="1"
-                      HorizontalScrollBarVisibility="Disabled"
-                      VerticalScrollBarVisibility="Auto">
-            <StackPanel Margin="0,6,0,4">
+        <StackPanel Margin="0,6,0,4">
 
                 <ItemsControl ItemsSource="{Binding Tasks}">
                     <ItemsControl.ItemTemplate>
@@ -252,9 +252,9 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
             </StackPanel>
-        </ScrollViewer>
-                </Grid>
+                </StackPanel>
             </Border>
+            </Grid>
         </ScrollViewer>
     </Panel>
 </UserControl>
