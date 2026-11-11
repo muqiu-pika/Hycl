@@ -1,21 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
-  <!-- HYCL 图标：brilliant 切面钻石（青钻配色对齐初版像素图标）。由 Releases/tools/IconGen 生成 -->
-  <g stroke-linejoin="round">
-    <path d="M36 22 L92 22 L112 50 L64 110 L16 50 Z" fill="#17646E" stroke="#17646E" stroke-width="7"/>
-        <polygon points="36 22 16 50 46 50" fill="#A9EDE9"/>
-        <polygon points="36 22 92 22 82 50 46 50" fill="#5FC5C4"/>
-        <polygon points="92 22 112 50 82 50" fill="#45AEB2"/>
-        <polygon points="16 50 46 50 64 110" fill="#3FA0A8"/>
-        <polygon points="46 50 82 50 64 110" fill="#2E8D96"/>
-        <polygon points="82 50 112 50 64 110" fill="#257A87"/>
-    <g stroke="#FFFFFF" stroke-opacity="0.27" stroke-width="1.4">
-      <line x1="16" y1="50" x2="112" y2="50"/>
-      <line x1="46" y1="50" x2="64" y2="110"/>
-      <line x1="82" y1="50" x2="64" y2="110"/>
-      <line x1="36" y1="22" x2="46" y2="50"/>
-      <line x1="92" y1="22" x2="82" y2="50"/>
-    </g>
-    <path d="M41 27.5 Q41 37 50.5 37 Q41 37 41 46.5 Q41 37 31.5 37 Q41 37 41 27.5 Z" fill="#FFFFFF"/>
-    <circle cx="56" cy="30" r="3.2" fill="#FFFFFF"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <!-- HYCL 图标：16×16 像素画矢量化（逐行同色色块合并为路径）。由 Releases/tools/IconGen 生成 -->
+  <path fill="#3A6C6C" d="M6 2h4v1h-4zM4 3h2v1h-2zM10 3h1v1h-1zM3 4h1v1h-1zM3 5h1v1h-1zM2 6h1v1h-1zM2 7h1v1h-1zM2 8h1v1h-1zM2 9h1v1h-1zM3 10h1v1h-1z"/>
+  <path fill="#62AAA9" d="M6 3h1v1h-1zM9 3h1v1h-1zM4 4h1v1h-1zM10 4h1v1h-1zM11 5h1v1h-1zM3 6h1v1h-1zM3 7h1v1h-1zM11 7h1v1h-1zM3 8h1v1h-1zM9 8h1v1h-1zM4 9h1v1h-1zM6 9h1v1h-1zM5 10h1v1h-1zM8 10h1v1h-1z"/>
+  <path fill="#6CBCBB" d="M7 3h2v1h-2zM5 4h1v1h-1zM8 4h1v1h-1zM4 5h1v1h-1zM10 5h1v1h-1zM7 6h1v1h-1zM10 6h2v1h-2zM6 7h2v1h-2zM9 7h2v1h-2zM4 8h1v1h-1zM8 8h1v1h-1zM10 8h1v1h-1zM5 9h1v1h-1zM7 9h3v1h-3zM6 10h2v1h-2z"/>
+  <path fill="#2E5250" d="M11 3h1v1h-1zM12 4h1v1h-1zM12 5h1v1h-1zM13 6h1v1h-1zM13 7h1v1h-1zM13 8h1v1h-1zM13 9h1v1h-1zM12 10h1v1h-1zM3 11h1v1h-1zM12 11h1v1h-1zM4 12h2v1h-2zM10 12h2v1h-2zM6 13h4v1h-4z"/>
+  <path fill="#80D4D2" d="M6 4h2v1h-2zM9 4h1v1h-1zM7 5h3v1h-3zM4 6h1v1h-1zM8 6h2v1h-2zM4 7h2v1h-2zM8 7h1v1h-1zM5 8h3v1h-3z"/>
+  <path fill="#487E7D" d="M11 4h1v1h-1zM12 6h1v1h-1zM11 8h1v1h-1zM11 9h1v1h-1zM10 10h2v1h-2zM4 11h1v1h-1zM7 11h4v1h-4z"/>
+  <path fill="#FCFCFC" d="M5 5h1v1h-1z"/>
+  <path fill="#C7F1FB" d="M6 5h1v1h-1zM5 6h2v1h-2z"/>
+  <path fill="#4E8F8D" d="M12 7h1v1h-1zM12 8h1v1h-1zM3 9h1v1h-1zM10 9h1v1h-1zM12 9h1v1h-1zM4 10h1v1h-1zM9 10h1v1h-1zM5 11h2v1h-2zM11 11h1v1h-1zM6 12h4v1h-4z"/>
 </svg>
