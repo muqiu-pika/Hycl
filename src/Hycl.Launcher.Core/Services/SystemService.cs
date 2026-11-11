@@ -65,6 +65,55 @@ public sealed class SystemService
         }
     }
 
+    /// <summary>
+    /// 在文件管理器中打开并<b>定位到指定文件</b>（Windows 资源管理器 /select，macOS Finder reveal）。
+    /// 平台不支持定位时降级为打开父目录。目录参数直接走 OpenFolder。
+    /// </summary>
+    public bool RevealFile(string filePath)
+    {
+        try
+        {
+            var fullPath = Path.GetFullPath(filePath);
+            if (!File.Exists(fullPath))
+            {
+                return OpenFolder(Path.GetDirectoryName(fullPath) ?? fullPath);
+            }
+
+            if (PlatformInfo.IsWindows)
+            {
+                // explorer /select, 必须带未加引号的原样路径：用 ArgumentList 拼 "…" 会失效
+                Process.Start(new ProcessStartInfo("explorer.exe")
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    Arguments = $"/select,\"{fullPath}\""
+                });
+                return true;
+            }
+
+            if (PlatformInfo.IsMacOS)
+            {
+                // open -R <file>：Finder 中显示并选中该文件
+                var reveal = new ProcessStartInfo("open")
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                reveal.ArgumentList.Add("-R");
+                reveal.ArgumentList.Add(fullPath);
+                Process.Start(reveal);
+                return true;
+            }
+
+            return OpenFolder(Path.GetDirectoryName(fullPath) ?? fullPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"定位文件失败：{filePath}", ex);
+            return OpenFolder(Path.GetDirectoryName(filePath) ?? filePath);
+        }
+    }
+
     private static void StartDetached(string fileName, string argument)
     {
         var info = new ProcessStartInfo(fileName)

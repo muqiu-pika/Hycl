@@ -70,6 +70,9 @@ public sealed partial class LocalContentItemViewModel : ObservableObject
 
     public string StateText => IsEnabled ? "" : "已禁用";
 
+    /// <summary>禁用/启用按钮文案随状态变化：已启用显示「禁用」，已禁用显示「启用」。</summary>
+    public string ToggleText => IsEnabled ? "禁用" : "启用";
+
     public string Info => $"{InstanceContentService.FormatSize(File.Size)} · {File.Modified:yyyy-MM-dd HH:mm}";
 
     public string MetaText => $"{Info} · {VersionText} · {SourceText}";
@@ -664,7 +667,8 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
         }
         else
         {
-            _services.System.OpenUrl(item.Path);
+            // 文件用「打开所在文件夹并定位」，而不是按关联程序打开（jar 无法关联且会误触发）
+            _services.System.RevealFile(item.Path);
         }
     }
 
