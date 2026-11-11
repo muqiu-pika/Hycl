@@ -190,10 +190,21 @@
                             </StackPanel>
                         </Button>
 
-                        <!-- 档案列表独立滚动：档案较多时只滚列表，返回与创建入口始终可见 -->
+                        <!-- 档案列表独立滚动：档案较多时只滚列表，返回与创建入口始终可见。
+                             右键菜单提供「批量管理」入口（多选后批量删除） -->
                         <ScrollViewer MaxHeight="264"
                                       VerticalScrollBarVisibility="Auto"
                                       HorizontalScrollBarVisibility="Disabled">
+                            <ScrollViewer.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="批量管理（多选删除）"
+                                              IsVisible="{Binding !IsProfilesMultiSelect}"
+                                              Command="{Binding EnterProfilesMultiSelectCommand}" />
+                                    <MenuItem Header="退出批量管理"
+                                              IsVisible="{Binding IsProfilesMultiSelect}"
+                                              Command="{Binding ExitProfilesMultiSelectCommand}" />
+                                </ContextMenu>
+                            </ScrollViewer.ContextMenu>
                             <ItemsControl ItemsSource="{Binding Profiles}" Margin="0,0,6,0">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
@@ -204,17 +215,24 @@
                                     <DataTemplate x:DataType="m:PlayerProfileViewModel">
                                         <Button Classes="profile-row"
                                                 Classes.active="{Binding IsActive}"
-                                                Command="{Binding $parent[UserControl].((vm:LaunchPageViewModel)DataContext).SelectProfileCommand}"
+                                                Command="{Binding $parent[UserControl].((vm:LaunchPageViewModel)DataContext).ToggleProfileMultiSelectCommand}"
                                                 CommandParameter="{Binding}">
                                             <Grid ColumnDefinitions="Auto,*,Auto">
-                                                <Border Classes="pr-avatar">
-                                                    <c:McSkin SkinKey="{Binding SkinKey}"
-                                                              SkinPath="{Binding SkinPath}"
-                                                              Mode="Head"
-                                                              Scale="4"
+                                                <Panel Width="34" Height="34">
+                                                    <Border Classes="pr-avatar"
+                                                            IsVisible="{Binding !$parent[UserControl].((vm:LaunchPageViewModel)DataContext).IsProfilesMultiSelect}">
+                                                        <c:McSkin SkinKey="{Binding SkinKey}"
+                                                                  SkinPath="{Binding SkinPath}"
+                                                                  Mode="Head"
+                                                                  Scale="4"
+                                                                  HorizontalAlignment="Center"
+                                                                  VerticalAlignment="Center" />
+                                                    </Border>
+                                                    <CheckBox IsVisible="{Binding $parent[UserControl].((vm:LaunchPageViewModel)DataContext).IsProfilesMultiSelect}"
+                                                              IsChecked="{Binding IsMultiSelected}"
                                                               HorizontalAlignment="Center"
                                                               VerticalAlignment="Center" />
-                                                </Border>
+                                                </Panel>
                                                 <StackPanel Grid.Column="1" Margin="10,0" VerticalAlignment="Center">
                                                     <TextBlock Text="{Binding Name}"
                                                                FontSize="13"
@@ -226,11 +244,13 @@
                                                                Foreground="{DynamicResource Gray3Brush}"
                                                                Margin="0,1,0,0" />
                                                 </StackPanel>
-                                                <!-- 操作按钮按现有按钮间距（8）排布，小窗口下靠名称列的省略号让位 -->
+                                                <!-- 操作按钮按现有按钮间距（8）排布，小窗口下靠名称列的省略号让位；
+                                                     批量管理模式隐藏行内操作，仅保留勾选 -->
                                                 <StackPanel Grid.Column="2"
                                                             Orientation="Horizontal"
                                                             Spacing="8"
-                                                            VerticalAlignment="Center">
+                                                            VerticalAlignment="Center"
+                                                            IsVisible="{Binding !$parent[UserControl].((vm:LaunchPageViewModel)DataContext).IsProfilesMultiSelect}">
                                                     <c:HyclIcon Kind="check"
                                                                 Width="16"
                                                                 Height="16"
@@ -258,12 +278,40 @@
                             </ItemsControl>
                         </ScrollViewer>
 
-                        <Button Classes="new-profile" Command="{Binding NewProfileCommand}">
+                        <!-- 批量管理模式：底部操作条替换「创建新档案」 -->
+                        <Button Classes="new-profile" Command="{Binding NewProfileCommand}"
+                                IsVisible="{Binding !IsProfilesMultiSelect}">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <c:HyclIcon Kind="user-plus" Width="15" Height="15" />
                                 <TextBlock Text="创建新档案" VerticalAlignment="Center" />
                             </StackPanel>
                         </Button>
+                        <StackPanel IsVisible="{Binding IsProfilesMultiSelect}" Spacing="8">
+                            <TextBlock Text="已选择档案用于批量删除（删除后需重新登录正版/皮肤站账号）"
+                                       FontSize="11"
+                                       Foreground="{DynamicResource Gray3Brush}"
+                                       TextWrapping="Wrap" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Classes="mc-btn"
+                                        MinHeight="0"
+                                        Padding="10,4"
+                                        FontSize="12"
+                                        Content="全选"
+                                        Command="{Binding SelectAllProfilesCommand}" />
+                                <Button Classes="mc-btn danger"
+                                        MinHeight="0"
+                                        Padding="10,4"
+                                        FontSize="12"
+                                        Content="删除所选"
+                                        Command="{Binding RequestDeleteSelectedProfilesCommand}" />
+                                <Button Classes="mc-btn"
+                                        MinHeight="0"
+                                        Padding="10,4"
+                                        FontSize="12"
+                                        Content="退出多选"
+                                        Command="{Binding ExitProfilesMultiSelectCommand}" />
+                            </StackPanel>
+                        </StackPanel>
                     </StackPanel>
                 </c:McCard>
 
@@ -901,6 +949,48 @@
                                 MinWidth="104"
                                 Content="确认取消"
                                 Command="{Binding ConfirmCancelMsLoginCommand}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Panel>
+
+        <!-- 档案批量删除确认（档案面板 → 批量管理 → 删除所选） -->
+        <Panel IsVisible="{Binding IsProfilesDeleteConfirmVisible}"
+               Background="{DynamicResource DialogScrimBrush}"
+               ZIndex="4">
+            <Border Classes="dialog-card"
+                    Width="440"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="9">
+                        <c:HyclIcon Kind="close"
+                                    Width="19"
+                                    Height="19"
+                                    Foreground="{DynamicResource ErrorBrush}"
+                                    VerticalAlignment="Center" />
+                        <TextBlock Text="删除所选档案？"
+                                   Classes="dialog-title"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+
+                    <TextBlock Classes="dialog-body"
+                               Margin="0,12,0,0"
+                               Text="{Binding SelectedProfilesCount, StringFormat='将删除 {0} 个档案，删除后无法恢复。正版/皮肤站档案的登录凭据会一并清除，再次使用需要重新登录。'}"
+                               TextWrapping="Wrap" />
+
+                    <StackPanel Orientation="Horizontal"
+                                Spacing="10"
+                                HorizontalAlignment="Right"
+                                Margin="0,20,0,0">
+                        <Button Classes="mc-btn"
+                                MinWidth="88"
+                                Content="取消"
+                                Command="{Binding CancelDeleteSelectedProfilesCommand}" />
+                        <Button Classes="mc-btn danger"
+                                MinWidth="104"
+                                Content="确认删除"
+                                Command="{Binding ConfirmDeleteSelectedProfilesCommand}" />
                     </StackPanel>
                 </StackPanel>
             </Border>

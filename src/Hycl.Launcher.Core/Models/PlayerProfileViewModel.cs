@@ -51,4 +51,8 @@ public partial class PlayerProfileViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _isActive;
+
+    /// <summary>批量管理模式下的勾选状态（档案侧栏右键 → 多选批量删除）。</summary>
+    [ObservableProperty]
+    private bool _isMultiSelected;
 }

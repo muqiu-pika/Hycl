@@ -821,6 +821,136 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         _toast?.Invoke($"已删除档案：{profile.Name}");
     }
 
+    // ------------------------- 档案批量管理（右键 → 多选 → 批量删除） -------------------------
+
+    /// <summary>档案面板是否处于批量管理模式（勾选多个档案后一次性删除）。</summary>
+    [ObservableProperty]
+    private bool _isProfilesMultiSelect;
+
+    /// <summary>批量删除确认弹窗。</summary>
+    [ObservableProperty]
+    private bool _isProfilesDeleteConfirmVisible;
+
+    /// <summary>当前勾选的档案数（按钮文案用）。</summary>
+    public int SelectedProfilesCount => Profiles.Count(profile => profile.IsMultiSelected);
+
+    /// <summary>进入批量管理模式：点击档案改为勾选/取消勾选。</summary>
+    [RelayCommand]
+    private void EnterProfilesMultiSelect()
+    {
+        IsProfilesMultiSelect = true;
+        RefreshProfileSelection();
+    }
+
+    [RelayCommand]
+    private void ExitProfilesMultiSelect()
+    {
+        IsProfilesDeleteConfirmVisible = false;
+        IsProfilesMultiSelect = false;
+        foreach (var profile in Profiles)
+        {
+            profile.IsMultiSelected = false;
+        }
+
+        RefreshProfileSelection();
+    }
+
+    [RelayCommand]
+    private void ToggleProfileMultiSelect(PlayerProfileViewModel? profile)
+    {
+        if (profile is null)
+        {
+            return;
+        }
+
+        // 非批量模式下点击档案行为不变（选中并回到玩家面板）
+        if (!IsProfilesMultiSelect)
+        {
+            SelectProfile(profile);
+            return;
+        }
+
+        profile.IsMultiSelected = !profile.IsMultiSelected;
+        RefreshProfileSelection();
+    }
+
+    [RelayCommand]
+    private void SelectAllProfiles()
+    {
+        var selectAll = Profiles.Any(profile => !profile.IsMultiSelected);
+        foreach (var profile in Profiles)
+        {
+            profile.IsMultiSelected = selectAll;
+        }
+
+        RefreshProfileSelection();
+    }
+
+    [RelayCommand]
+    private void RequestDeleteSelectedProfiles()
+    {
+        if (SelectedProfilesCount == 0)
+        {
+            _toast?.Invoke("请先勾选要删除的档案");
+            return;
+        }
+
+        IsProfilesDeleteConfirmVisible = true;
+    }
+
+    [RelayCommand]
+    private void CancelDeleteSelectedProfiles() => IsProfilesDeleteConfirmVisible = false;
+
+    [RelayCommand]
+    private async Task ConfirmDeleteSelectedProfilesAsync()
+    {
+        IsProfilesDeleteConfirmVisible = false;
+        var targets = Profiles.Where(profile => profile.IsMultiSelected).ToList();
+        if (targets.Count == 0)
+        {
+            return;
+        }
+
+        var removed = 0;
+        var activeRemoved = false;
+        foreach (var profile in targets)
+        {
+            if (_services.Accounts.RemoveById(profile.AccountUuid))
+            {
+                removed++;
+                activeRemoved |= profile.IsActive;
+            }
+        }
+
+        if (removed > 0)
+        {
+            if (activeRemoved && _services.Accounts.Accounts.Count > 0)
+            {
+                _services.Accounts.Select(0);
+            }
+
+            await _services.Accounts.SaveAsync().ConfigureAwait(true);
+        }
+
+        IsProfilesMultiSelect = false;
+        BuildProfiles();
+        if (Profiles.Count == 0)
+        {
+            IsPlayerPanel = true;
+            LeftPanelTitle = "玩家";
+        }
+
+        _toast?.Invoke(removed > 0 ? $"已删除 {removed} 个档案" : "没有档案被删除");
+    }
+
+    private void RefreshProfileSelection()
+    {
+        OnPropertyChanged(nameof(SelectedProfilesCount));
+        OnPropertyChanged(nameof(HasSelectedProfiles));
+    }
+
+    public bool HasSelectedProfiles => SelectedProfilesCount > 0;
+
     /// <summary>档案重命名弹窗是否显示。</summary>
     [ObservableProperty]
     private bool _isRenameProfileVisible;
