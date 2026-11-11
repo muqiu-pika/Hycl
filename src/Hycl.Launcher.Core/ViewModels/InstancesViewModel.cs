@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text.Json;
 using System.Windows.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -583,11 +584,48 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
     [ObservableProperty]
     private string _editorWindowTypeOption = "跟随全局";
 
-    /// <summary>游戏内设置来源：跟随全局（首次启动写入）/ 跟随实例（不修改游戏内设置）。</summary>
+    /// <summary>游戏内设置来源：跟随全局（首次启动写入）/ 跟随实例（写入实例独立的 options.txt）。</summary>
     [ObservableProperty]
     private string _editorGameSettingsMode = "跟随全局";
 
     public IReadOnlyList<string> GameSettingsModeOptions { get; } = ["跟随全局", "跟随实例"];
+
+    /// <summary>跟随实例模式下是否展示实例级游戏内设置编辑器（对齐 KAMUCL 的实例独立设置）。</summary>
+    public bool ShowInstanceGameSettings => EditorGameSettingsMode == "跟随实例";
+
+    partial void OnEditorGameSettingsModeChanged(string value) => OnPropertyChanged(nameof(ShowInstanceGameSettings));
+
+    // ---- 实例级游戏内设置编辑器：常用项（其余高级项沿用全局值，保存时一并写入实例配置） ----
+
+    public IReadOnlyList<string> GameMaxFpsOptions { get; } = ["不限", "60", "90", "120", "144", "165", "240"];
+
+    public IReadOnlyList<string> GameGraphicsOptions { get; } = ["流畅", "精致", "绚丽"];
+
+    public IReadOnlyList<string> GameGuiScaleOptions { get; } = ["自动", "1 小", "2 标准", "3 大", "4 最大"];
+
+    [ObservableProperty]
+    private string _editorGameRenderDistance = "";
+
+    [ObservableProperty]
+    private string _editorGameSimulationDistance = "";
+
+    [ObservableProperty]
+    private string _editorGameFov = "";
+
+    [ObservableProperty]
+    private string _editorGameMaxFpsOption = "120";
+
+    [ObservableProperty]
+    private string _editorGameGraphicsOption = "精致";
+
+    [ObservableProperty]
+    private string _editorGameGuiScaleOption = "自动";
+
+    [ObservableProperty]
+    private string _editorGameGammaText = "50";
+
+    [ObservableProperty]
+    private bool _editorGameVSync = true;
 
     [ObservableProperty]
     private string _editorWindowWidthText = "";
@@ -1178,6 +1216,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         settings.WindowWidth = width;
         settings.WindowHeight = height;
         settings.GameSettingsMode = EditorGameSettingsMode == "跟随实例" ? "instance" : "global";
+        settings.GameSettings = EditorGameSettingsMode == "跟随实例" ? BuildInstanceGameSettings() : null;
 
         await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
         StatusMessage = $"已保存 {SelectedInstance.Name} 的实例设置";
@@ -1962,6 +2001,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         EditorWindowWidthText = settings is null || settings.WindowWidth == 0 ? "" : settings.WindowWidth.ToString();
         EditorWindowHeightText = settings is null || settings.WindowHeight == 0 ? "" : settings.WindowHeight.ToString();
         EditorGameSettingsMode = settings?.GameSettingsMode == "instance" ? "跟随实例" : "跟随全局";
+        LoadGameSettingsEditor(settings?.GameSettings);
         _suppressEditorReload = false;
         NotifyDirectories();
     }
@@ -1983,7 +2023,80 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         EditorWindowWidthText = "";
         EditorWindowHeightText = "";
         EditorGameSettingsMode = "跟随全局";
+        LoadGameSettingsEditor(null);
         NotifyDirectories();
+    }
+
+    // ------------------------- 实例级游戏内设置 -------------------------
+
+    /// <summary>把实例级游戏内设置填进编辑器：无实例配置时以全局值作为预填基线。</summary>
+    private void LoadGameSettingsEditor(GameSettingsConfig? instanceSettings)
+    {
+        var baseline = instanceSettings ?? _services.Config.GameSettings;
+        EditorGameRenderDistance = baseline.RenderDistance.ToString();
+        EditorGameSimulationDistance = baseline.SimulationDistance.ToString();
+        EditorGameFov = baseline.Fov.ToString();
+        EditorGameMaxFpsOption = baseline.MaxFps >= 260 ? "不限" : Math.Clamp(baseline.MaxFps, 30, 260).ToString();
+        EditorGameGraphicsOption = baseline.Graphics switch
+        {
+            "fast" => "流畅",
+            "fabulous" => "绚丽",
+            _ => "精致"
+        };
+        EditorGameGuiScaleOption = GameGuiScaleOptions[Math.Clamp(baseline.GuiScale, 0, GameGuiScaleOptions.Count - 1)];
+        EditorGameGammaText = Math.Round(baseline.Gamma * 100).ToString();
+        EditorGameVSync = baseline.VSync;
+    }
+
+    /// <summary>
+    /// 从编辑器构建实例级游戏内设置：高级项（声音/聊天等）沿用全局当前值，
+    /// 常用项取编辑器值。校验失败返回 null 并写 StatusMessage。
+    /// </summary>
+    private GameSettingsConfig? BuildInstanceGameSettings()
+    {
+        if (!TryParseNumber(EditorGameRenderDistance, 2, 32, out var renderDistance, "视距"))
+        {
+            return null;
+        }
+
+        if (!TryParseNumber(EditorGameSimulationDistance, 5, 32, out var simulationDistance, "模拟距离"))
+        {
+            return null;
+        }
+
+        if (!TryParseNumber(EditorGameFov, 30, 110, out var fov, "FOV"))
+        {
+            return null;
+        }
+
+        if (!TryParseNumber(EditorGameGammaText, 0, 100, out var gammaPercent, "亮度"))
+        {
+            return null;
+        }
+
+        // 深拷贝全局当前值作为基线：实例未提供编辑项的高级字段与全局保持一致
+        var clone = JsonSerializer.Deserialize<GameSettingsConfig>(
+            JsonSerializer.Serialize(_services.Config.GameSettings));
+        if (clone is null)
+        {
+            return new GameSettingsConfig();
+        }
+
+        clone.RenderDistance = renderDistance;
+        clone.SimulationDistance = simulationDistance;
+        clone.Fov = fov;
+        clone.MaxFps = EditorGameMaxFpsOption == "不限" ? 300 : Math.Clamp(int.Parse(EditorGameMaxFpsOption), 30, 260);
+        clone.Graphics = EditorGameGraphicsOption switch
+        {
+            "流畅" => "fast",
+            "绚丽" => "fabulous",
+            _ => "fancy"
+        };
+        clone.GuiScale = Math.Max(0, GameGuiScaleOptions.ToList().IndexOf(EditorGameGuiScaleOption));
+        clone.Gamma = gammaPercent / 100.0;
+        clone.VSync = EditorGameVSync;
+        clone.Normalize();
+        return clone;
     }
 
     private bool TryParseNumber(string text, int minimum, int maximum, out int value, string label)

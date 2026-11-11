@@ -538,9 +538,16 @@ public sealed class InstanceSettings
     public bool VersionIsolation { get; set; } = true;
 
     /// <summary>
-    /// 游戏内设置来源：global 跟随全局（首次启动写入 options.txt）/ instance 不做任何修改。
+    /// 游戏内设置来源：global 跟随全局（首次启动写入全局 options.txt 逻辑不变）/
+    /// instance 使用本实例自己的 <see cref="GameSettings"/> 写入该实例目录的 options.txt。
     /// </summary>
     public string GameSettingsMode { get; set; } = "global";
+
+    /// <summary>
+    /// 实例级游戏内设置（GameSettingsMode = "instance" 时生效）；null = 不写入任何游戏内设置。
+    /// 编辑器首次进入时由 UI 预填全局值，保存后即为该实例独立的 options.txt 基线。
+    /// </summary>
+    public GameSettingsConfig? GameSettings { get; set; }
 
     /// <summary>独立存档目录；空字符串表示使用版本隔离规则下的 saves。</summary>
     public string SavesDirectory { get; set; } = "";
@@ -593,5 +600,6 @@ public sealed class InstanceSettings
         WindowType = Math.Clamp(WindowType, -1, 4);
         WindowWidth = Math.Clamp(WindowWidth, 0, 7680);
         WindowHeight = Math.Clamp(WindowHeight, 0, 4320);
+        GameSettings?.Normalize();
     }
 }

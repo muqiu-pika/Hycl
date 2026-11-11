@@ -805,6 +805,91 @@
                             </StackPanel>
                         </Border>
 
+                        <!-- 4.4 实例级游戏内设置（对齐 KAMUCL：跟随实例时编辑常用项，
+                             高级项（声音/聊天等）保存时沿用全局当前值） -->
+                        <Border Classes="setting-card" Margin="0,0,0,14"
+                                IsVisible="{Binding ShowInstanceGameSettings}">
+                            <StackPanel>
+                                <TextBlock Classes="setting-card-title" Text="游戏内设置（本实例独立）" />
+                                <Border Classes="setting-card-rule" />
+                                <TextBlock Classes="sline"
+                                           Margin="0,0,0,10"
+                                           Text="选择「跟随实例」后，这些设置写入本实例自己的 options.txt，不再跟随全局。未列出的高级项（声音、聊天等）保存时沿用全局当前值。" />
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="视距（区块）" />
+                                    <TextBox Grid.Column="1"
+                                             Classes="stext"
+                                             Width="210"
+                                             HorizontalAlignment="Left"
+                                             VerticalAlignment="Center"
+                                             Text="{Binding EditorGameRenderDistance, Mode=TwoWay}" />
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="模拟距离（区块）" />
+                                    <TextBox Grid.Column="1"
+                                             Classes="stext"
+                                             Width="210"
+                                             HorizontalAlignment="Left"
+                                             VerticalAlignment="Center"
+                                             Text="{Binding EditorGameSimulationDistance, Mode=TwoWay}" />
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="视角 FOV" />
+                                    <TextBox Grid.Column="1"
+                                             Classes="stext"
+                                             Width="210"
+                                             HorizontalAlignment="Left"
+                                             VerticalAlignment="Center"
+                                             Text="{Binding EditorGameFov, Mode=TwoWay}" />
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="最大帧率" />
+                                    <c:McComboBox Grid.Column="1"
+                                                  Width="210"
+                                                  HorizontalAlignment="Left"
+                                                  VerticalAlignment="Center"
+                                                  Items="{Binding GameMaxFpsOptions}"
+                                                  SelectedItem="{Binding EditorGameMaxFpsOption, Mode=TwoWay}" />
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="图形质量" />
+                                    <c:McComboBox Grid.Column="1"
+                                                  Width="210"
+                                                  HorizontalAlignment="Left"
+                                                  VerticalAlignment="Center"
+                                                  Items="{Binding GameGraphicsOptions}"
+                                                  SelectedItem="{Binding EditorGameGraphicsOption, Mode=TwoWay}" />
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="界面尺寸" />
+                                    <c:McComboBox Grid.Column="1"
+                                                  Width="210"
+                                                  HorizontalAlignment="Left"
+                                                  VerticalAlignment="Center"
+                                                  Items="{Binding GameGuiScaleOptions}"
+                                                  SelectedItem="{Binding EditorGameGuiScaleOption, Mode=TwoWay}" />
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="亮度（%）" />
+                                    <TextBox Grid.Column="1"
+                                             Classes="stext"
+                                             Width="210"
+                                             HorizontalAlignment="Left"
+                                             VerticalAlignment="Center"
+                                             Text="{Binding EditorGameGammaText, Mode=TwoWay}" />
+                                </Grid>
+                                <Grid Classes="setting-row" ColumnDefinitions="170,*">
+                                    <TextBlock Classes="srow-label" Text="垂直同步" />
+                                    <ToggleSwitch Grid.Column="1"
+                                                  HorizontalAlignment="Left"
+                                                  VerticalAlignment="Center"
+                                                  OnContent=""
+                                                  OffContent=""
+                                                  IsChecked="{Binding EditorGameVSync, Mode=TwoWay}" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
                         <!-- 4.5 保存设置（设置页底部） -->
                         <Border Classes="setting-card" Margin="0,0,0,14"
                                 IsVisible="{Binding IsSetupSection}">
