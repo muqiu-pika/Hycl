@@ -8,14 +8,15 @@
       <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" />
     </application>
   </compatibility>
-  <!-- 高 DPI：声明 PerMonitorV2（各显示器独立缩放）+ GDI 缩放回退，
-       100%~250% 混合 DPI 多屏下窗口与位图图标均按系统缩放清晰渲染，
-       与 hycl.ico 的多分辨率帧（16~256）配套 -->
+  <!-- 高 DPI：声明 PerMonitorV2（各显示器独立缩放），由 Avalonia 自行按物理 DPI
+       渲染，窗口内容清晰（150% 缩放下实测 windowDpi=144）。
+       注意：这里绝不能加 <gdiScaling>true</gdiScaling> —— GDI 缩放会把整个进程
+       变回「DPI 不感知」（GetProcessDpiAwareness=0、windowDpi=96），
+       DWM 随后对整窗口做 1.5 倍位图拉伸，整个界面发虚。 -->
   <application xmlns="urn:schemas-microsoft-com:asm.v3">
     <windowsSettings>
       <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
       <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
-      <gdiScaling xmlns="http://schemas.microsoft.com/SMI/2017/WindowsSettings">true</gdiScaling>
     </windowsSettings>
   </application>
 </assembly>
