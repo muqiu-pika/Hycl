@@ -85,6 +85,18 @@
                                   or $([System.String]::new('%(ResolvedFileToPublish.FileName)').StartsWith('Microsoft.DiaSymReader.Native'))
                                   or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.DesignerSupport'
                                   or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.Remote.Protocol'" />
+      <!-- 运行时大块剔除（全平台，约 -12MB 原始 / 单文件压缩后约 -5MB）：
+           启动器与插件生态确认不使用 XML/ADO.NET/BinaryFormatter（源码零引用）。
+           注意：第三方插件如需 XmlSerializer / System.Data，将无法在宿主内解析这些类型——
+           插件应自带依赖或避免使用；facade（System.Xml / System.Data 等按名转发）保留，
+           报错形态是明确的 type-load 而不是模糊的文件缺失。
+           System.Drawing.Primitives 保留（Win32 路径潜在引用）；Microsoft.VisualBasic.Core 保留（RecycleBin）。 -->
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="'%(ResolvedFileToPublish.FileName)' == 'System.Private.Xml'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Private.Xml.Linq'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Private.DataContractSerialization'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Data.Common'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Runtime.Serialization.Formatters'" />
       <!-- Windows 产物：仅剔除 Linux/macOS 专属 Avalonia 头（UsePlatformDetect 的平台 guard 不会 JIT 到）。
            Avalonia.Vulkan / Avalonia.Metal / Avalonia.Dialogs 必须保留：
            它们分别被 Avalonia.Win32（Win32GlManager.InitializeCore）、Avalonia.Skia 与

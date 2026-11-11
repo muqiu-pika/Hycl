@@ -85,17 +85,17 @@ public static class PlatformInfo
             }
 
             const string preferred = "D:\\HYCL";
-            if (Directory.Exists(preferred))
+            // D:\HYCL 已有真实数据（config/accounts）时视为用户已在使用，直接采用；
+            // 否则（目录不存在或只是空壳）把 %APPDATA% 的旧数据整体迁过来
+            var preferredHasData = File.Exists(Path.Combine(preferred, "config.json"))
+                                   || File.Exists(Path.Combine(preferred, "accounts.json"));
+            if (preferredHasData || !Directory.Exists(legacy))
             {
                 return preferred;
             }
 
-            if (Directory.Exists(legacy))
-            {
-                // 一次性迁移：旧 %APPDATA% 数据整体搬到 D 盘（跨卷需要逐项搬运）
-                MoveDirectoryCrossVolume(legacy, preferred);
-            }
-
+            // 一次性迁移：旧 %APPDATA% 数据整体搬到 D 盘（跨卷需要逐项搬运）
+            MoveDirectoryCrossVolume(legacy, preferred);
             return preferred;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
