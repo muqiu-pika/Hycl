@@ -8,7 +8,10 @@ namespace Hycl.Launcher.Core.Auth;
 
 /// <summary>
 /// 离线账号的本地 Yggdrasil 皮肤服务：给 authlib-injector 提供 profile/textures 端点，
-/// 让离线自定义皮肤在游戏内真正显示（PCL-CE 的离线皮肤只做启动器内预览，这里补上游戏内链路）。
+/// 让离线自定义皮肤在游戏内真正显示（PCL-CE 的离线皮肤只做启动器内预览，这里补上游戏内链路）；
+/// 同时按 HMCL 的 YggdrasilServer / KAMUCL 离线皮肤代理的实现补齐登录契约：
+/// join（客户端登录，204 放行）与 hasJoined（房主集成服务器校验加入者，离线局域网全部放行），
+/// 缺失时离线玩家会被「对局域网开放」的房间以「暂时无法连接到身份验证服务器」拒绝。
 /// 只监听 127.0.0.1（TcpListener，绕开 HttpListener 的 URLACL 需要管理员授权的问题），
 /// 同一账号与皮肤文件复用同一个实例，随启动器进程结束释放。
 /// 可见性限制：仅本机可见，多人里其他玩家仍按其本地皮肤显示——这是离线模式的固有限制。
@@ -18,6 +21,9 @@ public sealed class LocalSkinServer : IDisposable
     private static readonly object Gate = new();
 
     private static LocalSkinServer? _current;
+
+    /// <summary>请求体上限：登录期 join/查询请求只有几百字节，超限直接拒绝。</summary>
+    private const int MaxRequestBodyBytes = 64 * 1024;
 
     private readonly TcpListener _listener;
 
@@ -175,25 +181,41 @@ public sealed class LocalSkinServer : IDisposable
                 client.SendTimeout = 5000;
                 var stream = client.GetStream();
                 var request = await ReadRequestAsync(stream, _cts.Token).ConfigureAwait(false);
-                if (string.IsNullOrEmpty(request))
+                if (string.IsNullOrEmpty(request.Header))
                 {
                     return;
                 }
 
-                var firstLine = request.Split('\n', 2)[0].TrimEnd('\r');
+                var firstLine = request.Header.Split('\n', 2)[0].TrimEnd('\r');
                 var parts = firstLine.Split(' ');
-                if (parts.Length < 2 || !string.Equals(parts[0], "GET", StringComparison.OrdinalIgnoreCase))
+                if (parts.Length < 2
+                    || (!string.Equals(parts[0], "GET", StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(parts[0], "POST", StringComparison.OrdinalIgnoreCase)))
                 {
+                    // join 等登录期请求是 POST：非 GET/POST 才拒绝，且必须记日志
                     await WriteAsync(stream, 405, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("method not allowed")).ConfigureAwait(false);
                     return;
                 }
 
+                var method = parts[0].ToUpperInvariant();
                 var target = parts[1];
-                var path = target.Split('?')[0];
-                var status = RouteAsync(path, out var contentType, out var body);
-                // 会话内请求很少（API 探测 + profile + 皮肤图），逐条记日志便于核实游戏是否真的取到了皮肤
-                _logger.Info($"[本地皮肤] GET {path} -> {status}");
-                await WriteAsync(stream, status, contentType, body).ConfigureAwait(false);
+                var queryIndex = target.IndexOf('?');
+                var path = queryIndex >= 0 ? target[..queryIndex] : target;
+                var query = queryIndex >= 0 ? target[(queryIndex + 1)..] : "";
+
+                var contentLength = ParseContentLength(request.Header);
+                if (contentLength < 0 || contentLength > MaxRequestBodyBytes)
+                {
+                    await WriteAsync(stream, 400, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("bad request")).ConfigureAwait(false);
+                    return;
+                }
+
+                var body = await ReadBodyAsync(request.Body, contentLength, stream, _cts.Token).ConfigureAwait(false);
+
+                var status = RouteAsync(method, path, query, body, out var contentType, out var responseBody);
+                // 登录期请求很少（根探测 + join/hasJoined + profile），每条记日志便于定位联机失败
+                _logger.Info($"[本地皮肤] {method} {path} -> {status}");
+                await WriteAsync(stream, status, contentType, responseBody).ConfigureAwait(false);
             }
         }
         catch (Exception ex) when (ex is IOException or SocketException or OperationCanceledException)
@@ -206,21 +228,35 @@ public sealed class LocalSkinServer : IDisposable
         }
     }
 
-    private int RouteAsync(string path, out string contentType, out byte[] body)
+    private int RouteAsync(
+        string method,
+        string path,
+        string query,
+        string requestBody,
+        out string contentType,
+        out byte[] body)
     {
         contentType = "application/json; charset=utf-8";
+        var isGet = string.Equals(method, "GET", StringComparison.Ordinal);
+        var isPost = string.Equals(method, "POST", StringComparison.Ordinal);
 
         // authlib-injector 启动时探测 API 根，返回 Yggdrasil 元数据即可（字段缺失走它的默认值）。
         // skinDomains 声明本机域名，标记皮肤 URL 属于本服务（与 HMCL 本地 Yggdrasil 的元数据同思路）
         if (path is "/" or "")
         {
             body = Encoding.UTF8.GetBytes("{\"skinDomains\":[\"127.0.0.1\",\"localhost\"],\"signaturePublicKeys\":[]}");
-            return 200;
+            return isGet ? 200 : 405;
         }
 
         // 自定义皮肤文件
         if (string.Equals(path, "/skin.png", StringComparison.OrdinalIgnoreCase))
         {
+            if (!isGet)
+            {
+                body = Encoding.UTF8.GetBytes("");
+                return 405;
+            }
+
             try
             {
                 var bytes = File.ReadAllBytes(_skinFile);
@@ -236,6 +272,8 @@ public sealed class LocalSkinServer : IDisposable
         }
 
         // 皮肤查询：<root>/sessionserver/session/minecraft/profile/<uuid32>
+        // 查不到的 UUID 返回 204（与 HMCL/KAMUCL 一致）：联机时其他玩家会按离线 UUID
+        // 查询本机未缓存的档案，404 会让 authlib 当成服务异常
         var profilePrefix = "/sessionserver/session/minecraft/profile/";
         if (path.StartsWith(profilePrefix, StringComparison.OrdinalIgnoreCase))
         {
@@ -247,20 +285,154 @@ public sealed class LocalSkinServer : IDisposable
                 return 200;
             }
 
-            body = Encoding.UTF8.GetBytes("{}");
-            return 404;
+            body = Array.Empty<byte>();
+            return 204;
         }
 
-        // 按名字查 UUID（离线也会走到，回自己的档案即可）
-        if (path.StartsWith("/api/profiles/minecraft", StringComparison.OrdinalIgnoreCase))
+        // 客户端登录（online-mode 服务器 / 对局域网开放的世界发起的鉴权）：
+        // <root>/sessionserver/session/minecraft/join —— 离线模式按 HMCL 实现直接放行（204），
+        // 此前非 GET 一律 405，导致离线玩家加入局域网房间时登录失败：
+        // 「无法连接至服务器 / 登录失败：暂时无法连接到身份验证服务器」
+        if (isPost && string.Equals(path, "/sessionserver/session/minecraft/join", StringComparison.OrdinalIgnoreCase))
         {
+            body = Array.Empty<byte>();
+            return 204;
+        }
+
+        // 服务端登录校验：<root>/sessionserver/session/minecraft/hasJoined?username=...
+        // 房主的集成服务器会拿加入者的名字来这里问；离线局域网等同 offline-mode 语义：
+        // 全部放行——本机玩家返回带皮肤的档案，其他玩家按原版离线 UUID 规则返回纯身份档案
+        if (isGet && string.Equals(path, "/sessionserver/session/minecraft/hasJoined", StringComparison.OrdinalIgnoreCase))
+        {
+            var username = QueryParam(query, "username");
+            if (string.IsNullOrWhiteSpace(username))
+            {
+                body = Encoding.UTF8.GetBytes("");
+                return 400;
+            }
+
+            body = Encoding.UTF8.GetBytes(string.Equals(username, _playerName, StringComparison.OrdinalIgnoreCase)
+                ? _profileJson
+                : BuildIdentityJson(username));
+            return 200;
+        }
+
+        // 名字查 UUID（批量）：只认自己的身份，其余返回空列表（与 KAMUCL 离线皮肤代理一致）
+        if (isPost && string.Equals(path, "/api/profiles/minecraft", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var names = System.Text.Json.JsonSerializer.Deserialize<List<string>>(requestBody) ?? [];
+                var found = names.Any(name => string.Equals(name, _playerName, StringComparison.OrdinalIgnoreCase));
+                body = Encoding.UTF8.GetBytes(found ? "[" + BuildIdentityJson(_playerName) + "]" : "[]");
+                return 200;
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                body = Encoding.UTF8.GetBytes("");
+                return 400;
+            }
+        }
+
+        if (isGet && path.StartsWith("/api/profiles/minecraft", StringComparison.OrdinalIgnoreCase))
+        {
+            // 按名字查 UUID（离线也会走到，回自己的档案即可）
             body = Encoding.UTF8.GetBytes("[]");
             return 200;
         }
 
-        // 其余（entitlements、hasJoined 等）一律 404：离线模式游戏可容忍，与原本 401 行为一致
+        // 其余（entitlements 等）一律 404：离线模式游戏可容忍
         body = Encoding.UTF8.GetBytes("{}");
         return 404;
+    }
+
+    /// <summary>从查询串取参数值（URL 解码；缺失返回 null）。</summary>
+    private static string? QueryParam(string query, string key)
+    {
+        if (query.Length == 0)
+        {
+            return null;
+        }
+
+        foreach (var pair in query.Split('&'))
+        {
+            var eq = pair.IndexOf('=');
+            if (eq <= 0)
+            {
+                continue;
+            }
+
+            if (!string.Equals(pair[..eq], key, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            try
+            {
+                return Uri.UnescapeDataString(pair[(eq + 1)..].Replace('+', ' '));
+            }
+            catch (UriFormatException)
+            {
+                return pair[(eq + 1)..];
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>解析请求头里的 Content-Length；未声明按 0，非法返回 -1。</summary>
+    private static int ParseContentLength(string header)
+    {
+        foreach (var line in header.Split('\n'))
+        {
+            var trimmed = line.TrimEnd('\r');
+            if (!trimmed.StartsWith("content-length", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var colon = trimmed.IndexOf(':');
+            if (colon < 0)
+            {
+                return -1;
+            }
+
+            return !int.TryParse(trimmed[(colon + 1)..].Trim(), out var value) || value < 0 ? -1 : value;
+        }
+
+        return 0;
+    }
+
+    /// <summary>读满请求体：头部后已预读的字节先用，再从流里补齐剩余部分。</summary>
+    private static async Task<string> ReadBodyAsync(
+        byte[] prefix,
+        int contentLength,
+        NetworkStream stream,
+        CancellationToken cancellationToken)
+    {
+        if (contentLength <= 0)
+        {
+            return "";
+        }
+
+        var collected = new MemoryStream();
+        var fromPrefix = Math.Min(prefix.Length, contentLength);
+        collected.Write(prefix, 0, fromPrefix);
+        var buffer = new byte[1024];
+        while (collected.Length < contentLength)
+        {
+            var read = await stream.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
+            if (read <= 0)
+            {
+                break;
+            }
+
+            collected.Write(buffer, 0, Math.Min(read, contentLength - (int)collected.Length));
+        }
+
+        return collected.Length == contentLength
+            ? Encoding.UTF8.GetString(collected.GetBuffer(), 0, contentLength)
+            : "";
     }
 
     private string BuildProfileJson()
@@ -285,11 +457,12 @@ public sealed class LocalSkinServer : IDisposable
     private static string Escape(string value) => value.Replace("\\", "\\\\", StringComparison.Ordinal)
         .Replace("\"", "\\\"", StringComparison.Ordinal);
 
-    private static async Task<string> ReadRequestAsync(NetworkStream stream, CancellationToken cancellationToken)
+    /// <summary>读取请求行与请求头，并把头部终止符之后已预读到的字节作为 body 前缀返回。</summary>
+    private static async Task<(string Header, byte[] Body)> ReadRequestAsync(NetworkStream stream, CancellationToken cancellationToken)
     {
         var buffer = new byte[1024];
-        var builder = new StringBuilder();
-        while (builder.Length < 8192)
+        var accumulated = new MemoryStream();
+        while (accumulated.Length < 8192)
         {
             var read = await stream.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
             if (read <= 0)
@@ -297,14 +470,35 @@ public sealed class LocalSkinServer : IDisposable
                 break;
             }
 
-            builder.Append(Encoding.UTF8.GetString(buffer, 0, read));
-            if (builder.ToString().Contains("\r\n\r\n", StringComparison.Ordinal))
+            accumulated.Write(buffer, 0, read);
+            var data = accumulated.GetBuffer();
+            var length = (int)accumulated.Length;
+            var headerEnd = IndexOfHeaderTerminator(data, length);
+            if (headerEnd >= 0)
             {
-                break;
+                var header = Encoding.UTF8.GetString(data, 0, headerEnd + 4);
+                var bodyLength = length - headerEnd - 4;
+                var bodyPrefix = new byte[bodyLength];
+                Array.Copy(data, headerEnd + 4, bodyPrefix, 0, bodyLength);
+                return (header, bodyPrefix);
             }
         }
 
-        return builder.ToString();
+        return (Encoding.UTF8.GetString(accumulated.GetBuffer(), 0, (int)accumulated.Length), Array.Empty<byte>());
+    }
+
+    /// <summary>查找头部终止序列 <c>\r\n\r\n</c> 的起始下标；未找到返回 -1。</summary>
+    private static int IndexOfHeaderTerminator(byte[] data, int length)
+    {
+        for (var i = 0; i + 3 < length; i++)
+        {
+            if (data[i] == (byte)'\r' && data[i + 1] == (byte)'\n' && data[i + 2] == (byte)'\r' && data[i + 3] == (byte)'\n')
+            {
+                return i;
+            }
+        }
+
+        return -1;
     }
 
     private static async Task WriteAsync(NetworkStream stream, int status, string contentType, byte[] body)
@@ -312,6 +506,8 @@ public sealed class LocalSkinServer : IDisposable
         var reason = status switch
         {
             200 => "OK",
+            204 => "No Content",
+            400 => "Bad Request",
             404 => "Not Found",
             405 => "Method Not Allowed",
             _ => "OK"
@@ -337,9 +533,19 @@ public sealed class LocalSkinServer : IDisposable
             return raw.ToLowerInvariant();
         }
 
+        return OfflineUuid(playerName);
+    }
+
+    /// <summary>原版离线 UUID（md5 "OfflinePlayer:"+name，version 3）；联机时给其他玩家回档案用。</summary>
+    private static string OfflineUuid(string playerName)
+    {
         var hash = MD5.HashData(Encoding.UTF8.GetBytes("OfflinePlayer:" + playerName));
         hash[6] = (byte)((hash[6] & 0x0F) | 0x30); // version 3
         hash[8] = (byte)((hash[8] & 0x3F) | 0x80); // IETF variant
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
+
+    /// <summary>纯身份档案（无皮肤）：hasJoined / 名字查 UUID 时给其他玩家返回。</summary>
+    private string BuildIdentityJson(string playerName)
+        => "{\"id\":\"" + OfflineUuid(playerName) + "\",\"name\":\"" + Escape(playerName) + "\"}";
 }
