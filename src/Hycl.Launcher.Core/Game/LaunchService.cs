@@ -663,9 +663,15 @@ public sealed class LaunchService
                 0,
                 $"-javaagent:{options.AuthlibJarPath}={options.AuthlibServer}");
             arguments.Insert(1, "-Dauthlibinjector.side=client");
+            // 关闭注入器伪造「玩家档案公钥证书」：它签发的 publicKeySignature 是空的（"AA=="），
+            // 原版 ProfilePublicKey 校验（信任 Mojang 公钥）必然判为
+            // 「无效的玩家档案公钥签名」并踢出——离线玩家加入局域网房间正是死在这一步。
+            // 关掉后客户端不申请证书、以「无公钥」身份加入，原版接受无公钥玩家
+            // （仅聊天不签名，不影响联机）。
+            arguments.Insert(2, "-Dauthlibinjector.profileKey=disable");
             if (!string.IsNullOrWhiteSpace(options.AuthlibPrefetched))
             {
-                arguments.Insert(2, $"-Dauthlibinjector.yggdrasil.prefetched={options.AuthlibPrefetched}");
+                arguments.Insert(3, $"-Dauthlibinjector.yggdrasil.prefetched={options.AuthlibPrefetched}");
             }
         }
 
