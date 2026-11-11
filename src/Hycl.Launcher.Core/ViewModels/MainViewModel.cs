@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using System.Collections.ObjectModel;
 using Hycl.Launcher.Core.Services;
 using Hycl.Launcher.Core.ViewModels.Pages;
 
@@ -18,14 +19,32 @@ public partial class MainViewModel : ObservableObject
 
     private int _toastVersion;
 
-    public IReadOnlyList<TabItemViewModel> Tabs { get; } =
+    /// <summary>标签页（标签随界面语言切换重建，图标键不变）。</summary>
+    public ObservableCollection<TabItemViewModel> Tabs { get; } = new();
+
+    private static readonly (string Label, string Icon)[] TabDefs =
     [
-        new("启动", "play"),
-        new("下载", "download"),
-        new("版本", "list"),
-        new("设置", "settings"),
-        new("工具", "wrench"),
+        ("启动", "play"),
+        ("下载", "download"),
+        ("版本", "list"),
+        ("设置", "settings"),
+        ("工具", "wrench"),
     ];
+
+    /// <summary>窗口标题（随界面语言刷新）。</summary>
+    [ObservableProperty]
+    private string _windowCaption = "Hyplay Craft Launcher";
+
+    private void RebuildLocalizedChrome()
+    {
+        Tabs.Clear();
+        foreach (var (label, icon) in TabDefs)
+        {
+            Tabs.Add(new TabItemViewModel(Localization.T(label), icon));
+        }
+
+        WindowCaption = Localization.T("Hyplay Craft Launcher");
+    }
 
     public LaunchPageViewModel Launch { get; }
 
@@ -102,6 +121,9 @@ public partial class MainViewModel : ObservableObject
             Download.OpenCompSection(type, gameVersion, loaderLabel, instanceId);
         };
         PerfTrace.Mark("instances_vm_ctor_done");
+        Localization.SetLanguage(services.Config.UiLanguage);
+        RebuildLocalizedChrome();
+        Localization.LanguageChanged += (_, _) => RebuildLocalizedChrome();
         Settings = new SettingsPageViewModel(services, ShowToast);
         PerfTrace.Mark("settings_vm_ctor_done");
         Tools = new ToolsPageViewModel(services, ShowToast);

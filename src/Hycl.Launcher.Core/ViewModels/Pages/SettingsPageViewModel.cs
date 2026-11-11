@@ -753,12 +753,33 @@ public partial class SettingsPageViewModel : ObservableObject
             }
         };
 
+        _languageRow = new ComboRowViewModel(
+            "界面语言",
+            Localization.SupportedLanguages.Select(lang => lang.Label).ToArray(),
+            Localization.SupportedLanguages.First(lang => lang.Code == config.UiLanguage).Label);
+        _languageRow.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName != nameof(ComboRowViewModel.SelectedOption))
+            {
+                return;
+            }
+
+            var label = _languageRow.SelectedOption as string ?? "";
+            var match = Localization.SupportedLanguages.FirstOrDefault(lang => lang.Label == label);
+            if (match.Code is { Length: > 0 } code && config.UiLanguage != code)
+            {
+                config.UiLanguage = code;
+                Localization.SetLanguage(code);
+                QueueSave();
+            }
+        };
+
         _sections["语言"] = new SettingsSectionViewModel("语言",
         [
             new SettingCardViewModel("界面语言",
             [
-                new InfoRowViewModel("当前语言", "简体中文"),
-                new TextLineRowViewModel("多语言切换尚未迁移到当前 Core。")
+                _languageRow,
+                new TextLineRowViewModel("已支持主界面外壳的中英切换；页面深处的长文案正在逐步国际化。")
             ]),
         ]);
 

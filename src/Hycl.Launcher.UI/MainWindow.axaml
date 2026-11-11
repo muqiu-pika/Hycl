@@ -7,7 +7,7 @@
         x:Class="Hycl.Launcher.UI.MainWindow"
         x:DataType="vm:MainViewModel"
         x:CompileBindings="True"
-        Title="Hyplay Craft Launcher"
+        Title="{Binding WindowCaption}"
         Width="900" Height="570"
         MinWidth="860" MinHeight="520"
         WindowStartupLocation="CenterScreen"

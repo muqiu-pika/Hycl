@@ -147,6 +147,9 @@ public sealed class LauncherConfig
     /// <summary>启动时是否静默检查启动器更新（发现新版本仅提示，不自动下载）。</summary>
     public bool AutoCheckUpdates { get; set; } = true;
 
+    /// <summary>界面语言（zh-Hans / en-US；参考 PCL-CE 的语言选择；与游戏内语言 GameSettingsConfig.Language 无关）。</summary>
+    public string UiLanguage { get; set; } = "zh-Hans";
+
     /// <summary>
     /// 实例级覆盖设置，键为 versions 下的实例目录名。
     /// 未设置或留空的字段回退到本类中的全局设置（实例覆盖 &gt; 全局）。
@@ -182,6 +185,10 @@ public sealed class LauncherConfig
         QuickDownloadBehavior = Math.Clamp(QuickDownloadBehavior, 0, 3);
         UpdateChannel = Math.Clamp(UpdateChannel, 0, 2);
         BackgroundOpacity = Math.Clamp(BackgroundOpacity, 0, 100);
+        if (UiLanguage != "zh-Hans" && UiLanguage != "en-US")
+        {
+            UiLanguage = "zh-Hans";
+        }
         WindowType = Math.Clamp(WindowType, 0, 4);
         WindowWidth = Math.Clamp(WindowWidth, 320, 7680);
         WindowHeight = Math.Clamp(WindowHeight, 240, 4320);
