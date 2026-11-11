@@ -22,9 +22,6 @@ public static class InstanceNameValidator
 
     private static readonly Regex Ntfs83Name = new(@".{2,}~\d", RegexOptions.Compiled);
 
-    /// <summary>自动编号后缀：仅在名称末尾的“-数字”才剥离，避免误伤 1.21.5、26.3 这类版本号。</summary>
-    private static readonly Regex TrailingNumberSuffix = new(@"-\d+$", RegexOptions.Compiled);
-
     /// <summary>只校验名称本身是否合法（不检查重名）。返回 null 表示合法。</summary>
     public static string? ValidateName(string? name)
     {
@@ -87,9 +84,10 @@ public static class InstanceNameValidator
         => ValidateName(name) ?? (name is null ? null : ValidateCollision(gameDirectory, name));
 
     /// <summary>
-    /// 返回 versions 目录下可用的实例名：未被占用时原样返回；
-    /// 已占用时先剥掉名称末尾的“-数字”得到基名（避免在 26.3-1 上再叠成 26.3-1-1），
-    /// 再按基名依次尝试 <c>基名-1</c>、<c>基名-2</c> …（跳过已占用的序号，大小写不敏感）。
+    /// 返回 versions 目录下可用的实例名：初始名字可用时原样返回；
+    /// 已占用时直接在<b>初始名字</b>后面追加序号，依次尝试 <c>初始名-1</c>、<c>初始名-2</c>、<c>初始名-3</c> …
+    /// （不剥掉版本号自带的“-1/-2”尾缀——MC 存在 26.3-1 这类名字本身就带横杠数字的版本，
+    /// 剥离会把 26.3-1 错当成 26.3 的第 1 个副本，追加语义保证命名可预期）。
     /// </summary>
     public static string GetAvailableName(string gameDirectory, string desiredName)
     {
@@ -99,22 +97,10 @@ public static class InstanceNameValidator
             return trimmed;
         }
 
-        // 已占用：剥掉自动编号后缀；基名本身可用时直接回到基名，否则从 1 开始找最小空位。
-        var baseName = TrailingNumberSuffix.Replace(trimmed, "", 1);
-        if (baseName.Length == 0)
-        {
-            baseName = trimmed;
-        }
-
-        if (!baseName.Equals(trimmed, StringComparison.OrdinalIgnoreCase)
-            && !IsOccupied(gameDirectory, baseName))
-        {
-            return baseName;
-        }
-
+        // 已占用：以初始名字为基名递增序号，直到找到空位（大小写不敏感）
         for (var index = 1; ; index++)
         {
-            var candidate = $"{baseName}-{index}";
+            var candidate = $"{trimmed}-{index}";
             if (!IsOccupied(gameDirectory, candidate))
             {
                 return candidate;

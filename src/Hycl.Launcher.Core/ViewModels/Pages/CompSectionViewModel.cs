@@ -1772,7 +1772,10 @@ public partial class CompSectionViewModel : ObservableObject
                 .ScanAsync(_services.Config.EffectiveGameDirectory)
                 .ConfigureAwait(true);
             await LoadReleaseVersionsAsync().ConfigureAwait(true);
-            RebuildGameVersionOptions(instances.Select(instance => instance.GameVersion));
+            // 实例版本同样规整成纯 MC 版本号（1.20.1-fabric → 1.20.1），
+            // 加载器维度由「加载器」下拉负责，不把带加载器名的 id 混进版本筛选项
+            RebuildGameVersionOptions(instances
+                .Select(instance => MinecraftVersionGuesser.Normalize(instance.GameVersion) ?? instance.GameVersion));
         }
         catch
         {

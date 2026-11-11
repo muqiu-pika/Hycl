@@ -1411,9 +1411,8 @@ public partial class InstallWizardViewModel : ObservableObject
             _services.Config.EffectiveGameDirectory, targetName);
         if (!effectiveName.Equals(targetName, StringComparison.Ordinal))
         {
-            // 把最终名称写回输入框：界面上看到的名字与实际创建的实例必须一致；
-            // GetAvailableName 会剥离尾部 -N，因此再次安装不会叠成 26.3-1-1。
-            TargetName = effectiveName;
+            // 输入框保持用户输入的初始名字（再次安装时以同一个初始名重新避让，不会叠成 26.3-1-1），
+            // 实际安装名通过 toast 告知
             _toast?.Invoke($"已存在同名实例 {targetName}，将安装为 {effectiveName}");
         }
 

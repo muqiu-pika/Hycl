@@ -94,11 +94,18 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
             OnPropertyChanged(nameof(ModpackFileSummary));
         };
         Files = new InstanceFilesViewModel(services);
-        Files.DownloadRequested = type => DownloadResourceRequested?.Invoke(
-            type,
-            SelectedGameVersion,
-            SelectedLoaderLabel,
-            SelectedInstance?.Id ?? "");
+        Files.DownloadRequested = type =>
+        {
+            // 版本号必须规整成纯 MC 版本（实例 id 可能是 1.20.1-fabric 这类带加载器名的合并版本），
+            // 加载器单独通过 loaderLabel 传给下载页的「加载器」筛选，不混进版本号
+            var rawVersion = SelectedGameVersion;
+            var cleanVersion = MinecraftVersionGuesser.Normalize(rawVersion) ?? rawVersion;
+            DownloadResourceRequested?.Invoke(
+                type,
+                cleanVersion,
+                SelectedLoaderLabel,
+                SelectedInstance?.Id ?? "");
+        };
         Export = new InstanceExportViewModel(services, message => StatusMessage = message);
         Servers = new InstanceServersViewModel(services, message => StatusMessage = message);
     }
