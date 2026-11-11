@@ -39,6 +39,24 @@ public sealed partial class ModpackFileOption : ObservableObject
 }
 
 /// <summary>
+/// 版本管理页「文件夹列表」中的游戏文件夹：Name 为展示名（官方 .minecraft 显示为
+/// 「官方启动器文件夹」），DisplayPath 带结尾分隔符，IsActive 标记当前正在使用的文件夹。
+/// </summary>
+public sealed partial class InstanceFolderItem : ObservableObject
+{
+    public required string Path { get; init; }
+
+    public required string Name { get; init; }
+
+    public string DisplayPath => Path.EndsWith(System.IO.Path.DirectorySeparatorChar)
+        ? Path
+        : Path + System.IO.Path.DirectorySeparatorChar;
+
+    [ObservableProperty]
+    private bool _isActive;
+}
+
+/// <summary>
 /// 版本管理：实例列表、切换当前实例、实例设置（名称/备注/隔离/内存/JVM/窗口/Java）、
 /// 复制、重命名、删除与目录入口。
 /// </summary>
@@ -60,6 +78,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
             OnPropertyChanged(nameof(IsEmpty));
             OnPropertyChanged(nameof(InstanceCountText));
         };
+        Folders.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasFolders));
         Saves.CollectionChanged += (_, _) =>
         {
             OnPropertyChanged(nameof(HasSaves));
@@ -87,6 +106,20 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
     public Action<CompResourceType, string, string, string>? DownloadResourceRequested { get; set; }
 
     public ObservableCollection<MinecraftInstance> Instances { get; } = new();
+
+    /// <summary>「文件夹列表」：已添加的游戏文件夹，点击切换当前游戏目录。</summary>
+    public ObservableCollection<InstanceFolderItem> Folders { get; } = new();
+
+    public bool HasFolders => Folders.Count > 0;
+
+    [ObservableProperty]
+    private InstanceFolderItem? _selectedFolder;
+
+    /// <summary>切换文件夹期间抑制 OnSelectedFolderChanged 的重复触发。</summary>
+    private bool _suppressFolderSwitch;
+
+    /// <summary>当前游戏文件夹发生变化（供启动页等同步重扫实例）。</summary>
+    public event EventHandler? FolderChanged;
 
     [ObservableProperty]
     private MinecraftInstance? _selectedInstance;
@@ -483,6 +516,11 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         IsRefreshing = true;
         try
         {
+            if (EnsureFolders())
+            {
+                await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
+            }
+
             var instances = await _services.Instances.ScanAsync(_services.Config.EffectiveGameDirectory).ConfigureAwait(true);
             var previousId = SelectedInstance?.Id ?? _services.Config.SelectedVersion;
             Instances.Clear();
@@ -495,6 +533,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
             SelectedInstance = Instances.FirstOrDefault(x => x.Id.Equals(previousId, StringComparison.OrdinalIgnoreCase))
                                ?? Instances.FirstOrDefault();
             UpdateCurrentMarkers();
+            UpdateFolderActive();
             IsRefreshing = false;
             StatusMessage = HasInstances ? "" : "未找到已安装版本，请先在下载页安装。";
         }
@@ -528,6 +567,109 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         return instances
             .OrderBy(x => rank.TryGetValue(x.Id, out var r) ? r : int.MaxValue)
             .ToList();
+    }
+
+    /// <summary>
+    /// 同步「文件夹列表」：保证当前游戏目录始终在列表中，并把列表重建为最新的
+    /// 展示项（名称/路径/当前标记）。返回是否需要写回配置。
+    /// </summary>
+    private bool EnsureFolders()
+    {
+        var active = NormalizeFolderPath(_services.Config.EffectiveGameDirectory);
+        var paths = new List<string>();
+        foreach (var folder in _services.Config.InstanceFolders ?? [])
+        {
+            var normalized = NormalizeFolderPath(folder);
+            if (normalized.Length > 0 && !paths.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+            {
+                paths.Add(normalized);
+            }
+        }
+
+        var changed = false;
+        if (active.Length > 0 && !paths.Contains(active, StringComparer.OrdinalIgnoreCase))
+        {
+            paths.Insert(0, active);
+            changed = true;
+        }
+
+        if (!paths.SequenceEqual(_services.Config.InstanceFolders ?? [], StringComparer.OrdinalIgnoreCase))
+        {
+            _services.Config.InstanceFolders = paths;
+            changed = true;
+        }
+
+        _suppressFolderSwitch = true;
+        Folders.Clear();
+        foreach (var path in paths)
+        {
+            Folders.Add(new InstanceFolderItem
+            {
+                Path = path,
+                Name = InstanceManager.GetFolderDisplayName(path),
+                IsActive = path.Equals(active, StringComparison.OrdinalIgnoreCase)
+            });
+        }
+
+        SelectedFolder = Folders.FirstOrDefault(x => x.IsActive) ?? Folders.FirstOrDefault();
+        _suppressFolderSwitch = false;
+        return changed;
+    }
+
+    /// <summary>统一为去除结尾分隔符的绝对路径；无效路径返回空串。</summary>
+    private static string NormalizeFolderPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return "";
+        }
+
+        try
+        {
+            return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return "";
+        }
+    }
+
+    /// <summary>同步文件夹项的「当前」标记（不重建列表）。</summary>
+    private void UpdateFolderActive()
+    {
+        var active = NormalizeFolderPath(_services.Config.EffectiveGameDirectory);
+        foreach (var folder in Folders)
+        {
+            folder.IsActive = folder.Path.Equals(active, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    /// <summary>用户点击文件夹列表：把该文件夹设为当前游戏目录并重扫实例。</summary>
+    partial void OnSelectedFolderChanged(InstanceFolderItem? value)
+    {
+        if (_suppressFolderSwitch || value is null)
+        {
+            return;
+        }
+
+        var active = NormalizeFolderPath(_services.Config.EffectiveGameDirectory);
+        if (value.Path.Equals(active, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _ = SwitchFolderAsync(value);
+    }
+
+    private async Task SwitchFolderAsync(InstanceFolderItem folder)
+    {
+        _services.Config.GameDirectory = folder.Path;
+        // 新文件夹的实例 ID 与旧文件夹不通用，清掉当前选择避免误选同名实例
+        _services.Config.SelectedVersion = "";
+        await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
+        await RefreshAsync().ConfigureAwait(true);
+        FolderChanged?.Invoke(this, EventArgs.Empty);
+        StatusMessage = $"已切换到 {folder.Name}";
     }
 
     /// <summary>把当前列表顺序写回 config 并持久化。</summary>
@@ -966,9 +1108,13 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         }
     }
 
-    /// <summary>从已解压的文件夹导入整合包（PCL-CE 没有该入口，这里补齐文件夹形式）。</summary>
+    /// <summary>
+    /// 「从文件夹导入」：把选择的文件夹（及其子文件夹中发现的游戏目录）加入文件夹列表，
+    /// 并切换到该文件夹，版本列表随即显示其中的全部实例。选中文件夹本身就是游戏目录时
+    /// 直接使用它；否则向下发现多个 .minecraft 一并加入，供上方文件夹列表切换查看。
+    /// </summary>
     [RelayCommand]
-    private async Task ImportModpackFolderAsync()
+    private async Task AddInstanceFolderAsync()
     {
         if (FolderPicker is null)
         {
@@ -980,19 +1126,59 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         try
         {
             path = await FolderPicker(_services.Config.EffectiveGameDirectory).ConfigureAwait(true);
-            _services.Logger.Info($"导入整合包：选择文件夹 {path ?? "<取消>"}");
+            _services.Logger.Info($"添加游戏文件夹：选择结果 {path ?? "<取消>"}");
         }
         catch (Exception ex)
         {
             StatusMessage = $"无法打开文件夹选择器：{ex.Message}";
-            _services.Logger.Error("导入整合包：文件夹选择器失败", ex);
+            _services.Logger.Error("添加游戏文件夹：文件夹选择器失败", ex);
             return;
         }
 
-        if (!string.IsNullOrWhiteSpace(path))
+        if (string.IsNullOrWhiteSpace(path))
         {
-            await BeginImportAsync(path).ConfigureAwait(true);
+            return;
         }
+
+        var roots = InstanceManager.DiscoverGameFolders(path);
+        var foundInstances = roots.Count > 0;
+        if (roots.Count == 0)
+        {
+            // 空文件夹也允许加入：用户可能想在这个目录里新装版本
+            var normalized = NormalizeFolderPath(path);
+            if (normalized.Length == 0)
+            {
+                StatusMessage = "文件夹路径无效";
+                return;
+            }
+
+            roots = [normalized];
+        }
+
+        var known = (_services.Config.InstanceFolders ?? []).ToList();
+        foreach (var root in roots)
+        {
+            if (!known.Contains(root, StringComparer.OrdinalIgnoreCase))
+            {
+                known.Add(root);
+            }
+        }
+
+        _services.Config.InstanceFolders = known
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // 切换到本次导入的第一个文件夹，版本列表直接展示其中的实例
+        _services.Config.GameDirectory = roots[0];
+        _services.Config.SelectedVersion = "";
+        await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
+        await RefreshAsync().ConfigureAwait(true);
+        FolderChanged?.Invoke(this, EventArgs.Empty);
+        StatusMessage = !foundInstances
+            ? $"已添加文件夹 {InstanceManager.GetFolderDisplayName(roots[0])}，该文件夹暂无已安装版本"
+            : roots.Count == 1
+                ? $"已导入文件夹 {InstanceManager.GetFolderDisplayName(roots[0])} 及其子文件夹中的实例"
+                : $"已导入 {roots.Count} 个游戏文件夹，可在上方文件夹列表切换查看";
     }
 
     /// <summary>先识别格式，再走命名对话框；不支持的格式当场说明原因，不进入命名步骤。</summary>

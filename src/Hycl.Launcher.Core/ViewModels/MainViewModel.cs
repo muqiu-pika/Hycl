@@ -138,6 +138,8 @@ public partial class MainViewModel : ObservableObject
                 _ = Launch.RefreshInstancesAsync();
             }
         };
+        // 版本页切换游戏文件夹：启动页按新目录重扫实例
+        Instances.FolderChanged += (_, _) => _ = Launch.RefreshInstancesAsync();
         Instances.LaunchRequested += async (_, instanceId) =>
         {
             await Launch.SelectInstanceAsync(instanceId);

@@ -14,6 +14,12 @@ public sealed class LauncherConfig
     /// <summary>空字符串表示使用平台默认的 .minecraft 目录。</summary>
     public string GameDirectory { get; set; } = "";
 
+    /// <summary>
+    /// 版本管理页「文件夹列表」中已添加的游戏文件夹（绝对路径）。
+    /// 当前正在使用的文件夹由 <see cref="GameDirectory"/> 决定；列表仅用于快速切换。
+    /// </summary>
+    public List<string> InstanceFolders { get; set; } = new();
+
     /// <summary>空字符串表示自动匹配 Java。</summary>
     public string JavaPath { get; set; } = "";
 
@@ -185,6 +191,7 @@ public sealed class LauncherConfig
 
         DownloadSource = null;
         OnlineManifestUrl = OnlineManifestUrl?.Trim() ?? "";
+        InstanceFolders = NormalizeInstanceFolders(InstanceFolders);
         if (Theme is not ("light" or "dark"))
         {
             Theme = "light";
@@ -223,6 +230,32 @@ public sealed class LauncherConfig
 
             InstanceLaunchCounts = normalizedCounts;
         }
+    }
+
+    /// <summary>文件夹列表去空、去重（不区分大小写），保留原有顺序。</summary>
+    private static List<string> NormalizeInstanceFolders(List<string>? folders)
+    {
+        var normalized = new List<string>();
+        if (folders is null)
+        {
+            return normalized;
+        }
+
+        foreach (var folder in folders)
+        {
+            if (string.IsNullOrWhiteSpace(folder))
+            {
+                continue;
+            }
+
+            var trimmed = folder.Trim();
+            if (!normalized.Contains(trimmed, StringComparer.OrdinalIgnoreCase))
+            {
+                normalized.Add(trimmed);
+            }
+        }
+
+        return normalized;
     }
 
     /// <summary>读取实例覆盖设置；不存在时创建空设置（空值表示跟随全局）。</summary>

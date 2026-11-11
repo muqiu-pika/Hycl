@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using Hycl.Launcher.Core.Game.Models;
+using Hycl.Launcher.Core.Platform;
 using Hycl.Launcher.Core.Services;
 using System.Text.Json.Nodes;
 
@@ -218,6 +219,136 @@ public sealed class InstanceManager
     /// <summary>实例目录（versions/&lt;id&gt;）。</summary>
     public static string GetInstanceDirectory(string gameDirectory, string instanceId) =>
         Path.Combine(gameDirectory, "versions", instanceId);
+
+    /// <summary>
+    /// 游戏文件夹的展示名：平台默认 .minecraft 显示为「官方启动器文件夹」，
+    /// 其余取目录名（如 D:\minecraft to go\.minecraft → .minecraft）。
+    /// </summary>
+    public static string GetFolderDisplayName(string folderPath)
+    {
+        var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folderPath));
+        var defaultDirectory = Path.TrimEndingDirectorySeparator(
+            Path.GetFullPath(PlatformInfo.DefaultMinecraftDirectory));
+        if (full.Equals(defaultDirectory, StringComparison.OrdinalIgnoreCase))
+        {
+            return "官方启动器文件夹";
+        }
+
+        var leaf = Path.GetFileName(full);
+        return string.IsNullOrWhiteSpace(leaf) ? full : leaf;
+    }
+
+    /// <summary>
+    /// 从用户选择的文件夹出发，找出其中（含子文件夹）可作为游戏根目录的文件夹：
+    /// 判定标准是存在 versions 子目录。选中的文件夹本身符合时直接返回它，
+    /// 否则向下最多搜索 <paramref name="maxDepth"/> 层，供「从文件夹导入」把
+    /// 一个父目录下的多个 .minecraft 一并加入文件夹列表。
+    /// </summary>
+    public static IReadOnlyList<string> DiscoverGameFolders(string folderPath, int maxDepth = 3)
+    {
+        if (string.IsNullOrWhiteSpace(folderPath))
+        {
+            return Array.Empty<string>();
+        }
+
+        string root;
+        try
+        {
+            root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folderPath));
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return Array.Empty<string>();
+        }
+
+        if (!Directory.Exists(root))
+        {
+            return Array.Empty<string>();
+        }
+
+        // 用户直接选中 versions 目录时，提升到其父级游戏目录
+        if (Path.GetFileName(root).Equals("versions", StringComparison.OrdinalIgnoreCase) &&
+            Directory.EnumerateDirectories(root).Any())
+        {
+            root = Path.GetDirectoryName(root) ?? root;
+        }
+
+        var results = new List<string>();
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var queue = new Queue<(string Path, int Depth)>();
+        queue.Enqueue((root, 0));
+        while (queue.Count > 0 && visited.Count < 256)
+        {
+            var (directory, depth) = queue.Dequeue();
+            if (!visited.Add(directory))
+            {
+                continue;
+            }
+
+            if (Directory.Exists(Path.Combine(directory, "versions")))
+            {
+                results.Add(directory);
+                continue;
+            }
+
+            if (depth >= maxDepth)
+            {
+                continue;
+            }
+
+            try
+            {
+                foreach (var child in Directory.EnumerateDirectories(directory))
+                {
+                    if (IsDiscoverySkipped(child))
+                    {
+                        continue;
+                    }
+
+                    queue.Enqueue((child, depth + 1));
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // 无权限/被占用的目录直接跳过，不影响其它分支
+            }
+        }
+
+        return results.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>递归发现时跳过明显不是游戏目录的重型子目录与链接目录。</summary>
+    private static bool IsDiscoverySkipped(string directory)
+    {
+        var name = Path.GetFileName(directory);
+        if (name.StartsWith('.') && !name.Equals(".minecraft", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        switch (name.ToLowerInvariant())
+        {
+            case "versions":
+            case "libraries":
+            case "assets":
+            case "runtime":
+            case "logs":
+            case "crash-reports":
+            case "backups":
+            case "plugins":
+            case "cache":
+                return true;
+        }
+
+        try
+        {
+            return (File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return true;
+        }
+    }
 
     /// <summary>
     /// 实例内容根目录：版本隔离时是实例自身目录，否则是游戏根目录。

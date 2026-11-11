@@ -51,6 +51,13 @@ public partial class MainWindow : Window
     /// <summary>启动层最短展示时长（秒），避免窗口构造太快时动画一闪而过。</summary>
     private const double StartupMinShowSeconds = 1.6;
 
+    // —— 主窗口尺寸记忆：非最大化时的尺寸单独保存，最大化期间仍能记住还原尺寸 ——
+    private double _lastNormalWidth = 900;
+
+    private double _lastNormalHeight = 570;
+
+    private bool _restoreMaximized;
+
     /// <summary>退场第一段：启动层自身图标与文字淡出时长（实测原 0.26s，缩短后整体退场更快）。</summary>
     private const double StartupContentFadeSeconds = 0.18;
 
@@ -77,6 +84,16 @@ public partial class MainWindow : Window
         InitializeComponent();
         PerfTrace.Mark("xaml_loaded");
 
+        // 恢复上次关闭时的窗口尺寸/最大化状态（文件读取失败则沿用 XAML 默认值）
+        if (LauncherWindowState.Load() is { } savedState)
+        {
+            Width = Math.Max(MinWidth, savedState.Width);
+            Height = Math.Max(MinHeight, savedState.Height);
+            _lastNormalWidth = Width;
+            _lastNormalHeight = Height;
+            _restoreMaximized = savedState.Maximized;
+        }
+
         // 启动层需要铺满整窗（含标题栏），而标题栏与内容分属 Grid 的不同行；
         // 挂到最外层 RootFrame 才能覆盖全部，圆角仍由 Win32 窗口区域裁切。
         var rootFrame = this.FindControl<Grid>("RootFrame");
@@ -101,6 +118,12 @@ public partial class MainWindow : Window
         // 窗口关闭：取消页面切换动画与所有页面级在途任务，关闭文件句柄
         Closing += (_, _) =>
         {
+            // 记住窗口尺寸：最大化时保存还原尺寸，下次打开仍能回到同样的窗口大小
+            var maximized = WindowState == WindowState.Maximized;
+            LauncherWindowState.Save(
+                maximized ? _lastNormalWidth : Width,
+                maximized ? _lastNormalHeight : Height,
+                maximized);
             _pageSwitchCts?.Cancel();
             _pageSwitchCts?.Dispose();
             _pageSwitchCts = null;
@@ -113,6 +136,13 @@ public partial class MainWindow : Window
         Opened += (_, _) => PerfTrace.Mark("window_opened");
         Opened += (_, _) => Dispatcher.UIThread.Post(CreateInitialPage, DispatcherPriority.Background);
         Opened += (_, _) => ScheduleWindowRegionUpdate();
+        Opened += (_, _) =>
+        {
+            if (_restoreMaximized)
+            {
+                WindowState = WindowState.Maximized;
+            }
+        };
         // 启动动画在主窗口内铺满播放，结束后柔和淡出露出界面
         Opened += (_, _) => StartStartupAnimation();
         if (PerfTrace.IsEnabled)
@@ -130,7 +160,15 @@ public partial class MainWindow : Window
         }
         // 尺寸变化期间必须立刻撤掉圆角区域：SetWindowRgn 的区域不会随窗口伸缩，
         // 拖拽放大时旧区域会把新扩出的部分裁掉（对角内容缺失/残影），缩小则看不出来
-        SizeChanged += (_, _) => OnWindowSizeChanged();
+        SizeChanged += (_, _) =>
+        {
+            OnWindowSizeChanged();
+            if (WindowState == WindowState.Normal && Width > 0 && Height > 0)
+            {
+                _lastNormalWidth = Width;
+                _lastNormalHeight = Height;
+            }
+        };
 
         SetupResizeHandles();
         UpdateFrameForState();
