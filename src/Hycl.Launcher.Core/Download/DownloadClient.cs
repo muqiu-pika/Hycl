@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -269,6 +270,24 @@ public sealed class DownloadClient : IDisposable
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var resumeFrom = GetResumeLength(tempFile);
+
+                // 大文件且没有断点数据：先尝试多线程分段下载（多连接并行，参考 PCL-CE/HMCL 的大文件策略）。
+                // 服务器不支持 Range 或任一分段失败时回退到下面的单流断点续传
+                if (resumeFrom == 0 && expectedSize is >= SegmentedThreshold)
+                {
+                    if (await TryDownloadSegmentedAsync(
+                            candidateUrls,
+                            tempFile,
+                            expectedSize.Value,
+                            expectedSha1,
+                            progress,
+                            cancellationToken).ConfigureAwait(false))
+                    {
+                        File.Move(tempFile, destinationPath, true);
+                        return true;
+                    }
+                }
+
                 foreach (var url in candidateUrls)
                 {
                     // 上一次尝试可能在流中断前已把数据追加进临时文件（超过 resumeFrom）：
@@ -313,6 +332,12 @@ public sealed class DownloadClient : IDisposable
                 }
 
                 await DelayBeforeRetryAsync(attempt, retryCount, cancellationToken).ConfigureAwait(false);
+
+                // 自动换源：整轮候选源都失败后把首选源挪到队尾，下一轮优先尝试其它源
+                if (candidateUrls.Count > 1)
+                {
+                    candidateUrls = candidateUrls.Skip(1).Concat(candidateUrls.Take(1)).ToList();
+                }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -355,6 +380,257 @@ public sealed class DownloadClient : IDisposable
     private sealed class ResumeState(long offset)
     {
         public long Offset { get; set; } = offset;
+    }
+
+    // ---------- 多线程分段下载（大文件；参考 PCL-CE/HMCL 的多连接策略） ----------
+
+    /// <summary>分段下载阈值：≥ 8MB 且已知大小才启用多连接（小文件建连开销反而更慢）。</summary>
+    private const long SegmentedThreshold = 8 * 1024 * 1024;
+
+    private const long SegmentMinSize = 2 * 1024 * 1024;
+
+    private const int SegmentMaxCount = 8;
+
+    /// <summary>
+    /// 对支持 Range 的大文件做多连接并行下载：按候选源顺序找第一个支持分段的服务器，
+    /// 把文件切成 ≤8 段并发写独立临时文件，全部完成后拼接并整体校验。
+    /// 任一分段反复失败 / 服务器不支持 Range / 被取消时清理分段并返回 false，
+    /// 调用方回退到单流断点续传。返回 true 表示已写好 tempFile 且校验通过。
+    /// </summary>
+    private async Task<bool> TryDownloadSegmentedAsync(
+        IReadOnlyList<string> urls,
+        string tempFile,
+        long expectedSize,
+        string? expectedSha1,
+        IProgress<DownloadByteProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        foreach (var url in urls)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            long total;
+            try
+            {
+                var probe = await ProbeRangeSupportAsync(url, cancellationToken).ConfigureAwait(false);
+                if (probe is null)
+                {
+                    _logger.Info($"[多线程] 服务器不支持分段，跳过：{url}");
+                    continue;
+                }
+
+                total = probe.Value;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException)
+            {
+                _logger.Warn($"[多线程] 探测分段支持失败：{url} · {ex.Message}");
+                continue;
+            }
+
+            if (total != expectedSize)
+            {
+                _logger.Warn($"[多线程] 分段长度与预期不符（{total} ≠ {expectedSize}），跳过：{url}");
+                continue;
+            }
+
+            try
+            {
+                await DownloadSegmentedAsync(url, tempFile, total, expectedSha1, progress, cancellationToken)
+                    .ConfigureAwait(false);
+                _logger.Info($"[多线程] 分段下载完成：{url}（{total / 1024.0 / 1024.0:0.#} MB）");
+                return true;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                CleanupSegments(tempFile);
+                throw;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException or UnauthorizedAccessException)
+            {
+                _logger.Warn($"[多线程] 分段下载失败，回退单流续传：{url} · {ex.Message}");
+                CleanupSegments(tempFile);
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>探测服务器是否支持 Range：GET bytes=0-0 期望 206；返回文件总长度，不支持返回 null。</summary>
+    private async Task<long?> ProbeRangeSupportAsync(string url, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Range = new RangeHeaderValue(0, 0);
+        using var response = await GetResponseAsync(request, cancellationToken, 20).ConfigureAwait(false);
+        if (response.StatusCode != HttpStatusCode.PartialContent)
+        {
+            return null;
+        }
+
+        // Content-Range: bytes 0-0/123456789
+        var contentRange = response.Content.Headers.ContentRange;
+        return contentRange?.Length is { } length && length > 0 ? length : response.Content.Headers.ContentLength;
+    }
+
+    private async Task DownloadSegmentedAsync(
+        string url,
+        string tempFile,
+        long total,
+        string? expectedSha1,
+        IProgress<DownloadByteProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        var segmentCount = (int)Math.Clamp(total / SegmentMinSize, 2, SegmentMaxCount);
+        var segmentLength = total / segmentCount;
+        var boundaries = new (long Start, long End)[segmentCount];
+        for (var index = 0; index < segmentCount; index++)
+        {
+            var start = index * segmentLength;
+            var end = index == segmentCount - 1 ? total - 1 : start + segmentLength - 1;
+            boundaries[index] = (start, end);
+        }
+
+        var received = 0L;
+        var gate = new object();
+        void ReportSegment(int read)
+        {
+            long snapshot;
+            lock (gate)
+            {
+                received += read;
+                snapshot = received;
+            }
+
+            progress?.Report(new DownloadByteProgress(snapshot, total));
+        }
+
+        var queue = new ConcurrentQueue<int>(Enumerable.Range(0, segmentCount));
+        var workers = Enumerable.Range(0, Math.Min(segmentCount, 4)).Select(async _ =>
+        {
+            while (!cancellationToken.IsCancellationRequested && queue.TryDequeue(out var index))
+            {
+                var (start, end) = boundaries[index];
+                var segmentFile = tempFile + $".seg{index}";
+                var expectedSegmentLength = end - start + 1;
+                var retry = 0;
+                while (true)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    TryDelete(segmentFile);
+                    try
+                    {
+                        var downloaded = 0L;
+                        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                        request.Headers.Range = new RangeHeaderValue(start, end);
+                        using var response = await GetResponseAsync(request, cancellationToken, 45).ConfigureAwait(false);
+                        if (response.StatusCode != HttpStatusCode.PartialContent)
+                        {
+                            throw new IOException($"服务器未返回分段内容（{(int)response.StatusCode}）");
+                        }
+
+                        await using (var source = await response.Content
+                                         .ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
+                        await using (var target = new FileStream(
+                                         segmentFile,
+                                         FileMode.Create,
+                                         FileAccess.Write,
+                                         FileShare.None,
+                                         81920,
+                                         true))
+                        {
+                            var buffer = new byte[131072];
+                            using var readTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                            using var readLinked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, readTimeout.Token);
+                            while (true)
+                            {
+                                int read;
+                                try
+                                {
+                                    read = await source.ReadAsync(buffer, readLinked.Token).ConfigureAwait(false);
+                                }
+                                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                                {
+                                    throw new IOException($"分段读取超时（seg{index}）");
+                                }
+
+                                if (read <= 0)
+                                {
+                                    break;
+                                }
+
+                                readTimeout.CancelAfter(TimeSpan.FromSeconds(60));
+                                await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                                downloaded += read;
+                                ReportSegment(read);
+                            }
+                        }
+
+                        if (downloaded != expectedSegmentLength)
+                        {
+                            throw new IOException($"分段长度不符（seg{index} 期望 {expectedSegmentLength}，实际 {downloaded}）");
+                        }
+
+                        break;
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException)
+                    {
+                        if (++retry > 3)
+                        {
+                            throw;
+                        }
+
+                        _logger.Warn($"[多线程] 分段 seg{index} 第 {retry} 次重试：{ex.Message}");
+                        await DelayBeforeRetryAsync(retry, 3, cancellationToken).ConfigureAwait(false);
+                    }
+                }
+            }
+        }).ToArray();
+        await Task.WhenAll(workers).ConfigureAwait(false);
+
+        // 全部分段完成：拼接成最终临时文件
+        await using (var target = new FileStream(
+                         tempFile,
+                         FileMode.Create,
+                         FileAccess.Write,
+                         FileShare.None,
+                         81920,
+                         true))
+        {
+            for (var index = 0; index < segmentCount; index++)
+            {
+                var segmentFile = tempFile + $".seg{index}";
+                await using (var source = new FileStream(segmentFile, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true))
+                {
+                    await source.CopyToAsync(target, cancellationToken).ConfigureAwait(false);
+                }
+            }
+        }
+
+        CleanupSegments(tempFile);
+
+        if (new FileInfo(tempFile).Length != total)
+        {
+            throw new IOException($"拼接后长度不符（期望 {total}）");
+        }
+
+        if (!string.IsNullOrWhiteSpace(expectedSha1) && !ValidateHash(tempFile, expectedSha1))
+        {
+            throw new IOException("拼接后校验失败");
+        }
+    }
+
+    private static void CleanupSegments(string tempFile)
+    {
+        for (var index = 0; index < SegmentMaxCount; index++)
+        {
+            TryDelete(tempFile + $".seg{index}");
+        }
     }
 
     /// <summary>单次下载；返回 true 表示完成并校验通过，false 表示应换下一个 URL。</summary>
