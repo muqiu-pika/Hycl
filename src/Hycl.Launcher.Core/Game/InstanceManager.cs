@@ -21,6 +21,12 @@ public sealed partial class MinecraftInstance : ObservableObject
 
     public string Directory { get; init; } = "";
 
+    /// <summary>该实例所属的游戏根目录（跨文件夹搜索结果切换文件夹时使用）。</summary>
+    public string GameDirectory { get; init; } = "";
+
+    /// <summary>所属游戏文件夹的展示名（跨文件夹搜索时显示在副标题里）。</summary>
+    public string FolderName { get; init; } = "";
+
     public DateTime LastWriteTime { get; init; }
 
     /// <summary>是否为整合包（带 modpack 标记文件或 PCL\Logo.png）。</summary>
@@ -30,6 +36,11 @@ public sealed partial class MinecraftInstance : ObservableObject
     [ObservableProperty]
     private bool _isCurrent;
 
+    /// <summary>跨文件夹搜索结果里标记所属文件夹（副标题追加文件夹名）。</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ListSubText))]
+    private bool _showFolderName;
+
     /// <summary>该实例的累计启动次数（由启动页在检测到游戏窗口后写入并持久化）。</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(LaunchCountText))]
@@ -38,8 +49,10 @@ public sealed partial class MinecraftInstance : ObservableObject
 
     public string LaunchCountText => $"{LaunchCount} 次";
 
-    /// <summary>版本管理列表的副标题：版本信息 + 启动次数。</summary>
-    public string ListSubText => $"{Description} · 启动 {LaunchCount} 次";
+    /// <summary>版本管理列表的副标题：版本信息 + 启动次数（跨文件夹搜索时附文件夹名）。</summary>
+    public string ListSubText => ShowFolderName && FolderName.Length > 0
+        ? $"{Description} · {FolderName} · 启动 {LaunchCount} 次"
+        : $"{Description} · 启动 {LaunchCount} 次";
 
     public bool IsModded => Loader != "原版" || !Id.Equals(GameVersion, StringComparison.OrdinalIgnoreCase);
 
@@ -156,6 +169,8 @@ public sealed class InstanceManager
                     Loader = loader,
                     Type = info.Type ?? "release",
                     Directory = directory,
+                    GameDirectory = gameDirectory,
+                    FolderName = GetFolderDisplayName(gameDirectory),
                     LastWriteTime = lastWrite,
                     IsModpack = DetectModpack(directory)
                 });

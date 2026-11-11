@@ -115,6 +115,40 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
     [ObservableProperty]
     private InstanceFolderItem? _selectedFolder;
 
+    /// <summary>文件夹下拉菜单是否展开。</summary>
+    [ObservableProperty]
+    private bool _isFolderMenuOpen;
+
+    /// <summary>搜索框是否展开。</summary>
+    [ObservableProperty]
+    private bool _isSearchOpen;
+
+    /// <summary>实例搜索关键字（匹配名称/版本/加载器/文件夹名）。</summary>
+    [ObservableProperty]
+    private string _searchText = "";
+
+    /// <summary>是否跨文件夹搜索（仅在有关键字时生效）。</summary>
+    [ObservableProperty]
+    private bool _isCrossFolderSearch;
+
+    /// <summary>当前文件夹展示名/路径（文件夹下拉按钮上显示）。</summary>
+    public string ActiveFolderName => Folders.FirstOrDefault(x => x.IsActive)?.Name ?? "选择文件夹";
+
+    public string ActiveFolderPath => Folders.FirstOrDefault(x => x.IsActive)?.DisplayPath ?? "";
+
+    /// <summary>当前文件夹扫描结果（搜索/过滤前的完整列表）。</summary>
+    private List<MinecraftInstance> _activeInstances = new();
+
+    /// <summary>跨文件夹搜索结果缓存（仅在搜索时扫描其它文件夹）。</summary>
+    private List<MinecraftInstance> _crossFolderInstances = new();
+
+    private CancellationTokenSource? _searchDebounceCts;
+
+    private int _searchGeneration;
+
+    /// <summary>正在按实例所属文件夹自动切换，避免选中事件递归触发。</summary>
+    private bool _switchingForInstance;
+
     /// <summary>切换文件夹期间抑制 OnSelectedFolderChanged 的重复触发。</summary>
     private bool _suppressFolderSwitch;
 
@@ -201,7 +235,13 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
 
     public bool IsEmpty => Instances.Count == 0;
 
-    public string InstanceCountText => Instances.Count == 0 ? "暂无已安装版本" : $"共 {Instances.Count} 个版本";
+    public string InstanceCountText => IsSearching
+        ? $"找到 {Instances.Count} 个实例"
+        : Instances.Count == 0
+            ? "暂无已安装版本"
+            : $"共 {Instances.Count} 个版本";
+
+    private bool IsSearching => SearchText.Trim().Length > 0;
 
     public string SelectedName => SelectedInstance?.Name ?? "未选择版本";
 
@@ -330,6 +370,33 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         _sectionKey = key;
         NotifySection();
         RefreshSectionContent();
+    }
+
+    /// <summary>展开/收起文件夹下拉菜单。</summary>
+    [RelayCommand]
+    private void ToggleFolderMenu() => IsFolderMenuOpen = !IsFolderMenuOpen;
+
+    /// <summary>文件夹下拉菜单中选中一项：收起菜单并切换当前游戏目录。</summary>
+    [RelayCommand]
+    private void SelectFolder(InstanceFolderItem? folder)
+    {
+        IsFolderMenuOpen = false;
+        if (folder is not null)
+        {
+            SelectedFolder = folder;
+        }
+    }
+
+    /// <summary>展开/收起搜索框；收起时清空关键字并恢复完整列表。</summary>
+    [RelayCommand]
+    private void ToggleSearch()
+    {
+        IsSearchOpen = !IsSearchOpen;
+        if (!IsSearchOpen)
+        {
+            IsCrossFolderSearch = false;
+            SearchText = "";
+        }
     }
 
     private void NotifySection()
@@ -523,19 +590,26 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
 
             var instances = await _services.Instances.ScanAsync(_services.Config.EffectiveGameDirectory).ConfigureAwait(true);
             var previousId = SelectedInstance?.Id ?? _services.Config.SelectedVersion;
-            Instances.Clear();
+            _activeInstances = new List<MinecraftInstance>();
             foreach (var instance in ApplyOrder(instances))
             {
                 instance.LaunchCount = _services.Config.GetLaunchCount(instance.Id);
-                Instances.Add(instance);
+                _activeInstances.Add(instance);
             }
 
-            SelectedInstance = Instances.FirstOrDefault(x => x.Id.Equals(previousId, StringComparison.OrdinalIgnoreCase))
-                               ?? Instances.FirstOrDefault();
+            ApplyInstanceFilter(previousId);
             UpdateCurrentMarkers();
             UpdateFolderActive();
             IsRefreshing = false;
-            StatusMessage = HasInstances ? "" : "未找到已安装版本，请先在下载页安装。";
+            StatusMessage = HasInstances
+                ? ""
+                : IsSearching ? "未找到匹配实例" : "未找到已安装版本，请先在下载页安装。";
+
+            // 搜索框已打开且启用跨文件夹搜索：刷新后重新扫描其它文件夹
+            if (IsSearchOpen && IsCrossFolderSearch && IsSearching)
+            {
+                _ = ApplySearchAsync();
+            }
         }
         catch (Exception ex)
         {
@@ -613,6 +687,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
 
         SelectedFolder = Folders.FirstOrDefault(x => x.IsActive) ?? Folders.FirstOrDefault();
         _suppressFolderSwitch = false;
+        NotifyActiveFolder();
         return changed;
     }
 
@@ -642,6 +717,155 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         {
             folder.IsActive = folder.Path.Equals(active, StringComparison.OrdinalIgnoreCase);
         }
+
+        NotifyActiveFolder();
+    }
+
+    private void NotifyActiveFolder()
+    {
+        OnPropertyChanged(nameof(ActiveFolderName));
+        OnPropertyChanged(nameof(ActiveFolderPath));
+    }
+
+    /// <summary>
+    /// 按搜索关键字过滤列表：普通模式只过滤当前文件夹；勾选跨文件夹且有关键字时
+    /// 使用跨文件夹扫描结果。跨文件夹结果不自动选中，避免详情页跳到别的文件夹。
+    /// </summary>
+    private void ApplyInstanceFilter(string? preferredId = null)
+    {
+        var query = SearchText.Trim();
+        var crossFolder = IsCrossFolderSearch && query.Length > 0;
+        IEnumerable<MinecraftInstance> source = crossFolder ? _crossFolderInstances : _activeInstances;
+        if (query.Length > 0)
+        {
+            source = source.Where(instance => MatchesSearch(instance, query));
+        }
+
+        var visible = source.ToList();
+        foreach (var instance in visible)
+        {
+            instance.ShowFolderName = crossFolder;
+        }
+
+        var previous = SelectedInstance;
+        var targetId = preferredId ?? previous?.Id;
+        Instances.Clear();
+        foreach (var instance in visible)
+        {
+            Instances.Add(instance);
+        }
+
+        // 跨文件夹结果不自动选中：避免详情页/编辑器提前跳到别的文件夹，
+        // 等用户点击具体结果时再由 OnSelectedInstanceChanged 切换目录。
+        if (crossFolder)
+        {
+            SelectedInstance = null;
+            UpdateCurrentMarkers();
+            return;
+        }
+
+        if (targetId is null)
+        {
+            SelectedInstance = Instances.FirstOrDefault();
+            UpdateCurrentMarkers();
+            return;
+        }
+
+        SelectedInstance = Instances.FirstOrDefault(
+                               instance => instance.Id.Equals(targetId, StringComparison.OrdinalIgnoreCase))
+                           ?? Instances.FirstOrDefault();
+        UpdateCurrentMarkers();
+    }
+
+    private static bool MatchesSearch(MinecraftInstance instance, string query)
+    {
+        return instance.Id.Contains(query, StringComparison.OrdinalIgnoreCase)
+               || instance.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+               || instance.GameVersion.Contains(query, StringComparison.OrdinalIgnoreCase)
+               || instance.Loader.Contains(query, StringComparison.OrdinalIgnoreCase)
+               || instance.FolderName.Contains(query, StringComparison.OrdinalIgnoreCase);
+    }
+
+    partial void OnSearchTextChanged(string value)
+    {
+        OnPropertyChanged(nameof(InstanceCountText));
+        _ = ApplySearchAsync();
+    }
+
+    partial void OnIsCrossFolderSearchChanged(bool value) => _ = ApplySearchAsync();
+
+    /// <summary>先即时过滤当前文件夹，再在 300ms 防抖后扫描其它文件夹（跨文件夹搜索）。</summary>
+    private async Task ApplySearchAsync()
+    {
+        _searchDebounceCts?.Cancel();
+        _searchDebounceCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        _searchDebounceCts = cts;
+        var generation = ++_searchGeneration;
+
+        ApplyInstanceFilter();
+
+        if (!IsCrossFolderSearch || !IsSearching)
+        {
+            _crossFolderInstances.Clear();
+            ApplyInstanceFilter();
+            return;
+        }
+
+        try
+        {
+            await Task.Delay(300, cts.Token).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (cts.IsCancellationRequested || generation != _searchGeneration)
+        {
+            return;
+        }
+
+        await ReloadCrossFolderSearchAsync(cts.Token).ConfigureAwait(true);
+    }
+
+    /// <summary>扫描所有已添加文件夹并缓存结果；代次不一致或已取消时丢弃。</summary>
+    private async Task ReloadCrossFolderSearchAsync(CancellationToken token)
+    {
+        var generation = _searchGeneration;
+        var results = new List<MinecraftInstance>();
+        foreach (var folder in Folders.ToList())
+        {
+            token.ThrowIfCancellationRequested();
+            try
+            {
+                var instances = await _services.Instances.ScanAsync(folder.Path, token).ConfigureAwait(true);
+                foreach (var instance in instances)
+                {
+                    instance.LaunchCount = _services.Config.GetLaunchCount(instance.Id);
+                    results.Add(instance);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _services.Logger.Warn($"跨文件夹搜索扫描失败：{folder.Path} · {ex.Message}");
+            }
+        }
+
+        if (token.IsCancellationRequested || generation != _searchGeneration)
+        {
+            return;
+        }
+
+        _crossFolderInstances = results
+            .OrderByDescending(instance => instance.LastWriteTime)
+            .ThenBy(instance => instance.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        ApplyInstanceFilter();
     }
 
     /// <summary>用户点击文件夹列表：把该文件夹设为当前游戏目录并重扫实例。</summary>
@@ -666,10 +890,52 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         _services.Config.GameDirectory = folder.Path;
         // 新文件夹的实例 ID 与旧文件夹不通用，清掉当前选择避免误选同名实例
         _services.Config.SelectedVersion = "";
+        SelectedInstance = null;
+        ClearSearch();
         await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
         await RefreshAsync().ConfigureAwait(true);
         FolderChanged?.Invoke(this, EventArgs.Empty);
         StatusMessage = $"已切换到 {folder.Name}";
+    }
+
+    /// <summary>切换文件夹/实例后收起搜索并恢复完整列表。</summary>
+    private void ClearSearch()
+    {
+        _crossFolderInstances.Clear();
+        if (SearchText.Length > 0)
+        {
+            SearchText = "";
+        }
+
+        IsCrossFolderSearch = false;
+        IsSearchOpen = false;
+    }
+
+    /// <summary>
+    /// 跨文件夹搜索结果点选后：把当前游戏目录切到该实例所属文件夹，
+    /// 再重扫并选中同一实例，保证详情/启动都作用在正确的目录上。
+    /// </summary>
+    private async Task SwitchToInstanceFolderAsync(MinecraftInstance instance)
+    {
+        _switchingForInstance = true;
+        try
+        {
+            _services.Config.GameDirectory = instance.GameDirectory;
+            _services.Config.SelectedVersion = instance.Id;
+            SelectedInstance = null;
+            ClearSearch();
+            await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
+            await RefreshAsync().ConfigureAwait(true);
+            SelectedInstance = Instances.FirstOrDefault(
+                                   item => item.Id.Equals(instance.Id, StringComparison.OrdinalIgnoreCase))
+                               ?? Instances.FirstOrDefault();
+            FolderChanged?.Invoke(this, EventArgs.Empty);
+            StatusMessage = $"已切换到 {InstanceManager.GetFolderDisplayName(instance.GameDirectory)}";
+        }
+        finally
+        {
+            _switchingForInstance = false;
+        }
     }
 
     /// <summary>把当前列表顺序写回 config 并持久化。</summary>
@@ -1171,6 +1437,8 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         // 切换到本次导入的第一个文件夹，版本列表直接展示其中的实例
         _services.Config.GameDirectory = roots[0];
         _services.Config.SelectedVersion = "";
+        SelectedInstance = null;
+        ClearSearch();
         await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
         await RefreshAsync().ConfigureAwait(true);
         FolderChanged?.Invoke(this, EventArgs.Empty);
@@ -1542,6 +1810,17 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
     partial void OnSelectedInstanceChanged(MinecraftInstance? value)
     {
         IsConfirmingDelete = false;
+
+        // 跨文件夹搜索结果：点击其它文件夹的实例时先切换游戏目录，再按正常流程加载详情
+        if (!_switchingForInstance && value is not null && value.GameDirectory.Length > 0)
+        {
+            var active = NormalizeFolderPath(_services.Config.EffectiveGameDirectory);
+            if (!value.GameDirectory.Equals(active, StringComparison.OrdinalIgnoreCase))
+            {
+                _ = SwitchToInstanceFolderAsync(value);
+                return;
+            }
+        }
 
         if (value is null)
         {
