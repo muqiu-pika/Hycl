@@ -132,6 +132,18 @@ public sealed class LauncherConfig
     /// <summary>light / dark。</summary>
     public string Theme { get; set; } = "light";
 
+    /// <summary>界面主题色（#RRGGBB；空 = 跟随默认配色，参考 OpenPCL 的主题色自定义）。</summary>
+    public string AccentColor { get; set; } = "";
+
+    /// <summary>
+    /// 启动器背景图片路径（空 = 不启用）。选择文件时复制进数据目录 cache/backgrounds，
+    /// 避免用户移动/删除原文件后背景失效。
+    /// </summary>
+    public string BackgroundImagePath { get; set; } = "";
+
+    /// <summary>背景图片不透明度（0-100，默认 22；0 时背景不可见）。</summary>
+    public int BackgroundOpacity { get; set; } = 22;
+
     /// <summary>
     /// 实例级覆盖设置，键为 versions 下的实例目录名。
     /// 未设置或留空的字段回退到本类中的全局设置（实例覆盖 &gt; 全局）。
@@ -166,6 +178,7 @@ public sealed class LauncherConfig
         PreferredIpStack = Math.Clamp(PreferredIpStack, 0, 2);
         QuickDownloadBehavior = Math.Clamp(QuickDownloadBehavior, 0, 3);
         UpdateChannel = Math.Clamp(UpdateChannel, 0, 2);
+        BackgroundOpacity = Math.Clamp(BackgroundOpacity, 0, 100);
         WindowType = Math.Clamp(WindowType, 0, 4);
         WindowWidth = Math.Clamp(WindowWidth, 320, 7680);
         WindowHeight = Math.Clamp(WindowHeight, 240, 4320);

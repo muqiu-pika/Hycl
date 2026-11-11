@@ -158,12 +158,104 @@ public partial class SettingsPageViewModel : ObservableObject
     /// <summary>当前主题（light/dark），供 UI 启动时应用。</summary>
     public string CurrentTheme => _services.Config.Theme;
 
+    /// <summary>当前主题色（#RRGGBB，空 = 默认），供 UI 启动时应用。</summary>
+    public string CurrentAccent => _services.Config.AccentColor;
+
     /// <summary>主题变更事件（UI 层订阅后落到 Avalonia ThemeVariant）。</summary>
     public event EventHandler<string>? ThemeChanged;
+
+    /// <summary>主题色变更事件（UI 层订阅后实时重刷主色系画刷）。</summary>
+    public event EventHandler<string>? AccentChanged;
+
+    /// <summary>背景图片变化事件（主窗口订阅后刷新背景层）。</summary>
+    public event EventHandler? BackgroundChanged;
+
+    /// <summary>UI 注入的背景图片选择器。</summary>
+    public Func<Task<string?>>? ImagePicker { get; set; }
+
+    /// <summary>主题色预设（参考 OpenPCL 的个性化色板；default = 内置配色）。</summary>
+    private static readonly (string Id, string Color)[] AccentSwatches =
+    [
+        ("default", "#3F87F5"),
+        ("teal", "#2FA9A5"),
+        ("blue", "#1370F3"),
+        ("violet", "#8B5CF6"),
+        ("green", "#22C55E"),
+        ("orange", "#F97316"),
+        ("rose", "#F43F5E"),
+        ("amber", "#F59E0B")
+    ];
+
+    /// <summary>应用主题色并持久化（空串 = 恢复默认配色）。</summary>
+    private void SetAccent(string hex)
+    {
+        if (_services.Config.AccentColor != hex)
+        {
+            _services.Config.AccentColor = hex;
+            AccentChanged?.Invoke(this, hex);
+            QueueSave();
+        }
+        else
+        {
+            // 颜色没变（如点了当前色板）也要确保 UI 已应用（主题切换后回到默认再点回同一色）
+            AccentChanged?.Invoke(this, hex);
+        }
+    }
+
+    /// <summary>选择背景图片：复制进数据目录 cache/backgrounds（用户移动/删除原图不影响），立即生效。</summary>
+    private async Task PickBackgroundAsync()
+    {
+        if (ImagePicker is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var file = await ImagePicker().ConfigureAwait(true);
+            if (string.IsNullOrWhiteSpace(file) || !File.Exists(file))
+            {
+                return;
+            }
+
+            var extension = Path.GetExtension(file).ToLowerInvariant();
+            if (extension is not (".png" or ".jpg" or ".jpeg" or ".webp" or ".bmp"))
+            {
+                _backgroundHintRow?.Reload(() => "不支持的图片格式，请选择 png / jpg / webp / bmp。");
+                return;
+            }
+
+            var directory = Path.Combine(_services.Paths.DataDirectory, "cache", "backgrounds");
+            Directory.CreateDirectory(directory);
+            var target = Path.Combine(directory, "background" + extension);
+            File.Copy(file, target, overwrite: true);
+            SetBackground(target);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _backgroundHintRow?.Reload(() => $"设置背景失败：{ex.Message}");
+        }
+    }
+
+    /// <summary>设置/清除背景图片（空串 = 清除），立即生效并持久化。</summary>
+    private void SetBackground(string path)
+    {
+        if (_services.Config.BackgroundImagePath != path)
+        {
+            _services.Config.BackgroundImagePath = path;
+            QueueSave();
+        }
+
+        _backgroundHintRow?.Reload(() => path.Length == 0 ? "未设置背景图片。" : "背景图片：" + path);
+        BackgroundChanged?.Invoke(this, EventArgs.Empty);
+    }
 
     private ComboRowViewModel? _memoryRow;
     private ComboRowViewModel? _initialMemoryRow;
     private ToggleRowViewModel? _lockMemoryRow;
+    private SwatchesRowViewModel? _accentRow;
+    private SliderRowViewModel? _backgroundOpacityRow;
+    private MutableLogRowViewModel? _backgroundHintRow;
     private ComboRowViewModel? _windowRow;
     private ComboRowViewModel? _launcherVisibilityRow;
     private ComboRowViewModel? _processPriorityRow;
@@ -615,10 +707,50 @@ public partial class SettingsPageViewModel : ObservableObject
                     "界面主题",
                     ["浅色", "深色"],
                     config.Theme == "dark" ? "深色" : "浅色"),
+                _accentRow = new SwatchesRowViewModel(
+                    "主题色",
+                    config.AccentColor.Length == 0 ? "default" : config.AccentColor,
+                    AccentSwatches.Select(swatch => (swatch.Id, swatch.Color)).ToArray()),
                 _animationsRow = new ToggleRowViewModel("启动动画", config.EnableAnimations),
-                new TextLineRowViewModel("主题设置会写入配置；重新启动启动器后生效。")
+                new TextLineRowViewModel("主题色与界面主题实时生效；主题色选择「默认」恢复内置配色。")
+            ]),
+            new SettingCardViewModel("背景图片",
+            [
+                _backgroundOpacityRow = new SliderRowViewModel(
+                    "背景不透明度", 0, 100, 1, config.BackgroundOpacity, "%"),
+                new ButtonsRowViewModel(
+                [
+                    new SettingButtonViewModel("选择背景图片", "image", true, () => _ = PickBackgroundAsync()),
+                    new SettingButtonViewModel("清除背景", "close", false, () => SetBackground("")),
+                ]),
+                _backgroundHintRow = new MutableLogRowViewModel(
+                    config.BackgroundImagePath.Length == 0 ? "未设置背景图片。" : "背景图片：" + config.BackgroundImagePath)
             ]),
         ]);
+
+        // 主题色选择：立即换色 + 写配置（SwatchesRow 的初始 Select 不触发 handler，只有用户点击才进来）
+        _accentRow!.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(SwatchesRowViewModel.SelectedSwatch)
+                && _accentRow.SelectedSwatch is { } swatch)
+            {
+                SetAccent(swatch.Id == "default" ? "" : swatch.ColorHex);
+            }
+        };
+
+        _backgroundOpacityRow!.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(SliderRowViewModel.Value))
+            {
+                var opacity = (int)Math.Round(_backgroundOpacityRow.Value);
+                if (_services.Config.BackgroundOpacity != opacity)
+                {
+                    _services.Config.BackgroundOpacity = opacity;
+                    BackgroundChanged?.Invoke(this, EventArgs.Empty);
+                    QueueSave();
+                }
+            }
+        };
 
         _sections["语言"] = new SettingsSectionViewModel("语言",
         [
@@ -644,32 +776,25 @@ public partial class SettingsPageViewModel : ObservableObject
             new SettingCardViewModel("Hyplay Craft Launcher",
             [
                 new InfoRowViewModel("当前版本", LaunchService.LauncherVersion),
-                new InfoRowViewModel("界面来源", "PCL.Neo-main（表现层迁移）"),
-                new InfoRowViewModel("业务逻辑", "对齐 PCL-CE"),
                 new InfoRowViewModel("开源协议", "Apache-2.0"),
-                new TextLineRowViewModel("界面版权归 PCL.Neo-main 原作者所有；业务实现参考 PCL-CE。")
+                new TextLineRowViewModel("部分设计参考 PCL-CE，感谢 @龙腾猫跃 以及其他开发者。")
             ]),
             new SettingCardViewModel("获取帮助与源代码",
             [
                 new ButtonsRowViewModel(
                 [
                     new SettingButtonViewModel(
-                        "PCL-CE 源代码",
+                        "GitHub 仓库",
                         "package",
                         true,
                         () => OpenUrl(AboutLinks.SourceCode)),
                     new SettingButtonViewModel(
-                        "PCL-CE 主页",
-                        "network",
+                        "问题反馈",
+                        "message",
                         false,
-                        () => OpenUrl(AboutLinks.HomePage)),
-                    new SettingButtonViewModel(
-                        "赞助原作者",
-                        "bookmark",
-                        false,
-                        () => OpenUrl(AboutLinks.Sponsor)),
+                        () => OpenUrl(AboutLinks.Feedback)),
                 ]),
-                new TextLineRowViewModel("HYCL 的业务实现参考 PCL-CE；遇到问题请先检查日志目录中的 launcher.log。")
+                new TextLineRowViewModel("遇到问题请先检查日志目录中的 launcher.log。")
             ]),
             new SettingCardViewModel("数据目录",
             [
@@ -1146,6 +1271,18 @@ public partial class SettingsPageViewModel : ObservableObject
                 config.Theme = newTheme;
                 ThemeChanged?.Invoke(this, newTheme);
             }
+        }
+
+        // 主题色与背景：交互时已写配置并发事件，这里只兜底同步一次
+        if (_accentRow?.SelectedSwatch is { } swatch)
+        {
+            var accent = swatch.Id == "default" ? "" : swatch.ColorHex;
+            config.AccentColor = accent;
+        }
+
+        if (_backgroundOpacityRow is not null)
+        {
+            config.BackgroundOpacity = (int)Math.Round(_backgroundOpacityRow.Value);
         }
 
         if (_closeAfterLaunchRow is not null)

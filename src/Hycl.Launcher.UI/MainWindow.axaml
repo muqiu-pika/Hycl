@@ -28,6 +28,13 @@
                 ClipToBounds="True"
                 Background="{DynamicResource AppBackdropBrush}">
             <Grid RowDefinitions="48,*">
+                <!-- 个性化背景图片层：贴在最底层，所有页面卡片浮在其上；
+                     不透明度由设置页控制，未设置时隐藏 -->
+                <c:HyclImage Grid.RowSpan="2"
+                             Stretch="UniformToFill"
+                             IsVisible="{Binding HasBackgroundImage}"
+                             Opacity="{Binding BackgroundImageOpacity}"
+                             Url="{Binding BackgroundImage}" />
                 <!-- ===== 标题栏：品牌 + 居中胶囊标签 + 窗口控制 ===== -->
                 <Border Name="TitleBar"
                         Background="{DynamicResource TitleGradientBrush}"

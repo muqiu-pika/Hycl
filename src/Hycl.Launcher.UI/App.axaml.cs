@@ -23,11 +23,14 @@ public partial class App : Application
             // 单实例：第二个进程进入时把主窗口呼起到最前（窗口此刻可能尚未创建，回调里判空）
             SingleInstance.StartListening(() => desktop.MainWindow);
 
-            // 先订阅再构造主窗口：构造完成即应用持久化主题（light/dark；对应 PCL-CE 个性化-浅色/深色）
+            // 先订阅再构造主窗口：构造完成即应用持久化主题（light/dark + 主题色）
             MainWindow.ViewModelReady += viewModel =>
             {
-                ThemeManager.Apply(viewModel.Settings.CurrentTheme);
-                viewModel.Settings.ThemeChanged += (_, theme) => Dispatcher.UIThread.Post(() => ThemeManager.Apply(theme));
+                ThemeManager.Apply(viewModel.Settings.CurrentTheme, viewModel.Settings.CurrentAccent);
+                viewModel.Settings.ThemeChanged += (_, theme) => Dispatcher.UIThread.Post(
+                    () => ThemeManager.Apply(theme, viewModel.Settings.CurrentAccent));
+                viewModel.Settings.AccentChanged += (_, accent) => Dispatcher.UIThread.Post(
+                    () => ThemeManager.ApplyAccent(accent));
             };
 
             // 启动即为主窗口本身：不再弹独立加载窗，启动动画在主窗口内铺满播放

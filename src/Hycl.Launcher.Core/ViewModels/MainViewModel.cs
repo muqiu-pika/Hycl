@@ -68,6 +68,23 @@ public partial class MainViewModel : ObservableObject
 
     public event EventHandler? MinimizeRequested;
 
+    /// <summary>启动器背景图片路径（空 = 未启用；个性化-背景图片设置）。</summary>
+    [ObservableProperty]
+    private string _backgroundImage = "";
+
+    /// <summary>背景图片不透明度（0-1）。</summary>
+    [ObservableProperty]
+    private double _backgroundImageOpacity = 0.22;
+
+    public bool HasBackgroundImage => BackgroundImage.Length > 0;
+
+    private void ApplyBackgroundFromConfig()
+    {
+        BackgroundImage = _services.Config.BackgroundImagePath;
+        BackgroundImageOpacity = Math.Clamp(_services.Config.BackgroundOpacity, 0, 100) / 100.0;
+        OnPropertyChanged(nameof(HasBackgroundImage));
+    }
+
     public MainViewModel(LauncherServices services)
     {
         _services = services;
@@ -107,6 +124,10 @@ public partial class MainViewModel : ObservableObject
         };
 
         Download.Installed += (_, instanceId) => _ = Launch.RefreshInstancesAsync(instanceId);
+
+        // 个性化背景：跟随设置页的背景图片/不透明度变化实时刷新主窗口背景层
+        Settings.BackgroundChanged += (_, _) => ApplyBackgroundFromConfig();
+        ApplyBackgroundFromConfig();
         // 下载页底部任务条整块可点击，进入与悬浮图标相同的独立进度页
         Download.OpenProgressRequested += (_, _) => OpenDownloadProgress();
         // 任务成功后：若用户正停在下载进度页且没有其它任务在跑，自动返回进入前的页面；

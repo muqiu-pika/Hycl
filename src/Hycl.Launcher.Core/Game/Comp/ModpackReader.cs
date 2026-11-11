@@ -140,7 +140,7 @@ public static class ModpackReader
 
         if (Path.GetExtension(sourcePath).Equals(".rar", StringComparison.OrdinalIgnoreCase))
         {
-            throw new CompException("暂不支持 RAR 格式，请先手动解压，再用文件夹导入（PCL-CE 也需额外组件才能解压 RAR）。");
+            throw new CompException("暂不支持 RAR 格式，请先手动解压成文件夹后再导入。");
         }
 
         using var source = PackSource.FromZip(sourcePath);
