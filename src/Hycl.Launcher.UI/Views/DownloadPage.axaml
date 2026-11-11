@@ -938,7 +938,8 @@
                                            Text="{Binding ActiveCompSection.DownloadErrorText}"
                                            IsVisible="{Binding ActiveCompSection.DownloadErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
 
-                                <!-- 文件 / 版本列表 -->
+                                <!-- 文件 / 版本列表：PCL-CE 风格的表格式布局（表头 + 对齐列），
+                                     下载目标实例在保存对话框按资源声明的加载器过滤 -->
                                 <Border Background="{DynamicResource GlassSurfaceBrush}"
                                         BorderBrush="{DynamicResource SoftLineBrush}"
                                         BorderThickness="1"
@@ -969,15 +970,27 @@
                                                           SelectedItem="{Binding ActiveCompSection.SelectedDetailLoader, Mode=TwoWay}" />
                                         </WrapPanel>
 
+                                        <!-- 表头：与数据行共享同一列宽定义 -->
+                                        <Grid ColumnDefinitions="*,86,70,74,62"
+                                              Margin="8,0,10,0"
+                                              IsVisible="{Binding ActiveCompSection.IsDetailEmpty, Converter={x:Static BoolConverters.Not}}">
+                                            <TextBlock Text="文件" FontSize="11" Foreground="{DynamicResource Gray3Brush}" />
+                                            <TextBlock Grid.Column="1" Text="加载器" FontSize="11" Foreground="{DynamicResource Gray3Brush}" />
+                                            <TextBlock Grid.Column="2" Text="游戏版本" FontSize="11" Foreground="{DynamicResource Gray3Brush}" />
+                                            <TextBlock Grid.Column="3" Text="发布日期" FontSize="11" Foreground="{DynamicResource Gray3Brush}" />
+                                            <TextBlock Grid.Column="4" Text="大小" FontSize="11" Foreground="{DynamicResource Gray3Brush}" TextAlignment="Right" />
+                                        </Grid>
+                                        <Border Height="1" Background="{DynamicResource HairlineBrush}"
+                                                IsVisible="{Binding ActiveCompSection.IsDetailEmpty, Converter={x:Static BoolConverters.Not}}" />
+
                                         <ItemsControl ItemsSource="{Binding ActiveCompSection.VersionFiles}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="vm:CompFileItemViewModel">
                                                     <Button Classes="ver-row"
-                                                            Margin="0,0,0,2"
-                                                            ToolTip.Tip="下载该版本"
+                                                            ToolTip.Tip="{Binding File.FileName}"
                                                             Command="{Binding InstallCommand}">
-                                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                                            <StackPanel VerticalAlignment="Center" Spacing="1">
+                                                        <Grid ColumnDefinitions="*,86,70,74,62" ColumnSpacing="0">
+                                                            <StackPanel VerticalAlignment="Center" Spacing="1" Margin="8,0,0,0">
                                                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                                                     <TextBlock Text="{Binding Title}"
                                                                                FontSize="12.5"
@@ -988,24 +1001,38 @@
                                                                         <TextBlock Text="{Binding StatusText}" />
                                                                     </Border>
                                                                 </StackPanel>
-                                                                <TextBlock Text="{Binding GameVersionText}"
-                                                                           FontSize="11"
+                                                                <TextBlock Text="{Binding SourceText}"
+                                                                           FontSize="10.5"
                                                                            Foreground="{DynamicResource Gray3Brush}" />
                                                             </StackPanel>
-                                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                                                                <TextBlock Text="下载中…"
-                                                                           FontSize="11"
-                                                                           Foreground="{DynamicResource PrimaryDeepBrush}"
-                                                                           IsVisible="{Binding IsInstalling}" />
-                                                                <TextBlock Text="{Binding DateText}"
-                                                                           FontSize="11"
-                                                                           Foreground="{DynamicResource Gray3Brush}" />
+                                                            <TextBlock Grid.Column="1"
+                                                                       Text="{Binding LoaderText}"
+                                                                       FontSize="11"
+                                                                       VerticalAlignment="Center"
+                                                                       Margin="0,0,6,0"
+                                                                       TextTrimming="CharacterEllipsis"
+                                                                       Foreground="{DynamicResource Gray2Brush}" />
+                                                            <TextBlock Grid.Column="2"
+                                                                       Text="{Binding GameVersionText}"
+                                                                       FontSize="11"
+                                                                       VerticalAlignment="Center"
+                                                                       Margin="0,0,6,0"
+                                                                       TextTrimming="CharacterEllipsis"
+                                                                       Foreground="{DynamicResource Gray2Brush}" />
+                                                            <TextBlock Grid.Column="3"
+                                                                       Text="{Binding DateText}"
+                                                                       FontSize="11"
+                                                                       VerticalAlignment="Center"
+                                                                       Foreground="{DynamicResource Gray3Brush}" />
+                                                            <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                                                                 <TextBlock Text="{Binding SizeText}"
                                                                            FontSize="11"
+                                                                           HorizontalAlignment="Right"
                                                                            Foreground="{DynamicResource Gray3Brush}" />
-                                                                <c:HyclIcon Width="14"
-                                                                            Height="14"
+                                                                <c:HyclIcon Width="13"
+                                                                            Height="13"
                                                                             VerticalAlignment="Center"
+                                                                            IsVisible="{Binding !IsInstalling}"
                                                                             Foreground="{DynamicResource PrimaryBrush}"
                                                                             Kind="download" />
                                                             </StackPanel>

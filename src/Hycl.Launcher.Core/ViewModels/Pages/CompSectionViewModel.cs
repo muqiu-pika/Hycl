@@ -69,6 +69,23 @@ public sealed partial class CompFileItemViewModel : ObservableObject
             ? $"{file.Size / 1024.0 / 1024.0:0.#} MB"
             : $"{file.Size / 1024.0:0} KB";
         SourceText = file.FromCurseForge ? "CurseForge" : "Modrinth";
+        var loaders = file.ModLoaders
+            .Select(loader => loader.Trim().ToLowerInvariant())
+            .Where(loader => loader.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .Select(loader => loader switch
+            {
+                "forge" => "Forge",
+                "neoforge" => "NeoForge",
+                "fabric" => "Fabric",
+                "quilt" => "Quilt",
+                "liteloader" => "LiteLoader",
+                "optifine" => "OptiFine",
+                "vanilla" => "原版",
+                _ => loader
+            })
+            .ToList();
+        LoaderText = loaders.Count > 0 ? string.Join(" / ", loaders) : "—";
     }
 
     private readonly CompSectionViewModel _owner;
@@ -84,6 +101,9 @@ public sealed partial class CompFileItemViewModel : ObservableObject
     public string SizeText { get; }
 
     public string SourceText { get; }
+
+    /// <summary>文件声明的加载器（Forge / NeoForge / Fabric / Quilt…），无约束时为 “—”。</summary>
+    public string LoaderText { get; }
 
     public string GameVersionText
     {
@@ -1177,6 +1197,65 @@ public partial class CompSectionViewModel : ObservableObject
     }
 
     /// <summary>列举实例并按「当前实例 → 兼容且较新 → 其余」排序，默认落到兼容实例的对应子目录。</summary>
+    /// <summary>mod 类资源声明的加载器集合（只保留真正的模组加载器；optifine/vanilla 视为无约束）。</summary>
+    private static HashSet<string> NormalizeFileLoaders(CompFile file)
+        => file.ModLoaders
+            .Select(loader => loader.Trim().ToLowerInvariant())
+            .Where(loader => loader is "forge" or "neoforge" or "fabric" or "quilt" or "liteloader")
+            .ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>把实例的加载器标签归一到资源声明的命名空间；原版返回 "vanilla"。</summary>
+    private static string NormalizeInstanceLoader(MinecraftInstance instance)
+        => instance.Loader?.Trim().ToLowerInvariant() switch
+        {
+            "forge" or "cleanroom" => "forge",
+            "neoforge" => "neoforge",
+            "fabric" or "legacy fabric" => "fabric",
+            "quilt" => "quilt",
+            "liteloader" => "liteloader",
+            "原版" => "vanilla",
+            "" => "vanilla",
+            _ => ""
+        };
+
+    private static string LoaderDisplayName(string loader) => loader switch
+    {
+        "forge" => "Forge",
+        "neoforge" => "NeoForge",
+        "fabric" => "Fabric",
+        "quilt" => "Quilt",
+        "liteloader" => "LiteLoader",
+        _ => loader
+    };
+
+    /// <summary>
+    /// 保存位置对话框的实例兼容判定：游戏版本必须匹配，mod 类资源还要求加载器一致
+    /// （Forge 资源只给 Forge 实例、Fabric 只给 Fabric/Quilt，原版与其它加载器实例被过滤掉）。
+    /// </summary>
+    private static bool IsInstanceCompatible(MinecraftInstance instance, CompFile file, HashSet<string> requiredLoaders)
+    {
+        if (file.GameVersions.Count > 0
+            && !file.GameVersions.Any(v => v.Equals(instance.GameVersion, StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        if (requiredLoaders.Count == 0)
+        {
+            return true;
+        }
+
+        var instanceLoader = NormalizeInstanceLoader(instance);
+        if (instanceLoader.Length == 0)
+        {
+            return false;
+        }
+
+        // Quilt 运行时兼容 Fabric 生态，Fabric 资源也适用于 Quilt 实例
+        return requiredLoaders.Contains(instanceLoader)
+               || (requiredLoaders.Contains("fabric") && instanceLoader == "quilt");
+    }
+
     private async Task LoadSaveDialogInstancesAsync(CompFile file)
     {
         _dialogInstances.Clear();
@@ -1198,11 +1277,17 @@ public partial class CompSectionViewModel : ObservableObject
             return;
         }
 
+        var requiredLoaders = NormalizeFileLoaders(file);
         var compatible = instances
-            .Where(instance => file.GameVersions.Count == 0
-                               || file.GameVersions.Any(v => v.Equals(instance.GameVersion, StringComparison.OrdinalIgnoreCase)))
+            .Where(instance => IsInstanceCompatible(instance, file, requiredLoaders))
             .OrderByDescending(instance => instance.LastWriteTime)
             .ToList();
+        if (requiredLoaders.Count > 0 && compatible.Count == 0)
+        {
+            // 该资源只能装在特定加载器实例上（如仅 Forge）：
+            // 按需求只给出对应加载器的实例，不兼容的（含原版）不展示
+            SaveHint = $"该资源仅支持 {string.Join(" / ", requiredLoaders.Select(LoaderDisplayName))} 实例，未检测到可用的对应实例。";
+        }
         var preferred = _preferredInstanceId is { Length: > 0 }
             ? instances.FirstOrDefault(instance =>
                 instance.Id.Equals(_preferredInstanceId, StringComparison.OrdinalIgnoreCase))
