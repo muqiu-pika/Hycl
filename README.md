@@ -25,7 +25,7 @@ dotnet run --project src/Hycl.Launcher.UI
 | --- | --- |
 | `Hycl-<rid>`（Windows 为 `.exe`） | 自包含单文件，启用压缩、关闭 R2R 与裁剪，目标机器无需安装 .NET |
 | `Hycl-<rid>-framework-dependent` | 框架依赖单文件，需目标机器已装 .NET 10 Desktop Runtime |
-| 体积参考（win-x64，原生库已嵌入） | 自包含 ≈ 49.4 MB（旧版开 R2R 为 59.2 MB）、框架依赖 ≈ 29.7 MB |
+| 体积参考（win-x64，原生库已嵌入） | 自包含 ≈ 43.5 MB（剔除未使用的 Xml/ADO.NET 运行时后）、框架依赖 ≈ 29.7 MB |
 | `Hycl-osx-*-app` | macOS 额外打包的 `.app` bundle（裸可执行文件没有 Dock 图标 / 菜单栏） |
 
 - **自包含单文件必须关闭裁剪（`PublishTrimmed=false`）**：插件 dll 在运行时通过 `Assembly.LoadFrom` 动态加载，不参与宿主裁剪图。裁剪器会移除 `System.Runtime` / `netstandard` 等 type-forwarder facade 并重写宿主 IL 的引用，而插件仍引用 `System.Runtime, Version=10.0.0.0`，实测裁剪版加载插件必然抛 `FileNotFoundException`，表现为「插件已启用但工具页没有入口」。这是动态插件系统的硬性约束，不要为了缩小体积重新开启裁剪。
