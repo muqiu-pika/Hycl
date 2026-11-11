@@ -1,0 +1,13 @@
+{
+  "version": "1.1.0",
+  "date": "2026-11-12",
+  "notes": "主题色与背景自定义、实例资源一键更新、多线程分段下载、档案批量管理、整合包修复",
+  "assets": {
+    "win-x64": { "url": ["https://github.com/muqiu-pika/Hycl/releases/latest/download/Hycl-win-x64.exe"], "sha256": "" },
+    "win-arm64": { "url": ["https://github.com/muqiu-pika/Hycl/releases/latest/download/Hycl-win-arm64.exe"], "sha256": "" },
+    "linux-x64": { "url": ["https://github.com/muqiu-pika/Hycl/releases/latest/download/Hycl-linux-x64"], "sha256": "" },
+    "linux-arm64": { "url": ["https://github.com/muqiu-pika/Hycl/releases/latest/download/Hycl-linux-arm64"], "sha256": "" },
+    "osx-x64": { "url": ["https://github.com/muqiu-pika/Hycl/releases/latest/download/Hycl-osx-x64"], "sha256": "" },
+    "osx-arm64": { "url": ["https://github.com/muqiu-pika/Hycl/releases/latest/download/Hycl-osx-arm64"], "sha256": "" }
+  }
+}

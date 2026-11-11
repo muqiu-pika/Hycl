@@ -144,6 +144,9 @@ public sealed class LauncherConfig
     /// <summary>背景图片不透明度（0-100，默认 22；0 时背景不可见）。</summary>
     public int BackgroundOpacity { get; set; } = 22;
 
+    /// <summary>启动时是否静默检查启动器更新（发现新版本仅提示，不自动下载）。</summary>
+    public bool AutoCheckUpdates { get; set; } = true;
+
     /// <summary>
     /// 实例级覆盖设置，键为 versions 下的实例目录名。
     /// 未设置或留空的字段回退到本类中的全局设置（实例覆盖 &gt; 全局）。

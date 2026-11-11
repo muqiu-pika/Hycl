@@ -285,7 +285,7 @@ public sealed class GameSession : IDisposable
 /// </summary>
 public sealed class LaunchService
 {
-    public const string LauncherVersion = "1.0.0";
+    public const string LauncherVersion = "1.1.0";
 
     private static readonly Regex PlaceholderRegex = new(@"\$\{([^}]+)\}", RegexOptions.Compiled);
 

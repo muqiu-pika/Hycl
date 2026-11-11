@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using Hycl.Launcher.Core.Download;
 using CommunityToolkit.Mvvm.Input;
 using Hycl.Launcher.Core.Config;
 using Hycl.Launcher.Core.Game;
@@ -270,8 +271,8 @@ public partial class SettingsPageViewModel : ObservableObject
     private ToggleRowViewModel? _autoJavaRow;
     private TextRowViewModel? _javaPathRow;
     private MutableInfoRowViewModel? _javaDetectedRow;
-    private ComboRowViewModel? _updateChannelRow;
     private MutableInfoRowViewModel? _updateStatusRow;
+    private ToggleRowViewModel? _autoUpdateRow;
     private MutableLogRowViewModel? _logTailRow;
     private ComboRowViewModel? _versionListSourceRow;
     private ComboRowViewModel? _fileSourceRow;
@@ -820,10 +821,7 @@ public partial class SettingsPageViewModel : ObservableObject
             new SettingCardViewModel("软件更新",
             [
                 new InfoRowViewModel("当前版本", LaunchService.LauncherVersion),
-                _updateChannelRow = new ComboRowViewModel(
-                    "更新通道",
-                    UpdateChannelOptions,
-                    UpdateChannelOptions[Math.Clamp(config.UpdateChannel, 0, UpdateChannelOptions.Length - 1)]),
+                _autoUpdateRow = new ToggleRowViewModel("启动时自动检测更新", config.AutoCheckUpdates),
                 new ButtonsRowViewModel(
                 [
                     new SettingButtonViewModel(
@@ -831,9 +829,20 @@ public partial class SettingsPageViewModel : ObservableObject
                         "refresh",
                         true,
                         () => _ = CheckForUpdateAsync()),
+                    new SettingButtonViewModel(
+                        "下载更新",
+                        "download",
+                        false,
+                        () => _ = DownloadPendingUpdateAsync()),
+                    new SettingButtonViewModel(
+                        "安装更新并重启",
+                        "rocket",
+                        false,
+                        () => _ = InstallPendingUpdateAsync()),
                 ]),
                 _updateStatusRow = new MutableInfoRowViewModel("检查结果", "尚未检查。"),
-                new TextLineRowViewModel("连接 GitHub Releases 检查最新版本；下载安装请前往仓库 Releases 页面。")
+                new TextLineRowViewModel("优先经加速源检查与下载（EdgeOne / jsDelivr / ghproxy 等多源自动回退），"
+                                         + "下载完成 SHA-256 校验后自动替换并重启。")
             ]),
         ]);
 
@@ -907,49 +916,131 @@ public partial class SettingsPageViewModel : ObservableObject
         public const string Feedback = "https://github.com/muqiu-pika/Hycl/issues";
     }
 
-    /// <summary>更新检查框架（对应 PCL-CE UpdateManager；读取 GitHub Releases 最新版本号）。</summary>
-    public static class UpdateChecker
+    private LauncherUpdateService? _updateService;
+
+    private LauncherUpdateService UpdateService
+        => _updateService ??= new LauncherUpdateService(_services.DownloadClient, _services.Logger, _services.Paths);
+
+    private LauncherUpdateInfo? _pendingUpdate;
+
+    private string? _downloadedUpdatePath;
+
+    private bool _updateBusy;
+
+    /// <summary>发现新版本且下载完成后请求重启安装（主窗口订阅后关闭应用）。</summary>
+    public event EventHandler? RestartRequested;
+
+    /// <summary>启动期静默检查的结果回填（自动检测更新）。</summary>
+    public void ApplyFoundUpdate(LauncherUpdateInfo? info)
     {
-        /// <summary>仓库 releases API 地址；留空表示未配置。</summary>
-        public const string ReleasesUrl = "https://api.github.com/repos/muqiu-pika/Hycl/releases/latest";
-
-        /// <summary>检查更新：有新版本时返回版本号，已是最新返回 null，未配置/失败抛异常。</summary>
-        public static async Task<string?> CheckAsync(CancellationToken cancellationToken = default)
-        {
-            if (string.IsNullOrWhiteSpace(ReleasesUrl))
-            {
-                throw new InvalidOperationException("未配置更新源：请在 UpdateChecker.ReleasesUrl 填入仓库 releases 地址");
-            }
-
-            using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("HYCL/1.0");
-            var json = await client.GetStringAsync(ReleasesUrl, cancellationToken).ConfigureAwait(false);
-            var node = System.Text.Json.Nodes.JsonNode.Parse(json);
-            // tag 可能带 v 前缀（v1.2.3），统一去掉后与 LauncherVersion 比较
-            var tagName = (node?["tag_name"]?.ToString() ?? "").TrimStart('v', 'V');
-            return tagName.Equals(LaunchService.LauncherVersion, StringComparison.OrdinalIgnoreCase) ? null : tagName;
-        }
-    }
-
-    private async Task CheckForUpdateAsync()
-    {
+        _pendingUpdate = info;
+        _downloadedUpdatePath = null;
         if (_updateStatusRow is null)
         {
             return;
         }
 
+        _updateStatusRow.Value = info is null
+            ? $"已是最新版本（{LaunchService.LauncherVersion}）"
+            : $"发现新版本 {info.Version}"
+              + (string.IsNullOrWhiteSpace(info.Notes) ? "" : $"\n{info.Notes}")
+              + "\n点击「下载更新」开始（优先加速源）。";
+    }
+
+    private async Task CheckForUpdateAsync()
+    {
+        if (_updateStatusRow is null || _updateBusy)
+        {
+            return;
+        }
+
+        _updateBusy = true;
         _updateStatusRow.Value = "正在检查…";
         try
         {
-            var newVersion = await UpdateChecker.CheckAsync().ConfigureAwait(true);
-            _updateStatusRow.Value = newVersion is null
-                ? $"已是最新版本（{LaunchService.LauncherVersion}）"
-                : $"发现新版本 {newVersion}，请前往项目主页下载";
+            ApplyFoundUpdate(await UpdateService.CheckAsync().ConfigureAwait(true));
         }
-        catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or System.Text.Json.JsonException or TaskCanceledException)
+        catch (Exception ex)
         {
-            _updateStatusRow.Value = ex.Message;
+            _updateStatusRow.Value = $"检查失败：{ex.Message}";
         }
+        finally
+        {
+            _updateBusy = false;
+        }
+    }
+
+    private async Task DownloadPendingUpdateAsync()
+    {
+        if (_updateStatusRow is null || _updateBusy)
+        {
+            return;
+        }
+
+        if (_pendingUpdate is null)
+        {
+            _updateStatusRow.Value = "请先检查更新，发现新版本后再下载。";
+            return;
+        }
+
+        _updateBusy = true;
+        var info = _pendingUpdate;
+        var lastReport = 0d;
+        try
+        {
+            _updateStatusRow.Value = "正在下载更新（多源加速）…";
+            var progress = new Progress<DownloadByteProgress>(p =>
+            {
+                if (p.Percentage - lastReport >= 0.01 || p.Percentage >= 1)
+                {
+                    lastReport = p.Percentage;
+                    _updateStatusRow.Value = $"正在下载 {info.Version}… {p.Percentage:P0}（{p.ReceivedBytes / 1024d / 1024d:0.#} MB）";
+                }
+            });
+            _downloadedUpdatePath = await UpdateService.DownloadUpdateAsync(info, progress).ConfigureAwait(true);
+            _updateStatusRow.Value = $"下载完成（已通过校验）：{info.AssetFileName}。点击「安装更新并重启」。";
+        }
+        catch (Exception ex)
+        {
+            _updateStatusRow.Value = $"下载失败：{ex.Message}";
+        }
+        finally
+        {
+            _updateBusy = false;
+        }
+    }
+
+    private Task InstallPendingUpdateAsync()
+    {
+        if (_updateStatusRow is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (_pendingUpdate is null)
+        {
+            _updateStatusRow.Value = "请先检查并下载更新。";
+            return Task.CompletedTask;
+        }
+
+        if (_downloadedUpdatePath is null)
+        {
+            _updateStatusRow.Value = "请先下载更新包。";
+            return Task.CompletedTask;
+        }
+
+        try
+        {
+            UpdateService.InstallUpdate(_downloadedUpdatePath);
+            _updateStatusRow.Value = "替换脚本已启动，启动器即将退出并自动完成安装…";
+            RestartRequested?.Invoke(this, EventArgs.Empty);
+        }
+        catch (Exception ex)
+        {
+            _updateStatusRow.Value = $"安装失败：{ex.Message}";
+        }
+
+        return Task.CompletedTask;
     }
 
     private void CleanOldLogs()
@@ -1242,15 +1333,6 @@ public partial class SettingsPageViewModel : ObservableObject
             config.AutoSelectInstance = _autoSelectInstanceRow.IsOn;
         }
 
-        if (_updateChannelRow?.SelectedOption is { } channel)
-        {
-            var index = Array.IndexOf(UpdateChannelOptions, channel);
-            if (index >= 0)
-            {
-                config.UpdateChannel = index;
-            }
-        }
-
         _logTailRow?.Reload(ReadLogTail);
 
         if (_threadsRow?.SelectedOption is { } threads)
@@ -1261,6 +1343,11 @@ public partial class SettingsPageViewModel : ObservableObject
         if (_retryRow?.SelectedOption is { } retry)
         {
             config.RetryCount = ParseNumber(retry);
+        }
+
+        if (_autoUpdateRow is not null)
+        {
+            config.AutoCheckUpdates = _autoUpdateRow.IsOn;
         }
 
         if (_themeRow?.SelectedOption is { } theme)
