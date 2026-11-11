@@ -667,8 +667,9 @@ public sealed class LaunchService
             // 原版 ProfilePublicKey 校验（信任 Mojang 公钥）必然判为
             // 「无效的玩家档案公钥签名」并踢出——离线玩家加入局域网房间正是死在这一步。
             // 关掉后客户端不申请证书、以「无公钥」身份加入，原版接受无公钥玩家
-            // （仅聊天不签名，不影响联机）。
-            arguments.Insert(2, "-Dauthlibinjector.profileKey=disable");
+            // （仅聊天不签名，不影响联机）。取值必须是注入器枚举 DISABLED/ENABLED/DEFAULT
+            // （解析时会先 toUpperCase，写错会让注入器初始化失败、游戏进程退出码 1）。
+            arguments.Insert(2, "-Dauthlibinjector.profileKey=disabled");
             if (!string.IsNullOrWhiteSpace(options.AuthlibPrefetched))
             {
                 arguments.Insert(3, $"-Dauthlibinjector.yggdrasil.prefetched={options.AuthlibPrefetched}");
