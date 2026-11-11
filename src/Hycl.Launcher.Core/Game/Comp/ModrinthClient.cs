@@ -134,6 +134,7 @@ public sealed partial class ModrinthClient(CompRequester requester)
     [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
     [JsonSerializable(typeof(ModrinthSearchResponse))]
     [JsonSerializable(typeof(ModrinthProjectJson))]
+    [JsonSerializable(typeof(List<ModrinthProjectJson>))]
     [JsonSerializable(typeof(List<ModrinthVersionJson>))]
     [JsonSerializable(typeof(Dictionary<string, ModrinthVersionJson>))]
     [JsonSerializable(typeof(ModrinthHashRequest))]
@@ -248,6 +249,41 @@ public sealed partial class ModrinthClient(CompRequester requester)
             GameVersions = hit.Versions ?? []
         }).Where(p => !string.IsNullOrEmpty(p.Id)).ToList();
         return new CompSearchResult { Projects = projects, ModrinthTotal = response.TotalHits };
+    }
+
+    /// <summary>
+    /// 批量取项目图标 URL（/v2/projects?ids=[...]）：本地资源更新检测用，
+    /// 图标交给 HyclImage 的磁盘缓存加载，这里只返回 projectId → iconUrl 映射。
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, string>> GetProjectIconUrlsAsync(
+        IReadOnlyCollection<string> projectIds,
+        CancellationToken cancellationToken = default)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var ids = projectIds
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        foreach (var batch in ids.Chunk(100))
+        {
+            // string[] 走 ListIReadOnlyListString 的元数据形态（T=string 的数组与只读列表同形）
+            var idsJson = JsonSerializer.Serialize(batch.ToList(), ModrinthJsonContext.Default.ListIReadOnlyListString);
+            var projects = await requester.GetJsonAsync(
+                    $"{ApiBase}/v2/projects?ids={Uri.EscapeDataString(idsJson)}",
+                    ModrinthJsonContext.Default.ListModrinthProjectJson,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            foreach (var project in projects ?? [])
+            {
+                if (project.Id is { Length: > 0 } id && !string.IsNullOrWhiteSpace(project.IconUrl))
+                {
+                    result[id] = project.IconUrl;
+                }
+            }
+        }
+
+        return result;
     }
 
     /// <summary>项目详情（/v2/project/{idOrSlug}）。</summary>

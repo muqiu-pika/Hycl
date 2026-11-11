@@ -61,6 +61,8 @@ public sealed partial class LocalContentItemViewModel : ObservableObject
 
     public bool IsDirectory => File.IsDirectory;
 
+    public bool HasIcon => IconUrl.Length > 0 && !IsImage;
+
     public bool IsImage => !IsDirectory &&
                            (Name.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
                             Name.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
@@ -76,6 +78,9 @@ public sealed partial class LocalContentItemViewModel : ObservableObject
     public string Info => $"{InstanceContentService.FormatSize(File.Size)} · {File.Modified:yyyy-MM-dd HH:mm}";
 
     public string MetaText => $"{Info} · {VersionText} · {SourceText}";
+
+    /// <summary>无社区图标且非图片文件时回退到通用图标。</summary>
+    public bool ShowFallbackIcon => !HasIcon && !IsImage;
 
     /// <summary>名称/描述/标签/文件名/modid 的合并索引，供搜索框过滤。</summary>
     public string SearchText => _searchText;
@@ -94,6 +99,13 @@ public sealed partial class LocalContentItemViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _isSelected;
+
+    /// <summary>社区项目图标 URL（识别成功后由更新检测填充，HyclImage 自带磁盘缓存）。</summary>
+    [ObservableProperty]
+    private string _iconUrl = "";
+
+    /// <summary>最近一次洞察检查的缓存数据（一键更新按此下载最新兼容版本）。</summary>
+    public ContentInsightEntry? Insight { get; set; }
 
     public string UpdateText => IsUpdateAvailable
         ? (LatestVersion.Length > 0 ? $"可更新 {LatestVersion}" : "可更新")
@@ -176,6 +188,10 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
     [ObservableProperty]
     private bool _isCheckingUpdates;
 
+    /// <summary>批量更新进行中（一键更新按钮防重入）。</summary>
+    [ObservableProperty]
+    private bool _isUpdating;
+
     [ObservableProperty]
     private string _updateCheckText = "";
 
@@ -198,6 +214,14 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
     public string AllCountText => $"全部({_allItems.Count})";
 
     public string UpdatableCountText => $"可更新({_allItems.Count(item => item.IsUpdateAvailable)})";
+
+    /// <summary>可更新资源数量（一键更新按钮徽标用）。</summary>
+    public int UpdatableCount => _allItems.Count(item => item.IsUpdateAvailable);
+
+    public bool HasUpdatable => UpdatableCount > 0 && CanCheckUpdates && !IsUpdating;
+
+    /// <summary>一键更新按钮文案：显示待更新数量；批量进行中显示进度状态。</summary>
+    public string UpdateAllText => IsUpdating ? "正在批量更新…" : $"一键更新 ({UpdatableCount})";
 
     public string EmptyTitle => _allItems.Count == 0 ? "还没有资源" : "没有匹配的资源";
 
@@ -398,6 +422,7 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
 
     private IEnumerable<LocalContentItemViewModel> SortItems(IEnumerable<LocalContentItemViewModel> items)
     {
+        // 有更新的资源始终排最前面（对齐 PCL-CE 的可更新置顶），再按所选维度排序
         var ordered = SelectedSort switch
         {
             SortByFileName => SortDescending
@@ -410,7 +435,9 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
                 ? items.OrderByDescending(item => item.Name, StringComparer.OrdinalIgnoreCase)
                 : items.OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
         };
-        return ordered.ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase);
+        return ordered
+            .ThenByDescending(item => item.IsUpdateAvailable)
+            .ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase);
     }
 
     private void NotifyListState()
@@ -710,8 +737,10 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
             : value;
 
     /// <summary>
-    /// 真实更新检测：计算 SHA-1 / CurseForge 指纹 → Modrinth 批量反查已安装版本与最新兼容版本，
-    /// 版本 Id 不同即视为可更新；未命中 Modrinth 的文件再用 CurseForge 指纹反查来源。
+    /// 真实更新检测（带缓存）：计算 SHA-1 / CurseForge 指纹 → 未变动的文件直接复用 24h 内的本地缓存
+    /// （不重复请求）→ 其余文件走 Modrinth 批量反查（已装版本 + 最新兼容版本）→ 未命中 Modrinth 的
+    /// 文件走 CurseForge 指纹反查（含与当前版本兼容的最新文件）→ 识别到的项目批量取图标。
+    /// 结果持久化到数据目录 cache/content-insight，重开页面秒显且省请求。
     /// </summary>
     private async Task RunUpdateCheckAsync(int generation)
     {
@@ -753,54 +782,237 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
                 return;
             }
 
-            UpdateCheckText = "正在通过 Modrinth 校验更新…";
-            var sha1s = hashed.Select(entry => entry.Hash.Sha1).ToList();
-            var modrinth = new ModrinthClient(_services.CompRequester);
-            var installedTask = modrinth.LookupBySha1Async(sha1s, token);
-            var latestTask = modrinth.LookupLatestBySha1Async(sha1s, _gameVersion, UpdateLoaders(), token);
-            await Task.WhenAll(installedTask, latestTask).ConfigureAwait(true);
-            var installed = await installedTask.ConfigureAwait(true);
-            var latest = await latestTask.ConfigureAwait(true);
-            if (generation != _loadGeneration)
-            {
-                return;
-            }
-
-            var updatable = 0;
+            // ① 缓存复用：路径/大小/修改时间/SHA-1 一致且 24h 内检查过的文件，直接回填结果
+            var cacheKey = ContentInsightCache.MakeKey(_directory, _resourceType?.ToString() ?? "local");
+            var cachedEntries = ContentInsightCache.Load(_services.Paths.CacheDirectory, cacheKey);
+            var working = new Dictionary<string, LookupWorking>(StringComparer.OrdinalIgnoreCase);
+            var reusedCount = 0;
             foreach (var (item, hash) in hashed)
             {
-                if (!installed.TryGetValue(hash.Sha1, out var match))
+                var cached = cachedEntries.FirstOrDefault(entry =>
+                    ContentInsightCache.MatchesFile(entry, item.Path, item.File.Size, item.File.Modified.Ticks, hash.Sha1)
+                    && ContentInsightCache.IsFresh(entry));
+                if (cached is null)
                 {
                     continue;
                 }
 
-                item.SourceText = "Modrinth";
-                if (!latest.TryGetValue(hash.Sha1, out var newest) || newest.VersionId == match.VersionId)
-                {
-                    continue;
-                }
-
-                item.IsUpdateAvailable = true;
-                item.LatestVersion = newest.VersionNumber.Length > 0
-                    ? newest.VersionNumber
-                    : Path.GetFileNameWithoutExtension(newest.FileName);
-                updatable++;
+                reusedCount++;
+                var state = FromEntry(cached);
+                working[hash.Sha1] = state;
+                ApplyLookup(item, state, cached.LatestVersionId.Length > 0 && cached.LatestVersionId != cached.InstalledVersionId);
             }
 
-            await ApplyCurseForgeSourcesAsync(hashed, installed, token).ConfigureAwait(true);
+            // ② 网络检测：只查未命中缓存的文件
+            var pending = hashed.Where(entry => !working.ContainsKey(entry.Hash.Sha1)).ToList();
+            if (pending.Count > 0)
+            {
+                UpdateCheckText = "正在通过 Modrinth 校验更新…";
+                var sha1s = pending.Select(entry => entry.Hash.Sha1).ToList();
+                var modrinth = new ModrinthClient(_services.CompRequester);
+                var installedTask = modrinth.LookupBySha1Async(sha1s, token);
+                var latestTask = modrinth.LookupLatestBySha1Async(sha1s, _gameVersion, UpdateLoaders(), token);
+                await Task.WhenAll(installedTask, latestTask).ConfigureAwait(true);
+                var installed = await installedTask.ConfigureAwait(true);
+                var latest = await latestTask.ConfigureAwait(true);
+                if (generation != _loadGeneration)
+                {
+                    return;
+                }
+
+                foreach (var (item, hash) in pending)
+                {
+                    if (!installed.TryGetValue(hash.Sha1, out var match))
+                    {
+                        continue;
+                    }
+
+                    var state = new LookupWorking
+                    {
+                        Source = "Modrinth",
+                        ProjectId = match.ProjectId,
+                        InstalledVersionId = match.VersionId
+                    };
+                    if (latest.TryGetValue(hash.Sha1, out var newest))
+                    {
+                        state.LatestVersionId = newest.VersionId;
+                        state.LatestVersionName = newest.VersionNumber.Length > 0
+                            ? newest.VersionNumber
+                            : Path.GetFileNameWithoutExtension(newest.FileName);
+                        state.LatestFileName = newest.FileName;
+                        state.LatestDownloadUrl = newest.DownloadUrl;
+                        state.LatestSha1 = newest.Sha1;
+                    }
+
+                    working[hash.Sha1] = state;
+                    ApplyLookup(item, state, state.LatestVersionId.Length > 0 && state.LatestVersionId != state.InstalledVersionId);
+                }
+
+                // CurseForge：未命中 Modrinth 的文件按指纹反查（响应含项目 latestFiles，可判兼容更新）
+                var remaining = pending.Where(entry => !installed.ContainsKey(entry.Hash.Sha1)).ToList();
+                if (remaining.Count > 0)
+                {
+                    UpdateCheckText = "正在通过 CurseForge 校验更新…";
+                    try
+                    {
+                        var curseForge = new CurseForgeClient(_services.CompRequester);
+                        var infos = await curseForge
+                            .LookupFingerprintInfosAsync(
+                                remaining.Select(entry => entry.Hash.Murmur2).Distinct().ToList(),
+                                _gameVersion,
+                                token)
+                            .ConfigureAwait(true);
+                        if (generation != _loadGeneration)
+                        {
+                            return;
+                        }
+
+                        foreach (var (item, hash) in remaining)
+                        {
+                            var info = infos.FirstOrDefault(candidate => candidate.Fingerprint == hash.Murmur2);
+                            if (info is null)
+                            {
+                                continue;
+                            }
+
+                            var state = new LookupWorking
+                            {
+                                Source = "CurseForge",
+                                ProjectId = info.ProjectId.ToString(),
+                                InstalledVersionId = info.File.Id,
+                                FromCf = true,
+                                // 图标：直接用命中的项目信息不可得，先留空，下面统一批量取
+                            };
+                            if (info.LatestCompatible is { } newest && newest.Id != info.File.Id)
+                            {
+                                state.LatestVersionId = newest.Id;
+                                state.LatestVersionName = newest.DisplayName.Length > 0
+                                    ? newest.DisplayName
+                                    : Path.GetFileNameWithoutExtension(newest.FileName);
+                                state.LatestFileName = newest.FileName;
+                                state.LatestDownloadUrl = newest.DownloadUrls.FirstOrDefault() ?? "";
+                                state.LatestSha1 = newest.Hash ?? "";
+                            }
+
+                            working[hash.Sha1] = state;
+                            ApplyLookup(item, state, state.LatestVersionId.Length > 0 && state.LatestVersionId != state.InstalledVersionId);
+                        }
+                    }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        // CurseForge 反查需要可用的 API Key/镜像；失败时保留“本地”来源，不伪造结果
+                        _services.Logger.Warn($"CurseForge 指纹反查失败（来源列保持为本地）：{ex.Message}");
+                    }
+                }
+
+                // ③ 图标：识别到的项目批量取图标 URL（交给 HyclImage 的磁盘缓存加载，只取一次）
+                try
+                {
+                    UpdateCheckText = "正在获取资源图标…";
+                    var modrinthIds = working.Values
+                        .Where(state => !state.FromCf && state.ProjectId.Length > 0)
+                        .Select(state => state.ProjectId)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+                    var modrinthIcons = modrinthIds.Count > 0
+                        ? await new ModrinthClient(_services.CompRequester).GetProjectIconUrlsAsync(modrinthIds, token).ConfigureAwait(true)
+                        : new Dictionary<string, string>();
+                    var cfIds = working.Values
+                        .Where(state => state.FromCf && long.TryParse(state.ProjectId, out var id) && id > 0)
+                        .Select(state => long.Parse(state.ProjectId))
+                        .Distinct()
+                        .ToList();
+                    var cfIcons = cfIds.Count > 0
+                        ? await new CurseForgeClient(_services.CompRequester).GetModIconUrlsAsync(cfIds, token).ConfigureAwait(true)
+                        : new Dictionary<long, string>();
+                    foreach (var (item, hash) in hashed)
+                    {
+                        if (!working.TryGetValue(hash.Sha1, out var state) || state.IconUrl.Length > 0)
+                        {
+                            continue;
+                        }
+
+                        var icon = state.FromCf
+                            ? (long.TryParse(state.ProjectId, out var id) && cfIcons.TryGetValue(id, out var cfIcon) ? cfIcon : "")
+                            : (modrinthIcons.TryGetValue(state.ProjectId, out var mrIcon) ? mrIcon : "");
+                        if (icon.Length > 0)
+                        {
+                            state.IconUrl = icon;
+                            item.IconUrl = icon;
+                        }
+                    }
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    // 图标缺失只影响观感，不提示错误
+                    _services.Logger.Warn($"获取资源图标失败（忽略）：{ex.Message}");
+                }
+
+                // ④ 缓存落盘：全部文件（含缓存复用的）都刷新检查时间
+                var entries = new List<ContentInsightEntry>(hashed.Count);
+                foreach (var (item, hash) in hashed)
+                {
+                    var state = working.TryGetValue(hash.Sha1, out var value)
+                        ? value
+                        : new LookupWorking();
+                    entries.Add(new ContentInsightEntry
+                    {
+                        Path = item.Path,
+                        Size = item.File.Size,
+                        MTimeTicks = item.File.Modified.Ticks,
+                        Sha1 = hash.Sha1,
+                        Source = state.Source,
+                        ProjectId = state.ProjectId,
+                        IconUrl = state.IconUrl,
+                        InstalledVersionId = state.InstalledVersionId,
+                        LatestVersionId = state.LatestVersionId,
+                        LatestVersionName = state.LatestVersionName,
+                        LatestFileName = state.LatestFileName,
+                        LatestDownloadUrl = state.LatestDownloadUrl,
+                        LatestSha1 = state.LatestSha1,
+                        IsFromCurseForge = state.FromCf,
+                        CheckedAtTicks = DateTime.UtcNow.Ticks
+                    });
+                    item.Insight = entries[^1];
+                }
+
+                ContentInsightCache.Save(_services.Paths.CacheDirectory, cacheKey, entries);
+            }
+            else
+            {
+                // 全部命中缓存：也要回填 Insight 供一键更新使用
+                foreach (var (item, hash) in hashed)
+                {
+                    if (working.TryGetValue(hash.Sha1, out var state))
+                    {
+                        item.Insight = ToEntry(item, hash, state);
+                    }
+                }
+            }
+
             if (generation != _loadGeneration)
             {
                 return;
             }
 
+            var updatable = _allItems.Count(item => item.IsUpdateAvailable);
             OnPropertyChanged(nameof(UpdatableCountText));
-            if (IsShowingUpdates)
-            {
-                ApplyFilter();
-            }
+            OnPropertyChanged(nameof(UpdatableCount));
+            OnPropertyChanged(nameof(HasUpdatable));
+            ApplyFilter();
 
+            var networkCount = hashed.Count - reusedCount;
             UpdateCheckText = $"已校验 {hashed.Count} 个文件，{updatable} 个可更新"
-                              + (hashed.Count > 0 && updatable == 0 ? "（仅 Modrinth 收录的资源可判断）" : "");
+                              + (reusedCount > 0 && networkCount == 0 ? "（缓存复用，无需请求）" : "")
+                              + (updatable == 0 && networkCount > 0 ? "（未识别的本地资源不参与更新判断）" : "");
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
@@ -823,46 +1035,134 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
         }
     }
 
-    /// <summary>未命中 Modrinth 的文件按 CurseForge 指纹反查来源；失败只影响来源列，不影响更新判断。</summary>
-    private async Task ApplyCurseForgeSourcesAsync(
-        IReadOnlyList<(LocalContentItemViewModel Item, ModpackFileHashes Hash)> hashed,
-        IReadOnlyDictionary<string, ModrinthHashMatch> modrinthMatches,
-        CancellationToken cancellationToken)
+    private sealed class LookupWorking
     {
-        var pending = hashed
-            .Where(entry => !modrinthMatches.ContainsKey(entry.Hash.Sha1))
-            .ToList();
-        if (pending.Count == 0)
+        public string Source { get; set; } = "本地";
+        public string ProjectId { get; set; } = "";
+        public string IconUrl { get; set; } = "";
+        public string InstalledVersionId { get; set; } = "";
+        public string LatestVersionId { get; set; } = "";
+        public string LatestVersionName { get; set; } = "";
+        public string LatestFileName { get; set; } = "";
+        public string LatestDownloadUrl { get; set; } = "";
+        public string LatestSha1 { get; set; } = "";
+        public bool FromCf { get; set; }
+    }
+
+    private static LookupWorking FromEntry(ContentInsightEntry entry) => new()
+    {
+        Source = entry.Source,
+        ProjectId = entry.ProjectId,
+        IconUrl = entry.IconUrl,
+        InstalledVersionId = entry.InstalledVersionId,
+        LatestVersionId = entry.LatestVersionId,
+        LatestVersionName = entry.LatestVersionName,
+        LatestFileName = entry.LatestFileName,
+        LatestDownloadUrl = entry.LatestDownloadUrl,
+        LatestSha1 = entry.LatestSha1,
+        FromCf = entry.IsFromCurseForge
+    };
+
+    private static ContentInsightEntry ToEntry(LocalContentItemViewModel item, ModpackFileHashes hash, LookupWorking state)
+        => new()
+        {
+            Path = item.Path,
+            Size = item.File.Size,
+            MTimeTicks = item.File.Modified.Ticks,
+            Sha1 = hash.Sha1,
+            Source = state.Source,
+            ProjectId = state.ProjectId,
+            IconUrl = state.IconUrl,
+            InstalledVersionId = state.InstalledVersionId,
+            LatestVersionId = state.LatestVersionId,
+            LatestVersionName = state.LatestVersionName,
+            LatestFileName = state.LatestFileName,
+            LatestDownloadUrl = state.LatestDownloadUrl,
+            LatestSha1 = state.LatestSha1,
+            IsFromCurseForge = state.FromCf,
+            CheckedAtTicks = DateTime.UtcNow.Ticks
+        };
+
+    private static void ApplyLookup(LocalContentItemViewModel item, LookupWorking state, bool updateAvailable)
+    {
+        item.SourceText = state.Source;
+        if (state.IconUrl.Length > 0)
+        {
+            item.IconUrl = state.IconUrl;
+        }
+
+        item.IsUpdateAvailable = updateAvailable;
+        item.LatestVersion = updateAvailable ? state.LatestVersionName : "";
+    }
+
+    /// <summary>
+    /// 一键更新全部可更新资源：按缓存里记录的最新兼容版本逐个下载替换（复用全局下载线程数/
+    /// 断点续传），旧文件名不同（版本号变化）时把旧文件移入回收站。单个失败不阻断其余更新。
+    /// </summary>
+    [RelayCommand]
+    private async Task UpdateAllAsync()
+    {
+        if (IsUpdating || IsCheckingUpdates)
         {
             return;
         }
 
+        var targets = _allItems.Where(item => item.IsUpdateAvailable && item.Insight is not null).ToList();
+        if (targets.Count == 0)
+        {
+            StatusMessage = "没有可更新的资源";
+            return;
+        }
+
+        IsUpdating = true;
+        var gameDirectory = _gameDirectory.Length > 0 ? _gameDirectory : _services.Config.EffectiveGameDirectory;
+        var updated = 0;
+        var failed = 0;
         try
         {
-            var curseForge = new CurseForgeClient(_services.CompRequester);
-            var files = await curseForge
-                .LookupFingerprintsAsync(pending.Select(entry => entry.Hash.Murmur2).Distinct().ToList(), cancellationToken)
-                .ConfigureAwait(true);
-            var bySha1 = files
-                .Where(file => !string.IsNullOrEmpty(file.Hash))
-                .GroupBy(file => file.Hash!, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-            foreach (var (item, hash) in pending)
+            foreach (var item in targets)
             {
-                if (bySha1.TryGetValue(hash.Sha1, out _))
+                var entry = item.Insight!;
+                var latestFile = new CompFile
                 {
-                    item.SourceText = "CurseForge";
+                    ProjectId = entry.ProjectId,
+                    Id = entry.LatestVersionId,
+                    DisplayName = entry.LatestVersionName,
+                    FileName = entry.LatestFileName,
+                    Version = entry.LatestVersionName,
+                    Hash = entry.LatestSha1.Length > 0 ? entry.LatestSha1 : null,
+                    Size = 0,
+                    DownloadUrls = entry.LatestDownloadUrl.Length > 0 ? [entry.LatestDownloadUrl] : [],
+                    Type = _resourceType ?? CompResourceType.Mod,
+                    FromCurseForge = entry.IsFromCurseForge
+                };
+                StatusMessage = $"正在更新 {item.Name} → {entry.LatestVersionName}…";
+                try
+                {
+                    await _services.CompInstall
+                        .InstallFileToDirectoryAsync(latestFile, _directory, null, CancellationToken.None)
+                        .ConfigureAwait(true);
+                    // 新版本文件名与旧文件不同（版本号变化）时，删除旧文件避免同 mod 双份共存
+                    if (!Path.GetFileName(item.Path).Equals(latestFile.FileName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        Services.RecycleBin.DeleteFile(item.Path, gameDirectory, item.FileName, _services.Logger);
+                    }
+
+                    updated++;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    _services.Logger.Warn($"更新 {item.Name} 失败：{ex.Message}");
+                    StatusMessage = $"更新 {item.Name} 失败：{ex.Message}";
                 }
             }
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        finally
         {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            // CurseForge 反查需要可用的 API Key/镜像；失败时保留“本地”来源，不伪造结果
-            _services.Logger.Warn($"CurseForge 指纹反查失败（来源列保持为本地）：{ex.Message}");
+            IsUpdating = false;
+            StatusMessage = $"批量更新完成：成功 {updated} 个" + (failed > 0 ? $"，失败 {failed} 个" : "");
+            await LoadAsync().ConfigureAwait(true);
         }
     }
 

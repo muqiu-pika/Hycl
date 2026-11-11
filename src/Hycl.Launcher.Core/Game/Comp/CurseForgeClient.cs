@@ -166,7 +166,27 @@ public sealed partial class CurseForgeClient(CompRequester requester)
         [JsonPropertyName("id")] public long Id { get; set; }
 
         [JsonPropertyName("file")] public CurseForgeFileJson? File { get; set; }
+
+        /// <summary>项目最新文件（任意 MC 版本）：本地资源更新检测据此挑选与当前版本兼容的最新文件。</summary>
+        [JsonPropertyName("latestFiles")] public List<CurseForgeFileJson>? LatestFiles { get; set; }
     }
+
+    private sealed class CurseForgeModsRequest
+    {
+        [JsonPropertyName("modIds")] public List<long> ModIds { get; set; } = [];
+    }
+
+    private sealed class CurseForgeModsResponse
+    {
+        [JsonPropertyName("data")] public List<CurseForgeProjectJson>? Data { get; set; }
+    }
+
+    /// <summary>指纹反查结果（含与指定 MC 版本兼容的最新文件，供本地资源更新检测）。</summary>
+    public sealed record CurseForgeFingerprintInfo(
+        long Fingerprint,
+        long ProjectId,
+        CompFile File,
+        CompFile? LatestCompatible);
 
     /// <summary>
     /// CurseForge 接口 JSON 的 source-gen 元数据：私有嵌套模型经嵌套 context 收录（嵌套 context 可访问
@@ -179,6 +199,8 @@ public sealed partial class CurseForgeClient(CompRequester requester)
     [JsonSerializable(typeof(CurseForgeFingerprintResponse))]
     [JsonSerializable(typeof(CurseForgeFileIdsRequest))]
     [JsonSerializable(typeof(CurseForgeFingerprintsRequest))]
+    [JsonSerializable(typeof(CurseForgeModsRequest))]
+    [JsonSerializable(typeof(CurseForgeModsResponse))]
     private sealed partial class CurseForgeJsonContext : JsonSerializerContext;
 
     // ---------- API ----------
@@ -317,6 +339,92 @@ public sealed partial class CurseForgeClient(CompRequester requester)
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// 指纹反查详情（本地资源更新检测）：除命中的文件外，还从项目的 latestFiles 里挑出
+    /// 与指定 MC 版本兼容的最新文件（按发布时间从新到旧），供「是否可更新」与一键更新使用。
+    /// </summary>
+    public async Task<IReadOnlyList<CurseForgeFingerprintInfo>> LookupFingerprintInfosAsync(
+        IReadOnlyCollection<uint> fingerprints,
+        string? gameVersion,
+        CancellationToken cancellationToken = default)
+    {
+        var results = new List<CurseForgeFingerprintInfo>();
+        var distinct = fingerprints.Distinct().ToList();
+        foreach (var batch in distinct.Chunk(100))
+        {
+            var body = JsonSerializer.Serialize(
+                new CurseForgeFingerprintsRequest { Fingerprints = batch.ToList() },
+                CurseForgeJsonContext.Default.CurseForgeFingerprintsRequest);
+            var response = await requester
+                .PostJsonAsync(
+                    $"{ApiBase}/v1/fingerprints/{GameId}", body, CurseForgeJsonContext.Default.CurseForgeFingerprintResponse,
+                    cancellationToken, requester.CurseForgeHeaders)
+                .ConfigureAwait(false);
+            foreach (var match in response.Data?.ExactMatches ?? [])
+            {
+                if (match.File is null)
+                {
+                    continue;
+                }
+
+                var file = BuildFile(match.File, CompResourceType.Mod);
+                if (file is null)
+                {
+                    continue;
+                }
+
+                CompFile? latest = null;
+                if (match.LatestFiles is { Count: > 0 })
+                {
+                    latest = match.LatestFiles
+                        .Where(candidate => string.IsNullOrWhiteSpace(gameVersion)
+                                            || candidate.GameVersions?.Any(v =>
+                                                v.Equals(gameVersion, StringComparison.OrdinalIgnoreCase)) == true)
+                        .OrderByDescending(candidate => candidate.FileDate ?? DateTimeOffset.MinValue)
+                        .Select(candidate => BuildFile(candidate, CompResourceType.Mod))
+                        .FirstOrDefault(candidate => candidate is not null);
+                }
+
+                results.Add(new CurseForgeFingerprintInfo(
+                    match.Id,
+                    match.File.ModId,
+                    file,
+                    latest));
+            }
+        }
+
+        return results;
+    }
+
+    /// <summary>批量取项目图标 URL（POST /v1/mods）：projectId → logo 缩略图，本地资源更新检测的图标列。</summary>
+    public async Task<IReadOnlyDictionary<long, string>> GetModIconUrlsAsync(
+        IReadOnlyCollection<long> projectIds,
+        CancellationToken cancellationToken = default)
+    {
+        var result = new Dictionary<long, string>();
+        var ids = projectIds.Where(id => id > 0).Distinct().ToList();
+        foreach (var batch in ids.Chunk(100))
+        {
+            var body = JsonSerializer.Serialize(
+                new CurseForgeModsRequest { ModIds = batch.ToList() },
+                CurseForgeJsonContext.Default.CurseForgeModsRequest);
+            var response = await requester.PostJsonAsync(
+                    $"{ApiBase}/v1/mods", body, CurseForgeJsonContext.Default.CurseForgeModsResponse,
+                    cancellationToken, requester.CurseForgeHeaders)
+                .ConfigureAwait(false);
+            foreach (var project in response.Data ?? [])
+            {
+                var icon = project.Logo?.ThumbnailUrl ?? project.Logo?.Url;
+                if (!string.IsNullOrWhiteSpace(icon))
+                {
+                    result[project.Id] = icon;
+                }
+            }
+        }
+
+        return result;
     }
 
     // ---------- 映射 ----------
