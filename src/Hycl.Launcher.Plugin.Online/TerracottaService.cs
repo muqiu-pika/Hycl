@@ -509,10 +509,24 @@ public sealed partial class TerracottaService
                 Log?.Invoke("info", $"已附加 {publicNodes.Count} 个社区节点");
             }
 
+            // 「停止联机/关闭房间」可能在拉节点期间到达（StopAsync 会推进 _operation 并杀掉进程）：
+            // 后续每个阶段入口都必须先核对代际，否则会把会话状态发布到一个已停止的会话上，
+            // 卡片会永久停在「正在创建房间」且引擎已死
+            if (generation != _operation)
+            {
+                return Current;
+            }
+
             // 关键前置：/state/scanning 与 /state/guesting 只在 waiting 状态生效，
             // 否则上游会「静默忽略并返回 200」。之前不校验就直接请求，一旦陶瓦进程复用了
             // 上一次的实例或刚启动尚未进入 waiting，请求就被丢掉，随后必然等到超时。
             await EnsureWaitingAsync(cancellationToken).ConfigureAwait(false);
+
+            // EnsureWaiting 最长等待 10s：期间被停止同样要立即收手（上面的等待已把引擎杀掉）
+            if (generation != _operation)
+            {
+                return Current;
+            }
 
             if (mode == TerracottaMode.Host)
             {
@@ -608,7 +622,13 @@ public sealed partial class TerracottaService
 
             lock (_stateLock)
             {
-                _state = new TerracottaState();
+                // 只复位会话字段：BinaryReady / ToolUpdateHint 是工具安装态，与会话无关，
+                // 清零会让卡片在关闭房间后误显示「补齐文件后重试」安装区
+                _state = new TerracottaState
+                {
+                    BinaryReady = _state.BinaryReady,
+                    ToolUpdateHint = _state.ToolUpdateHint,
+                };
             }
 
             if (!silent)
@@ -704,7 +724,12 @@ public sealed partial class TerracottaService
                 _pollCts?.Cancel();
                 lock (_stateLock)
                 {
-                    _state = new TerracottaState();
+                    // 与 StopAsync 一致：进程意外退出只复位会话，保留工具安装态
+                    _state = new TerracottaState
+                    {
+                        BinaryReady = _state.BinaryReady,
+                        ToolUpdateHint = _state.ToolUpdateHint,
+                    };
                 }
 
                 StateChanged?.Invoke(Current);

@@ -32,6 +32,9 @@ public partial class OnlineToolCardViewModel : ObservableObject
         _service = service;
         _service.Log += OnServiceLog;
         _service.StateChanged += OnServiceStateChanged;
+        // 功能页可能在会话进行中（房间已创建）才被创建：先用服务当前快照初始化，
+        // 否则要等下一个状态事件才会隐藏「创建房间」表单并出现「关闭房间」按钮
+        ApplyState(_service.Current);
         _ = RefreshBinaryStateAsync();
     }
 
@@ -333,39 +336,41 @@ public partial class OnlineToolCardViewModel : ObservableObject
 
     private void OnServiceStateChanged(TerracottaState state)
     {
-        _context.Dispatch(() =>
-        {
-            PhaseText = DescribePhase(state);
-            StateRawText = state.StateRaw ?? "";
-            RoomCode = state.Room ?? "";
-            GameAddress = state.Url ?? "";
-            ErrorText = state.Error ?? "";
-            IsBusy = state.Phase is TerracottaPhase.Starting or TerracottaPhase.Hosting or TerracottaPhase.Joining;
-            // 就绪后房间仍在运行：会话区保持展开，按钮切换为「关闭房间」，否则用户无从退出
-            IsSessionActive = state.Phase
-                is TerracottaPhase.Starting
-                or TerracottaPhase.Hosting
-                or TerracottaPhase.Joining
-                or TerracottaPhase.Ready;
-            StopButtonText = state.Phase == TerracottaPhase.Ready ? "关闭房间" : "停止联机";
-            OnPropertyChanged(nameof(IsReady));
+        _context.Dispatch(() => ApplyState(state));
+    }
 
-            // 工具态由引擎快照驱动：自动下载显示进度，校验失败显示补齐入口，通过后整块隐藏
-            IsBinaryReady = state.BinaryReady;
-            ToolUpdateHint = state.ToolUpdateHint ?? "";
-            if (state.Phase == TerracottaPhase.Downloading)
-            {
-                IsInstalling = true;
-                InstallStatusText = "正在自动下载陶瓦工具…";
-            }
-            else if (!_manualInstalling)
-            {
-                IsInstalling = false;
-                InstallStatusText = state.BinaryReady
-                    ? $"陶瓦 v{_service.ToolVersionNumber} 已就绪"
-                    : string.IsNullOrWhiteSpace(state.Error) ? "正在检查陶瓦工具…" : state.Error;
-            }
-        });
+    private void ApplyState(TerracottaState state)
+    {
+        PhaseText = DescribePhase(state);
+        StateRawText = state.StateRaw ?? "";
+        RoomCode = state.Room ?? "";
+        GameAddress = state.Url ?? "";
+        ErrorText = state.Error ?? "";
+        IsBusy = state.Phase is TerracottaPhase.Starting or TerracottaPhase.Hosting or TerracottaPhase.Joining;
+        // 就绪后房间仍在运行：会话区保持展开，按钮切换为「关闭房间」，否则用户无从退出
+        IsSessionActive = state.Phase
+            is TerracottaPhase.Starting
+            or TerracottaPhase.Hosting
+            or TerracottaPhase.Joining
+            or TerracottaPhase.Ready;
+        StopButtonText = state.Phase == TerracottaPhase.Ready ? "关闭房间" : "停止联机";
+        OnPropertyChanged(nameof(IsReady));
+
+        // 工具态由引擎快照驱动：自动下载显示进度，校验失败显示补齐入口，通过后整块隐藏
+        IsBinaryReady = state.BinaryReady;
+        ToolUpdateHint = state.ToolUpdateHint ?? "";
+        if (state.Phase == TerracottaPhase.Downloading)
+        {
+            IsInstalling = true;
+            InstallStatusText = "正在自动下载陶瓦工具…";
+        }
+        else if (!_manualInstalling)
+        {
+            IsInstalling = false;
+            InstallStatusText = state.BinaryReady
+                ? $"陶瓦 v{_service.ToolVersionNumber} 已就绪"
+                : string.IsNullOrWhiteSpace(state.Error) ? "正在检查陶瓦工具…" : state.Error;
+        }
     }
 
     private async Task RefreshBinaryStateAsync()
