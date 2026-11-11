@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Windows.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Hycl.Launcher.Core.Config;
@@ -47,6 +48,9 @@ public sealed partial class InstanceFolderItem : ObservableObject
     public required string Path { get; init; }
 
     public required string Name { get; init; }
+
+    /// <summary>右键菜单「从列表移除」绑定的命令（由 InstancesViewModel 注入）。</summary>
+    public ICommand? RemoveCommand { get; init; }
 
     public string DisplayPath => Path.EndsWith(System.IO.Path.DirectorySeparatorChar)
         ? Path
@@ -387,6 +391,44 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         }
     }
 
+    /// <summary>右键菜单：把文件夹从列表移除（不删除磁盘文件）；移除当前文件夹时切到剩余第一个。</summary>
+    [RelayCommand]
+    private async Task RemoveFolderAsync(InstanceFolderItem? folder)
+    {
+        if (folder is null)
+        {
+            return;
+        }
+
+        var remaining = (_services.Config.InstanceFolders ?? [])
+            .Where(path => !NormalizeFolderPath(path).Equals(folder.Path, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (remaining.Count == 0)
+        {
+            StatusMessage = "至少需要保留一个游戏文件夹";
+            return;
+        }
+
+        _services.Config.InstanceFolders = remaining;
+        var removingActive = folder.IsActive;
+        if (removingActive)
+        {
+            _services.Config.GameDirectory = remaining[0];
+            _services.Config.SelectedVersion = "";
+            SelectedInstance = null;
+            ClearSearch();
+        }
+
+        await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
+        await RefreshAsync().ConfigureAwait(true);
+        if (removingActive)
+        {
+            FolderChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        StatusMessage = $"已从列表移除 {folder.Name}（不会删除磁盘文件）";
+    }
+
     /// <summary>展开/收起搜索框；收起时清空关键字并恢复完整列表。</summary>
     [RelayCommand]
     private void ToggleSearch()
@@ -681,7 +723,8 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
             {
                 Path = path,
                 Name = InstanceManager.GetFolderDisplayName(path),
-                IsActive = path.Equals(active, StringComparison.OrdinalIgnoreCase)
+                IsActive = path.Equals(active, StringComparison.OrdinalIgnoreCase),
+                RemoveCommand = RemoveFolderCommand
             });
         }
 
@@ -749,6 +792,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
 
         var previous = SelectedInstance;
         var targetId = preferredId ?? previous?.Id;
+        var searching = query.Length > 0;
         Instances.Clear();
         foreach (var instance in visible)
         {
@@ -764,16 +808,17 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
             return;
         }
 
+        // 搜索时也不自动选中第一个结果，避免搜索过程悄悄改掉「当前」版本
         if (targetId is null)
         {
-            SelectedInstance = Instances.FirstOrDefault();
+            SelectedInstance = searching ? null : Instances.FirstOrDefault();
             UpdateCurrentMarkers();
             return;
         }
 
         SelectedInstance = Instances.FirstOrDefault(
                                instance => instance.Id.Equals(targetId, StringComparison.OrdinalIgnoreCase))
-                           ?? Instances.FirstOrDefault();
+                           ?? (searching ? null : Instances.FirstOrDefault());
         UpdateCurrentMarkers();
     }
 
@@ -1807,6 +1852,29 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
 
     // ------------------------- 选中变化 -------------------------
 
+    /// <summary>把选中的实例同步为「当前」版本：更新角标并持久化配置。</summary>
+    private void CommitSelectedInstance(MinecraftInstance instance)
+    {
+        if (instance.GameDirectory.Length > 0)
+        {
+            var active = NormalizeFolderPath(_services.Config.EffectiveGameDirectory);
+            if (!instance.GameDirectory.Equals(active, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+        }
+
+        if (_services.Config.SelectedVersion.Equals(instance.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            UpdateCurrentMarkers();
+            return;
+        }
+
+        _services.Config.SelectedVersion = instance.Id;
+        UpdateCurrentMarkers();
+        _ = _services.ConfigStore.SaveAsync();
+    }
+
     partial void OnSelectedInstanceChanged(MinecraftInstance? value)
     {
         IsConfirmingDelete = false;
@@ -1820,6 +1888,12 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
                 _ = SwitchToInstanceFolderAsync(value);
                 return;
             }
+        }
+
+        // 选中实例即更新「当前」版本，避免选中别的实例后角标仍停在旧版本
+        if (!_switchingForInstance && value is not null)
+        {
+            CommitSelectedInstance(value);
         }
 
         if (value is null)

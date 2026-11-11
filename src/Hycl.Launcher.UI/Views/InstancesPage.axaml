@@ -156,6 +156,13 @@
                                             <Button Classes="folder-menu-item"
                                                     Command="{Binding $parent[ItemsControl].((vm:InstancesViewModel)DataContext).SelectFolderCommand}"
                                                     CommandParameter="{Binding}">
+                                                <Button.ContextMenu>
+                                                    <ContextMenu>
+                                                        <MenuItem Header="从列表移除该文件夹"
+                                                                  Command="{Binding RemoveCommand}"
+                                                                  CommandParameter="{Binding}" />
+                                                    </ContextMenu>
+                                                </Button.ContextMenu>
                                                 <Grid ColumnDefinitions="*,Auto" Margin="2,2">
                                                     <StackPanel Spacing="1" VerticalAlignment="Center">
                                                         <TextBlock Text="{Binding Name}"
