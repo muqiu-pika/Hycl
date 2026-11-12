@@ -1077,6 +1077,12 @@
                                             Content="{Binding Files.AllSelectText}"
                                             Command="{Binding Files.SelectAllCommand}" />
                                     <Button Classes="mc-btn" MinHeight="0" Padding="9,4" FontSize="11.5" Margin="0,0,6,6"
+                                            ToolTip.Tip="清除本分区识别缓存并重新在线匹配（图标/来源/更新全部重查）"
+                                            Content="重新检测"
+                                            IsVisible="{Binding Files.CanCheckUpdates}"
+                                            IsEnabled="{Binding !Files.IsCheckingUpdates}"
+                                            Command="{Binding Files.RecheckCommand}" />
+                                    <Button Classes="mc-btn" MinHeight="0" Padding="9,4" FontSize="11.5" Margin="0,0,6,6"
                                             Content="导出信息" Command="{Binding Files.ExportInfoCommand}" />
                                     <Button Classes="mc-btn primary" MinHeight="0" Padding="9,4" FontSize="11.5" Margin="0,0,6,6"
                                             ToolTip.Tip="按识别到的最新兼容版本，逐个下载替换全部可更新资源（旧版本移入回收站）"

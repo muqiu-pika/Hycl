@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Hycl.Launcher.Core.Download;
+using Hycl.Launcher.Core.Services;
 
 namespace Hycl.Launcher.Core.Game.Comp;
 
@@ -10,11 +11,13 @@ namespace Hycl.Launcher.Core.Game.Comp;
 /// 留空时官方源 403，由 mcimirror 镜像（mod.mcimirror.top/curseforge）兜底——与 PCL-CE 行为一致，
 /// 因此 Key 未配置时功能仍可用，只是请求先经历一次官方源失败。
 /// </summary>
-public sealed partial class CurseForgeClient(CompRequester requester)
+public sealed partial class CurseForgeClient(CompRequester requester, LauncherLogger? logger = null)
 {
     public const string ApiBase = "https://api.curseforge.com";
 
     public const int GameId = 432;
+
+    private readonly LauncherLogger? _logger = logger;
 
     /// <summary>CompType → CurseForge classId（对应 PCL-CE classId 映射表）。</summary>
     public static int ToClassId(CompResourceType type)
@@ -181,12 +184,7 @@ public sealed partial class CurseForgeClient(CompRequester requester)
         [JsonPropertyName("data")] public List<CurseForgeProjectJson>? Data { get; set; }
     }
 
-    /// <summary>指纹反查结果（含与指定 MC 版本兼容的最新文件，供本地资源更新检测）。</summary>
-    public sealed record CurseForgeFingerprintInfo(
-        long Fingerprint,
-        long ProjectId,
-        CompFile File,
-        CompFile? LatestCompatible);
+
 
     /// <summary>
     /// CurseForge 接口 JSON 的 source-gen 元数据：私有嵌套模型经嵌套 context 收录（嵌套 context 可访问
@@ -354,47 +352,60 @@ public sealed partial class CurseForgeClient(CompRequester requester)
         var distinct = fingerprints.Distinct().ToList();
         foreach (var batch in distinct.Chunk(100))
         {
-            var body = JsonSerializer.Serialize(
-                new CurseForgeFingerprintsRequest { Fingerprints = batch.ToList() },
-                CurseForgeJsonContext.Default.CurseForgeFingerprintsRequest);
-            var response = await requester
-                .PostJsonAsync(
-                    $"{ApiBase}/v1/fingerprints/{GameId}", body, CurseForgeJsonContext.Default.CurseForgeFingerprintResponse,
-                    cancellationToken, requester.CurseForgeHeaders)
-                .ConfigureAwait(false);
-            foreach (var match in response.Data?.ExactMatches ?? [])
+            try
             {
-                if (match.File is null)
+                // 逐批容错：一批失败（网络抖动/限流）只丢这一批，其余批次继续，
+                // 与 Modrinth 通道互为补充时不至于整轮颗粒无收
+                var body = JsonSerializer.Serialize(
+                    new CurseForgeFingerprintsRequest { Fingerprints = batch.ToList() },
+                    CurseForgeJsonContext.Default.CurseForgeFingerprintsRequest);
+                var response = await requester
+                    .PostJsonAsync(
+                        $"{ApiBase}/v1/fingerprints/{GameId}", body, CurseForgeJsonContext.Default.CurseForgeFingerprintResponse,
+                        cancellationToken, requester.CurseForgeHeaders)
+                    .ConfigureAwait(false);
+                foreach (var match in response.Data?.ExactMatches ?? [])
                 {
-                    continue;
-                }
+                    if (match.File is null)
+                    {
+                        continue;
+                    }
 
-                var file = BuildFile(match.File, CompResourceType.Mod);
-                if (file is null)
-                {
-                    continue;
-                }
+                    var file = BuildFile(match.File, CompResourceType.Mod);
+                    if (file is null)
+                    {
+                        continue;
+                    }
 
-                CompFile? latest = null;
-                if (match.LatestFiles is { Count: > 0 })
-                {
-                    // 对齐 PCL-CE：最新兼容候选只认正式版（releaseType=1），
-                    // 避免 beta/alpha 被抢先计成“可更新”
-                    latest = match.LatestFiles
-                        .Where(candidate => candidate.ReleaseType == 1)
-                        .Where(candidate => string.IsNullOrWhiteSpace(gameVersion)
-                                            || candidate.GameVersions?.Any(v =>
-                                                v.Equals(gameVersion, StringComparison.OrdinalIgnoreCase)) == true)
-                        .OrderByDescending(candidate => candidate.FileDate ?? DateTimeOffset.MinValue)
-                        .Select(candidate => BuildFile(candidate, CompResourceType.Mod))
-                        .FirstOrDefault(candidate => candidate is not null);
-                }
+                    CompFile? latest = null;
+                    if (match.LatestFiles is { Count: > 0 })
+                    {
+                        // 对齐 PCL-CE：最新兼容候选只认正式版（releaseType=1），
+                        // 避免 beta/alpha 被抢先计成“可更新”
+                        latest = match.LatestFiles
+                            .Where(candidate => candidate.ReleaseType == 1)
+                            .Where(candidate => string.IsNullOrWhiteSpace(gameVersion)
+                                                || candidate.GameVersions?.Any(v =>
+                                                    v.Equals(gameVersion, StringComparison.OrdinalIgnoreCase)) == true)
+                            .OrderByDescending(candidate => candidate.FileDate ?? DateTimeOffset.MinValue)
+                            .Select(candidate => BuildFile(candidate, CompResourceType.Mod))
+                            .FirstOrDefault(candidate => candidate is not null);
+                    }
 
-                results.Add(new CurseForgeFingerprintInfo(
-                    match.Id,
-                    match.File.ModId,
-                    file,
-                    latest));
+                    results.Add(new CurseForgeFingerprintInfo(
+                        match.Id,
+                        match.File.ModId,
+                        file,
+                        latest));
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException)
+            {
+                _logger?.Warn($"CurseForge 指纹批次反查失败（跳过该批 {batch.Length} 个）：{ex.Message}");
             }
         }
 
@@ -518,3 +529,10 @@ public sealed partial class CurseForgeClient(CompRequester requester)
         };
     }
 }
+
+/// <summary>指纹反查结果（含与指定 MC 版本兼容的最新文件，供本地资源更新检测）。</summary>
+public sealed record CurseForgeFingerprintInfo(
+    long Fingerprint,
+    long ProjectId,
+    CompFile File,
+    CompFile? LatestCompatible);
