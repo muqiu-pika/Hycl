@@ -52,7 +52,8 @@ public static class CompApiCache
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
-    private static T? TryGet<T>(string cacheDirectory, string fileName, TimeSpan ttl)
+    /// <summary>通用缓存读取（供分类标签等其它社区元数据复用）。</summary>
+    public static T? TryGet<T>(string cacheDirectory, string fileName, TimeSpan ttl)
         where T : class
     {
         try
@@ -72,7 +73,8 @@ public static class CompApiCache
         }
     }
 
-    private static void Save<T>(string cacheDirectory, string fileName, T value)
+    /// <summary>通用缓存写入。</summary>
+    public static void Save<T>(string cacheDirectory, string fileName, T value)
     {
         try
         {

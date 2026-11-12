@@ -26,6 +26,9 @@ public sealed record ModrinthLatestFile(
     string DownloadUrl,
     DateTimeOffset? DatePublished);
 
+/// <summary>Modrinth 分类标签（/v2/tags/category 的一行）。</summary>
+public sealed record CompModrinthTag(string Category, string ProjectType);
+
 /// <summary>
 /// Modrinth 客户端：搜索 / 项目详情 / 文件列表（对应 PCL-CE Comp 模块的 Modrinth 分支）。
 /// 全部请求经 <see cref="CompRequester"/> 的镜像阶梯（api.modrinth.com ↔ mod.mcimirror.top/modrinth）。
@@ -142,7 +145,33 @@ public sealed partial class ModrinthClient(CompRequester requester)
     [JsonSerializable(typeof(ModrinthUpdateRequest))]
     [JsonSerializable(typeof(List<IReadOnlyList<string>>))]
     [JsonSerializable(typeof(List<string>))]
+    [JsonSerializable(typeof(List<ModrinthTagJson>))]
     private sealed partial class ModrinthJsonContext : JsonSerializerContext;
+
+    private sealed class ModrinthTagJson
+    {
+        [JsonPropertyName("category")] public string? Category { get; set; }
+
+        [JsonPropertyName("project_type")] public string? ProjectType { get; set; }
+    }
+
+    /// <summary>
+    /// 全量分类标签（GET /v2/tags/category，公开接口无需密钥）：
+    /// 分类筛选选项的动态补全来源（静态表保留中文常用项，这里补齐其余全部）。
+    /// </summary>
+    public async Task<IReadOnlyList<CompModrinthTag>> GetTagsAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await requester
+            .GetJsonAsync(
+                $"{ApiBase}/v2/tags/category",
+                ModrinthJsonContext.Default.ListModrinthTagJson,
+                cancellationToken)
+            .ConfigureAwait(false);
+        return (response ?? [])
+            .Where(tag => !string.IsNullOrWhiteSpace(tag.Category) && !string.IsNullOrWhiteSpace(tag.ProjectType))
+            .Select(tag => new CompModrinthTag(tag.Category!, tag.ProjectType!))
+            .ToList();
+    }
 
     /// <summary>POST /version_files* 的响应（以 sha1 为键的版本映射）不依赖生成成员命名，经 Options.GetTypeInfo 取用。</summary>
     private static readonly JsonTypeInfo<Dictionary<string, ModrinthVersionJson>> VersionMapTypeInfo =

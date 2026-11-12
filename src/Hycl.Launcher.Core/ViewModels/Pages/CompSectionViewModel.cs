@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -201,7 +202,7 @@ public partial class CompSectionViewModel : ObservableObject
 
         // 只建静态基线；实例扫描 + 正式版清单的网络拉取推迟到 Attach()（首次进入下载页），
         // 避免启动期后台跑一次完整版本清单请求（1100+ 条 + UVMC 合并，实测 2~3s）。
-        RebuildGameVersionOptions();
+        RebuildGameVersionOptions([], null);
     }
 
     private void OnInstallPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -230,8 +231,9 @@ public partial class CompSectionViewModel : ObservableObject
         _attached = true;
         _install.PropertyChanged += _installWatcher;
 
-        // 进入下载页才做筛选全集的网络增强（正式版清单进程内只取一次，失败回退静态基线）
+        // 进入下载页才做筛选全集的网络增强（版本清单全量 + 分类动态补全，进程内只取一次，失败回退静态基线）
         _ = RefreshGameVersionOptionsAsync();
+        _ = RefreshCategoryOptionsAsync();
 
         // 上次离开页面时搜索结果被取消且列表仍为空：重新发起一次，保证再次进入能自动加载
         if (_searchInterrupted && Results.Count == 0)
@@ -639,8 +641,11 @@ public partial class CompSectionViewModel : ObservableObject
     /// <summary>版本筛选选项：静态版本全集 + 本机已安装版本，按版本号降序；不随搜索结果变化。</summary>
     public ObservableCollection<string> GameVersionOptions { get; } = [];
 
-    /// <summary>分类筛选选项：按资源类型取 PCL-CE 同款固定全集；不随搜索结果变化。</summary>
+    /// <summary>分类筛选选项：静态中文常用表起步，进入分区后由双 API 动态补全（不随搜索结果变化）。</summary>
     public ObservableCollection<string> CategoryOptions { get; } = [];
+
+    /// <summary>当前分区的合并分类选项（静态中文表 + 双 API 动态补全）；null = 尚未补全，回退静态表。</summary>
+    private IReadOnlyList<CompCategoryOption>? _categoryOptions;
 
     /// <summary>加载器筛选选项（仅模组/整合包使用）。</summary>
     public IReadOnlyList<string> LoaderOptions { get; }
@@ -1842,22 +1847,54 @@ public partial class CompSectionViewModel : ObservableObject
     }
 
 
-    /// <summary>重建版本筛选选项：正式版全集（静态基线 + 版本清单动态补入）+ 本机实例版本，按版本号降序，保持当前选中项。</summary>
-    private void RebuildGameVersionOptions(IEnumerable<string>? extra = null)
+    /// <summary>重建版本筛选选项：版本清单全量（正式版/快照/远古版，按发布日期降序）+ 本机实例版本，保持当前选中项。</summary>
+    private void RebuildGameVersionOptions(IReadOnlyList<(string Id, DateTimeOffset? Released)> manifestVersions, IEnumerable<string>? instanceExtras = null)
     {
         var selected = SelectedGameVersion;
-        var versions = CompLocalization.ReleaseGameVersions
-            .Concat(extra ?? [])
-            .Where(CompLocalization.IsReleaseGameVersion)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderByDescending(version => version, CompLocalization.VersionComparer)
-            .ToList();
+        var entries = new List<(string Id, DateTimeOffset? Released)>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // 版本清单全量（含快照与远古版：对齐其它启动器的「最完整」筛选语义）
+        foreach (var version in manifestVersions)
+        {
+            if (seen.Add(version.Id))
+            {
+                entries.Add(version);
+            }
+        }
+
+        // 静态基线兜底（清单不可达时仍有最近几年的完整可选集）
+        foreach (var id in CompLocalization.ReleaseGameVersions)
+        {
+            if (seen.Add(id))
+            {
+                entries.Add((id, null));
+            }
+        }
+
+        // 本机实例版本（规整成纯 MC 版本号，加载器维度由「加载器」下拉负责）
+        foreach (var raw in instanceExtras ?? [])
+        {
+            var id = MinecraftVersionGuesser.Normalize(raw) ?? raw;
+            if (seen.Add(id))
+            {
+                entries.Add((id, null));
+            }
+        }
 
         // 从实例资源列表跳转时可能带入快照版本；异步重建选项时保留它，避免筛选被重置为「全部版本」
-        if (selected != "全部版本" && !versions.Contains(selected, StringComparer.OrdinalIgnoreCase))
+        if (selected != "全部版本" && !seen.Contains(selected))
         {
-            versions.Insert(0, selected);
+            entries.Insert(0, (selected, null));
         }
+
+        // 有发布日期的按日期降序（最新优先，快照与正式版按官方时间线交错）；
+        // 无日期的静态/实例项按版本号降序排在日期序列之后
+        var versions = entries
+            .OrderByDescending(entry => entry.Released ?? DateTimeOffset.MinValue)
+            .ThenByDescending(entry => entry.Id, CompLocalization.VersionComparer)
+            .Select(entry => entry.Id)
+            .ToList();
 
         _suppressFilterSearch = true;
         try
@@ -1885,11 +1922,10 @@ public partial class CompSectionViewModel : ObservableObject
             var instances = await _services.Instances
                 .ScanAsync(_services.Config.EffectiveGameDirectory)
                 .ConfigureAwait(true);
-            await LoadReleaseVersionsAsync().ConfigureAwait(true);
-            // 实例版本同样规整成纯 MC 版本号（1.20.1-fabric → 1.20.1），
-            // 加载器维度由「加载器」下拉负责，不把带加载器名的 id 混进版本筛选项
-            RebuildGameVersionOptions(instances
-                .Select(instance => MinecraftVersionGuesser.Normalize(instance.GameVersion) ?? instance.GameVersion));
+            var manifestVersions = await LoadManifestVersionsAsync().ConfigureAwait(true);
+            RebuildGameVersionOptions(
+                manifestVersions,
+                instances.Select(instance => MinecraftVersionGuesser.Normalize(instance.GameVersion) ?? instance.GameVersion));
         }
         catch
         {
@@ -1897,14 +1933,55 @@ public partial class CompSectionViewModel : ObservableObject
         }
     }
 
-    /// <summary>版本清单只取一次（多个分区共用同一份正式版列表）。</summary>
-    private static Task<IReadOnlyList<string>>? _releaseVersionsTask;
+    /// <summary>分类选项动态补全（Modrinth tags + CF categories 双 API，7 天缓存；失败回退静态表）。</summary>
+    private async Task RefreshCategoryOptionsAsync()
+    {
+        try
+        {
+            var options = await CompCategoryService
+                .GetMergedOptionsAsync(Type, _services.CompRequester, _services.Paths.CacheDirectory)
+                .ConfigureAwait(true);
+            _categoryOptions = options;
+            var selected = SelectedCategory;
+            _suppressFilterSearch = true;
+            try
+            {
+                CategoryOptions.Clear();
+                CategoryOptions.Add("全部分类");
+                foreach (var option in options)
+                {
+                    CategoryOptions.Add(option.Label);
+                }
 
-    private Task<IReadOnlyList<string>> LoadReleaseVersionsAsync()
-        => _releaseVersionsTask ??= FetchReleaseVersionsAsync();
+                SelectedCategory = CategoryOptions.Contains(selected) ? selected : "全部分类";
+            }
+            finally
+            {
+                _suppressFilterSearch = false;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // 页面切换取消：下次进入重试
+        }
+        catch (Exception ex)
+        {
+            _services.Logger.Warn($"分类选项动态补全失败（使用静态表）：{ex.Message}");
+        }
+    }
 
-    /// <summary>从版本清单取正式版版本号并并入筛选全集；失败时保留静态基线，不影响搜索。</summary>
-    private async Task<IReadOnlyList<string>> FetchReleaseVersionsAsync()
+    /// <summary>版本清单只取一次（多个分区共用同一份全量列表，24h 磁盘缓存 + 双源竞速由 Installer 承担）。</summary>
+    private static Task<IReadOnlyList<(string Id, DateTimeOffset? Released)>>? _manifestVersionsTask;
+
+    private Task<IReadOnlyList<(string Id, DateTimeOffset? Released)>> LoadManifestVersionsAsync()
+        => _manifestVersionsTask ??= FetchManifestVersionsAsync();
+
+    /// <summary>
+    /// 从版本清单取<b>全量</b>版本（正式版/快照/远古版，供筛选选项自动化补全）；
+    /// 同时把正式版并入静态基线（MinecraftVersionGuesser 的已知版本集合）；
+    /// 失败时返回空列表，筛选回退静态基线，不影响搜索。
+    /// </summary>
+    private async Task<IReadOnlyList<(string Id, DateTimeOffset? Released)>> FetchManifestVersionsAsync()
     {
         try
         {
@@ -1916,14 +1993,21 @@ public partial class CompSectionViewModel : ObservableObject
                 .Select(version => version.Id)
                 .ToList();
             CompLocalization.MergeReleaseGameVersions(releases);
-            return releases;
+            return versions
+                .Select(version => (version.Id, ParseReleaseTime(version.ReleaseTime)))
+                .ToList();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _services.Logger.Warn($"获取正式版版本列表失败（筛选仅使用静态基线）：{ex.Message}");
+            _services.Logger.Warn($"获取版本清单失败（筛选仅使用静态基线）：{ex.Message}");
             return [];
         }
     }
+
+    private static DateTimeOffset? ParseReleaseTime(string releaseTime)
+        => DateTimeOffset.TryParse(releaseTime, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var value)
+            ? value
+            : null;
 
     partial void OnSelectedGameVersionChanged(string value) => QueueFilterSearch();
 

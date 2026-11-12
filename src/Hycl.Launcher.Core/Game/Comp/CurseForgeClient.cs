@@ -97,6 +97,7 @@ public sealed partial class CurseForgeClient(CompRequester requester, LauncherLo
         [JsonPropertyName("id")] public long Id { get; set; }
         [JsonPropertyName("name")] public string? Name { get; set; }
         [JsonPropertyName("slug")] public string? Slug { get; set; }
+        [JsonPropertyName("classId")] public int? ClassId { get; set; }
     }
 
     private sealed class CurseForgeFileIndexJson
@@ -179,6 +180,14 @@ public sealed partial class CurseForgeClient(CompRequester requester, LauncherLo
         [JsonPropertyName("modIds")] public List<long> ModIds { get; set; } = [];
     }
 
+    private sealed class CurseForgeCategoriesResponse
+    {
+        [JsonPropertyName("data")] public List<CurseForgeCategoryJson>? Data { get; set; }
+    }
+
+    /// <summary>CurseForge 分类（/v1/categories 的一行）。</summary>
+    public sealed record CompCfCategory(long Id, string Name, string Slug, int ClassId);
+
     private sealed class CurseForgeModsResponse
     {
         [JsonPropertyName("data")] public List<CurseForgeProjectJson>? Data { get; set; }
@@ -199,6 +208,7 @@ public sealed partial class CurseForgeClient(CompRequester requester, LauncherLo
     [JsonSerializable(typeof(CurseForgeFingerprintsRequest))]
     [JsonSerializable(typeof(CurseForgeModsRequest))]
     [JsonSerializable(typeof(CurseForgeModsResponse))]
+    [JsonSerializable(typeof(CurseForgeCategoriesResponse))]
     private sealed partial class CurseForgeJsonContext : JsonSerializerContext;
 
     // ---------- API ----------
@@ -439,6 +449,25 @@ public sealed partial class CurseForgeClient(CompRequester requester, LauncherLo
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// 全量分类（GET /v1/categories?gameId=432）：分类筛选选项的动态补全来源。
+    /// 该端点需要 API Key（与搜索同一组头），失败由调用方静默降级到静态表。
+    /// </summary>
+    public async Task<IReadOnlyList<CompCfCategory>> GetCategoriesAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await requester
+            .GetJsonAsync(
+                $"{ApiBase}/v1/categories?gameId={GameId}",
+                CurseForgeJsonContext.Default.CurseForgeCategoriesResponse,
+                cancellationToken,
+                requester.CurseForgeHeaders)
+            .ConfigureAwait(false);
+        return (response.Data ?? [])
+            .Where(category => !string.IsNullOrWhiteSpace(category.Name) && !string.IsNullOrWhiteSpace(category.Slug))
+            .Select(category => new CompCfCategory(category.Id, category.Name!, category.Slug!, category.ClassId ?? 0))
+            .ToList();
     }
 
     // ---------- 映射 ----------
