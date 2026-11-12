@@ -169,7 +169,9 @@ public partial class CompSectionViewModel : ObservableObject
     private CancellationTokenSource? _detailCts;
     private int _searchGeneration;
     private int _detailGeneration;
-    private bool _attached = true;
+    // 关键：初始为 false——此前初始为 true 会让首次 Attach 空跑，
+    // 筛选增强（版本全量/分类补全）与自动续搜在首次进入下载页时从未执行
+    private bool _attached;
     private bool _searchInterrupted;
     private bool _suppressFilterSearch;
     private string? _preferredInstanceId;
@@ -190,8 +192,8 @@ public partial class CompSectionViewModel : ObservableObject
         Title = title;
         IconKey = iconKey;
         Description = description;
+        // 安装进度监听改由 Attach/Detach 订阅与退订（ctor 不订阅，避免与首次 Attach 重复）
         _installWatcher = OnInstallPropertyChanged;
-        _install.PropertyChanged += _installWatcher;
 
         LoaderOptions = ["全部加载器", "Forge", "NeoForge", "Fabric", "Quilt"];
         CategoryOptions.Add("全部分类");
@@ -1927,9 +1929,10 @@ public partial class CompSectionViewModel : ObservableObject
                 manifestVersions,
                 instances.Select(instance => MinecraftVersionGuesser.Normalize(instance.GameVersion) ?? instance.GameVersion));
         }
-        catch
+        catch (Exception ex)
         {
-            // 筛选选项只是增强信息，扫描失败不应影响搜索
+            // 筛选选项只是增强信息，扫描失败不应影响搜索——但必须留痕，否则选项异常无从排查
+            _services.Logger.Warn("游戏版本筛选选项重建失败：" + ex.Message);
         }
     }
 

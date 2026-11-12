@@ -821,8 +821,11 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
             var reusedCount = 0;
             foreach (var (item, hash) in hashed)
             {
+                // 只复用「已识别到项目」的缓存条目；未匹配的「本地」条目（旧版本崩溃时写下的）
+                // 每次都重新走双源匹配——对齐 PCL-CE 的 CompLoaded 语义，网络恢复后可自动补识别
                 var cached = cachedEntries.FirstOrDefault(entry =>
-                    ContentInsightCache.MatchesFile(entry, item.Path, item.File.Size, item.File.Modified.Ticks, hash.Sha1)
+                    entry.Source != "本地"
+                    && ContentInsightCache.MatchesFile(entry, item.Path, item.File.Size, item.File.Modified.Ticks, hash.Sha1)
                     && ContentInsightCache.IsFresh(entry));
                 if (cached is null)
                 {
