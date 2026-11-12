@@ -13,7 +13,8 @@ public sealed record ModrinthHashMatch(
     long Size,
     string Sha1,
     string? Sha512,
-    string DownloadUrl);
+    string DownloadUrl,
+    DateTimeOffset? DatePublished);
 
 /// <summary>按 SHA-1 反查到的「该文件对应的最新兼容版本」（用于本地内容更新检测）。</summary>
 public sealed record ModrinthLatestFile(
@@ -140,6 +141,7 @@ public sealed partial class ModrinthClient(CompRequester requester)
     [JsonSerializable(typeof(ModrinthHashRequest))]
     [JsonSerializable(typeof(ModrinthUpdateRequest))]
     [JsonSerializable(typeof(List<IReadOnlyList<string>>))]
+    [JsonSerializable(typeof(List<string>))]
     private sealed partial class ModrinthJsonContext : JsonSerializerContext;
 
     /// <summary>POST /version_files* 的响应（以 sha1 为键的版本映射）不依赖生成成员命名，经 Options.GetTypeInfo 取用。</summary>
@@ -267,8 +269,10 @@ public sealed partial class ModrinthClient(CompRequester requester)
             .ToList();
         foreach (var batch in ids.Chunk(100))
         {
-            // string[] 走 ListIReadOnlyListString 的元数据形态（T=string 的数组与只读列表同形）
-            var idsJson = JsonSerializer.Serialize(batch.ToList(), ModrinthJsonContext.Default.ListIReadOnlyListString);
+            // /v2/projects?ids=["a","b"]：ids 是 JSON 字符串数组（此前误用
+            // List<IReadOnlyList<string>> 的元数据序列化 List<string>，运行时类型转换炸掉，
+            // 导致本地资源列表的图标阶段整体失败）
+            var idsJson = JsonSerializer.Serialize(batch.ToList(), ModrinthJsonContext.Default.ListString);
             var projects = await requester.GetJsonAsync(
                     $"{ApiBase}/v2/projects?ids={Uri.EscapeDataString(idsJson)}",
                     ModrinthJsonContext.Default.ListModrinthProjectJson,
@@ -384,7 +388,8 @@ public sealed partial class ModrinthClient(CompRequester requester)
                     file.Size,
                     file.Hashes?["sha1"] ?? hash,
                     file.Hashes?.GetValueOrDefault("sha512"),
-                    file.Url);
+                    file.Url,
+                    version.DatePublished);
             }
         }
 

@@ -192,6 +192,8 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
     [ObservableProperty]
     private bool _isUpdating;
 
+    partial void OnIsUpdatingChanged(bool value) => OnPropertyChanged(nameof(UpdateAllText));
+
     [ObservableProperty]
     private string _updateCheckText = "";
 
@@ -213,12 +215,12 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
 
     public string AllCountText => $"全部({_allItems.Count})";
 
-    public string UpdatableCountText => $"可更新({_allItems.Count(item => item.IsUpdateAvailable)})";
+    public string UpdatableCountText => $"可更新({_allItems.Count(item => item.IsUpdateAvailable && item.IsEnabled)})";
 
-    /// <summary>可更新资源数量（一键更新按钮徽标用）。</summary>
-    public int UpdatableCount => _allItems.Count(item => item.IsUpdateAvailable);
+    /// <summary>可更新资源数量（一键更新按钮徽标用；禁用的资源不计入，对齐 PCL-CE 的 enabled 门槛）。</summary>
+    public int UpdatableCount => _allItems.Count(item => item.IsUpdateAvailable && item.IsEnabled);
 
-    public bool HasUpdatable => UpdatableCount > 0 && CanCheckUpdates && !IsUpdating;
+    public bool HasUpdatable => UpdatableCount > 0 && CanCheckUpdates;
 
     /// <summary>一键更新按钮文案：显示待更新数量；批量进行中显示进度状态。</summary>
     public string UpdateAllText => IsUpdating ? "正在批量更新…" : $"一键更新 ({UpdatableCount})";
@@ -833,6 +835,7 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
                         ProjectId = match.ProjectId,
                         InstalledVersionId = match.VersionId
                     };
+                    var updateAvailable = false;
                     if (latest.TryGetValue(hash.Sha1, out var newest))
                     {
                         state.LatestVersionId = newest.VersionId;
@@ -842,10 +845,16 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
                         state.LatestFileName = newest.FileName;
                         state.LatestDownloadUrl = newest.DownloadUrl;
                         state.LatestSha1 = newest.Sha1;
+                        // 对齐 PCL-CE：版本不同且发布日期确实更新才计为可更新
+                        //（装了比“最新”还新的测试版时不误报）
+                        updateAvailable = newest.VersionId != match.VersionId
+                                          && (match.DatePublished is null
+                                              || newest.DatePublished is null
+                                              || newest.DatePublished > match.DatePublished);
                     }
 
                     working[hash.Sha1] = state;
-                    ApplyLookup(item, state, state.LatestVersionId.Length > 0 && state.LatestVersionId != state.InstalledVersionId);
+                    ApplyLookup(item, state, updateAvailable);
                 }
 
                 // CurseForge：未命中 Modrinth 的文件按指纹反查（响应含项目 latestFiles，可判兼容更新）
@@ -883,7 +892,12 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
                                 FromCf = true,
                                 // 图标：直接用命中的项目信息不可得，先留空，下面统一批量取
                             };
-                            if (info.LatestCompatible is { } newest && newest.Id != info.File.Id)
+                            if (info.LatestCompatible is { } newest
+                                && newest.Id != info.File.Id
+                                // 对齐 PCL-CE：发布日期必须真的更新，安装文件比“最新”还新时不误报
+                                && (info.File.ReleaseDate is null
+                                    || newest.ReleaseDate is null
+                                    || newest.ReleaseDate > info.File.ReleaseDate))
                             {
                                 state.LatestVersionId = newest.Id;
                                 state.LatestVersionName = newest.DisplayName.Length > 0
@@ -1107,7 +1121,7 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
             return;
         }
 
-        var targets = _allItems.Where(item => item.IsUpdateAvailable && item.Insight is not null).ToList();
+        var targets = _allItems.Where(item => item.IsUpdateAvailable && item.IsEnabled && item.Insight is not null).ToList();
         if (targets.Count == 0)
         {
             StatusMessage = "没有可更新的资源";

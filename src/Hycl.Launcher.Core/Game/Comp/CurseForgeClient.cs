@@ -378,7 +378,10 @@ public sealed partial class CurseForgeClient(CompRequester requester)
                 CompFile? latest = null;
                 if (match.LatestFiles is { Count: > 0 })
                 {
+                    // 对齐 PCL-CE：最新兼容候选只认正式版（releaseType=1），
+                    // 避免 beta/alpha 被抢先计成“可更新”
                     latest = match.LatestFiles
+                        .Where(candidate => candidate.ReleaseType == 1)
                         .Where(candidate => string.IsNullOrWhiteSpace(gameVersion)
                                             || candidate.GameVersions?.Any(v =>
                                                 v.Equals(gameVersion, StringComparison.OrdinalIgnoreCase)) == true)

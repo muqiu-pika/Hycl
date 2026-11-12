@@ -861,6 +861,18 @@ public partial class CompSectionViewModel : ObservableObject
 
             _lastQuerySignature = Signature(request);
             var source = SourceFlags();
+
+            // 社区资源缓存（参考 PCL-CE 的 compProjectCache 思路并落盘）：
+            // 同一 请求词/筛选/来源/页码 6 小时内直接复用，打开分区不再每次全量请求
+            var cacheKey = $"{Signature(request)}|{source}|offset {_pageIndex}";
+            var cachedSearch = CompApiCache.TryGetSearch(_services.Paths.CacheDirectory, cacheKey);
+            if (cachedSearch is not null)
+            {
+                ApplySearchResult(cachedSearch);
+                ResultSummary = $"共 {cachedSearch.Projects.Count} 条结果（缓存）";
+                return;
+            }
+
             var projects = new List<CompProject>();
             int cfTotal = -1, mrTotal = -1;
             var tasks = new List<Task<CompSearchResult>>();
@@ -898,21 +910,9 @@ public partial class CompSectionViewModel : ObservableObject
                 projects = projects.OrderBy(p => p.FromCurseForge).ToList();
             }
 
-            _lastResult = new CompSearchResult { Projects = projects, CurseForgeTotal = cfTotal, ModrinthTotal = mrTotal };
-            Results.Clear();
-            foreach (var project in projects)
-            {
-                Results.Add(new CompProjectItemViewModel(project));
-            }
-
-            ResultSummary = $"共 {projects.Count} 条结果";
-            CanGoPrevious = _pageIndex > 0;
-            CanGoNext = projects.Count >= 40
-                        && (cfTotal > (_pageIndex + 1) * 40 || mrTotal > (_pageIndex + 1) * 40);
-            if (SelectedProject is not null && !projects.Any(p => p.Id == SelectedProject.Project.Id))
-            {
-                SelectedProject = null;
-            }
+            var merged = new CompSearchResult { Projects = projects, CurseForgeTotal = cfTotal, ModrinthTotal = mrTotal };
+            CompApiCache.SaveSearch(_services.Paths.CacheDirectory, cacheKey, merged);
+            ApplySearchResult(merged);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
@@ -937,6 +937,27 @@ public partial class CompSectionViewModel : ObservableObject
             }
 
             cts.Dispose();
+        }
+    }
+
+    /// <summary>把搜索结果落到结果列表与分页状态（缓存命中与网络请求共用同一渲染路径）。</summary>
+    private void ApplySearchResult(CompSearchResult result)
+    {
+        var projects = result.Projects.ToList();
+        _lastResult = result;
+        Results.Clear();
+        foreach (var project in projects)
+        {
+            Results.Add(new CompProjectItemViewModel(project));
+        }
+
+        ResultSummary = $"共 {projects.Count} 条结果";
+        CanGoPrevious = _pageIndex > 0;
+        CanGoNext = projects.Count >= 40
+                    && (result.CurseForgeTotal > (_pageIndex + 1) * 40 || result.ModrinthTotal > (_pageIndex + 1) * 40);
+        if (SelectedProject is not null && !projects.Any(p => p.Id == SelectedProject.Project.Id))
+        {
+            SelectedProject = null;
         }
     }
 
@@ -979,9 +1000,17 @@ public partial class CompSectionViewModel : ObservableObject
         var translation = CompLocalization.TranslateDescriptionAsync(_services.DownloadClient, item.Project, token);
         try
         {
-            var files = item.Project.FromCurseForge
-                ? await CurseForge.GetFilesAsync(item.Project.Id, Type, token).ConfigureAwait(true)
-                : await Modrinth.GetFilesAsync(item.Project.Id, Type, token).ConfigureAwait(true);
+            // 文件/版本列表走缓存（6h）：详情页来回切换不再重复请求
+            var cacheSource = item.Project.FromCurseForge ? "curseforge" : "modrinth";
+            var files = CompApiCache.TryGetFiles(_services.Paths.CacheDirectory, cacheSource, item.Project.Id);
+            if (files is null)
+            {
+                files = item.Project.FromCurseForge
+                    ? await CurseForge.GetFilesAsync(item.Project.Id, Type, token).ConfigureAwait(true)
+                    : await Modrinth.GetFilesAsync(item.Project.Id, Type, token).ConfigureAwait(true);
+                CompApiCache.SaveFiles(_services.Paths.CacheDirectory, cacheSource, item.Project.Id, files);
+            }
+
             token.ThrowIfCancellationRequested();
             if (generation != _detailGeneration)
             {
