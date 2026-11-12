@@ -448,6 +448,10 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
         OnPropertyChanged(nameof(CountText));
         OnPropertyChanged(nameof(AllCountText));
         OnPropertyChanged(nameof(UpdatableCountText));
+        OnPropertyChanged(nameof(UpdatableCount));
+        OnPropertyChanged(nameof(HasUpdatable));
+        OnPropertyChanged(nameof(UpdateAllText));
+        OnPropertyChanged(nameof(IsUpdating));
         OnPropertyChanged(nameof(EmptyTitle));
         OnPropertyChanged(nameof(EmptyDescription));
         OnPropertyChanged(nameof(AllSelected));
@@ -842,7 +846,7 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
             //    任一来源失败不影响另一个；两边都命中的以 Modrinth 为准（更新定向更准），
             //    CurseForge 命中用于补来源/图标，并作为 Modrinth 缺图标时的兜底
             var pending = hashed.Where(entry => !working.ContainsKey(entry.Hash.Sha1)).ToList();
-            Dictionary<long, CurseForgeFingerprintInfo>? cfByFingerprint = null;
+            Dictionary<string, CurseForgeFingerprintInfo>? cfBySha1ForIcons = null;
             if (pending.Count > 0)
             {
                 UpdateCheckText = "正在通过 Modrinth 与 CurseForge 并行校验…";
@@ -903,8 +907,24 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
                 var modrinthResult = modrinthTask.Result;
                 var installed = modrinthResult.Installed;
                 var latest = modrinthResult.Latest;
-                cfByFingerprint = curseForgeTask.Result?.ToDictionary(info => info.Fingerprint, info => info)
-                                  ?? new Dictionary<long, CurseForgeFingerprintInfo>();
+                // CurseForge 反查结果按 SHA-1 对齐（与 PCL-CE 的 group by hash 同款）：
+                // fingerprints 响应的 exactMatches[].id 实测是 projectId 而非指纹，
+                // 不能用 murmur2 对齐；BuildFile 已把命中的 sha1 写进 File.Hash
+                var cfInfos = curseForgeTask.Result;
+                var cfBySha1 = cfInfos is null
+                    ? new Dictionary<string, CurseForgeFingerprintInfo>(StringComparer.OrdinalIgnoreCase)
+                    : cfInfos
+                        .Where(info => !string.IsNullOrEmpty(info.File.Hash))
+                        .GroupBy(info => info.File.Hash!, StringComparer.OrdinalIgnoreCase)
+                        .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+                _services.Logger.Info($"[本地资源] 双源匹配完成：Modrinth 命中 {(installed?.Count ?? 0)}，CurseForge 命中 {(cfInfos?.Count ?? 0)} / 待检 {pending.Count}");
+                // 图标兜底字典：Modrinth 命中但无图标的文件，用同文件的 CurseForge 记录补图标
+                cfBySha1ForIcons = cfInfos is null
+                    ? null
+                    : cfInfos
+                        .Where(info => !string.IsNullOrEmpty(info.File.Hash))
+                        .GroupBy(info => info.File.Hash!, StringComparer.OrdinalIgnoreCase)
+                        .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
                 foreach (var (item, hash) in pending)
                 {
@@ -937,7 +957,7 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
                         working[hash.Sha1] = state;
                         ApplyLookup(item, state, updateAvailable);
                     }
-                    else if (cfByFingerprint.TryGetValue(hash.Murmur2, out var info))
+                    else if (cfBySha1.TryGetValue(hash.Sha1, out var info))
                     {
                         var state = new LookupWorking
                         {
@@ -1007,8 +1027,8 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
                         // Modrinth 命中但没有图标的文件：用同文件的 CurseForge 记录兜底
                         if (icon.Length == 0
                             && !state.FromCf
-                            && cfByFingerprint is not null
-                            && cfByFingerprint.TryGetValue(hash.Murmur2, out var cfInfo)
+                            && cfBySha1ForIcons is not null
+                            && cfBySha1ForIcons.TryGetValue(hash.Sha1, out var cfInfo)
                             && cfIcons.TryGetValue(cfInfo.ProjectId, out var fallbackIcon))
                         {
                             icon = fallbackIcon;
