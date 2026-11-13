@@ -14,6 +14,14 @@ public sealed class HyclOnlineManifest
     public string PublicNodesUrl { get; init; } = "";
 
     public List<HyclPluginEntry> Plugins { get; init; } = [];
+
+    /// <summary>
+    /// 外部工具节点（tools）——【兼容保留】已分发的插件二进制（≤1.3.1）反序列化清单时
+    /// 会触及本属性与 HyclToolInfo 类型，删除会让旧插件 JIT 抛 MissingMethodException。
+    /// 契约层的 public 成员一经发布即冻结；新代码请改用插件内置官方镜像链。
+    /// </summary>
+    [Obsolete("旧插件二进制兼容保留。")]
+    public Dictionary<string, HyclToolInfo> Tools { get; init; } = new(StringComparer.Ordinal);
 }
 
 /// <summary>插件包条目：zip 内含 plugin.json 与插件程序集，由启动器下载解压加载。</summary>
@@ -41,4 +49,34 @@ public sealed class HyclPluginEntry
     public long Size { get; init; }
 
     public string Description { get; init; } = "";
+}
+
+/// <summary>外部工具信息（如 terracotta），按运行平台挑选资产。【兼容保留，详见 HyclOnlineManifest.Tools】。</summary>
+[Obsolete("旧插件二进制兼容保留。")]
+public sealed class HyclToolInfo
+{
+    public string Version { get; init; } = "";
+
+    public string Upstream { get; init; } = "";
+
+    public string License { get; init; } = "";
+
+    public Dictionary<string, HyclToolAsset> Assets { get; init; } = new(StringComparer.Ordinal);
+}
+
+/// <summary>单个平台资产：urls 按序尝试（本仓库 Release 直链在前，官方镜像兜底），双 SHA-256 校验。【兼容保留】。</summary>
+[Obsolete("旧插件二进制兼容保留。")]
+public sealed class HyclToolAsset
+{
+    public List<string> Urls { get; init; } = [];
+
+    public string FileName { get; init; } = "";
+
+    public string ExeName { get; init; } = "";
+
+    public string Sha256 { get; init; } = "";
+
+    public string ExeSha256 { get; init; } = "";
+
+    public long Size { get; init; }
 }

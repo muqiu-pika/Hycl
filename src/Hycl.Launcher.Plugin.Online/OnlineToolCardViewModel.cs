@@ -404,7 +404,20 @@ public partial class OnlineToolCardViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            _context.Log.Warn("检查陶瓦工具状态失败：" + ex.Message);
+            // 检查失败必须落到 UI，否则卡片会永远停在「正在检查陶瓦工具…」占位文案。
+            // MissingMethodException / TypeLoadException = 插件与启动器契约 ABI 错位（旧插件跑在新宿主上），
+            // 文案要指向「更新插件」而不是让用户以为是文件损坏。
+            _context.Log.Warn("检查陶瓦工具状态失败：" + ex);
+            var incompatible = TerracottaService.IsAbiMismatch(ex);
+            _context.Dispatch(() =>
+            {
+                InstallStatusText = incompatible
+                    ? "插件与启动器版本不兼容，请在「设置 → 插件工坊」更新插件后重启"
+                    : $"陶瓦工具检查失败：{ex.Message}";
+                ToolStatusText = incompatible
+                    ? "当前插件版本早于启动器（契约成员已变更），更新插件即可恢复"
+                    : "检查未完成，可点击「补齐文件后重试」";
+            });
         }
     }
 

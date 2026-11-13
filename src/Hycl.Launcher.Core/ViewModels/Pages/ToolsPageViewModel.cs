@@ -68,7 +68,11 @@ public partial class ToolsPageViewModel : ObservableObject, IPageLifecycle
         }
         catch (Exception ex)
         {
-            _toast?.Invoke($"{entry.Title} 功能页加载失败：{ex.Message}");
+            // ABI 错位（旧插件跑在新宿主）的原始异常（如「Attempted to access a missing method.」）
+            // 对用户毫无信息量，翻译成可执行的指引
+            _toast?.Invoke(ex is MissingMethodException or TypeLoadException or FileLoadException
+                ? $"{entry.Title} 与当前启动器版本不兼容（插件接口已变更），请在「设置 → 插件工坊」更新插件"
+                : $"{entry.Title} 功能页加载失败：{ex.Message}");
             return;
         }
 

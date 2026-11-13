@@ -99,16 +99,21 @@ public partial class PluginWorkshopViewModel : ObservableObject
     private readonly ConfigStore _configStore;
     private readonly Action<string>? _toast;
 
+    /// <summary>由宿主注入的重启动作（MainViewModel.RestartLauncher）；null 时横幅不显示「立即重启」。</summary>
+    private readonly Action? _restartApp;
+
     public PluginWorkshopViewModel(
         PluginManager plugins,
         LauncherConfig config,
         ConfigStore configStore,
-        Action<string>? toast = null)
+        Action<string>? toast = null,
+        Action? restartApp = null)
     {
         _plugins = plugins;
         _config = config;
         _configStore = configStore;
         _toast = toast;
+        _restartApp = restartApp;
         var customUrl = config.OnlineManifestUrl?.Trim() ?? "";
         _customSourceUrl = customUrl;
         _selectedSourceIndex = customUrl.Length == 0 ? 0 : 1;
@@ -129,6 +134,36 @@ public partial class PluginWorkshopViewModel : ObservableObject
 
     [ObservableProperty]
     private string _manifestStatusText = "";
+
+    // ---------- 重启生效提示 ----------
+
+    /// <summary>插件安装/更新后需重启生效：主动横幅，而不是只在行内挂个小字让用户自己发现。</summary>
+    [ObservableProperty]
+    private bool _isRestartBannerVisible;
+
+    [ObservableProperty]
+    private string _restartBannerText = "";
+
+    private void ShowRestartBanner(string text)
+    {
+        if (_restartApp is null)
+        {
+            return;
+        }
+
+        RestartBannerText = text;
+        IsRestartBannerVisible = true;
+    }
+
+    [RelayCommand]
+    private void RestartNow()
+    {
+        IsRestartBannerVisible = false;
+        _restartApp?.Invoke();
+    }
+
+    [RelayCommand]
+    private void RestartLater() => IsRestartBannerVisible = false;
 
     // ---------- 下载源 ----------
 
@@ -226,6 +261,11 @@ public partial class PluginWorkshopViewModel : ObservableObject
             _toast?.Invoke(loadError is null
                 ? $"{row.Name} 安装完成，已默认启用"
                 : $"{row.Name} 已安装但加载失败：{loadError}。可在插件工坊点「重试加载」或重启启动器");
+            // 已加载插件的覆盖安装要重启才能生效：主动横幅让用户选择立即重启或稍后
+            if (_plugins.IsRestartRequired(row.Id))
+            {
+                ShowRestartBanner($"{row.Name} 已更新到新版本，重启启动器后生效。现在重启吗？");
+            }
         }
         catch (OperationCanceledException)
         {

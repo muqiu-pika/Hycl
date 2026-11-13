@@ -332,11 +332,11 @@ public partial class SettingsPageViewModel : ObservableObject
     private ToggleRowViewModel? _showOutputRow;
     private ToggleRowViewModel? _animationsRow;
 
-    public SettingsPageViewModel(LauncherServices services, Action<string>? toast = null)
+    public SettingsPageViewModel(LauncherServices services, Action<string>? toast = null, Action? restartApp = null)
     {
         _services = services;
         _toast = toast;
-        _workshop = new PluginWorkshopViewModel(services.Plugins, services.Config, services.ConfigStore, toast);
+        _workshop = new PluginWorkshopViewModel(services.Plugins, services.Config, services.ConfigStore, toast, restartApp);
         Groups =
         [
             new("游戏",

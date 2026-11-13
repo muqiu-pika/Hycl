@@ -76,10 +76,22 @@ public sealed class PluginCatalogItem
                 return PluginInstallState.UpdatePendingRestart;
             }
 
-            return string.IsNullOrWhiteSpace(Entry.Version) || Entry.Version == Installed.Version
+            // 清单版本必须「严格更高」才提示更新：清单回滚到旧版本时不能让用户把插件降级覆盖
+            return string.IsNullOrWhiteSpace(Entry.Version) || Entry.Version == Installed.Version || !IsNewerVersion(Entry.Version, Installed.Version)
                 ? PluginInstallState.Installed
                 : PluginInstallState.UpdateAvailable;
         }
+    }
+
+    /// <summary>比较 <paramref name="candidate"/> 是否严格高于 <paramref name="current"/>；任一端不可解析（非常规版本串）时退化为「不相等即更新」。</summary>
+    private static bool IsNewerVersion(string candidate, string current)
+    {
+        if (Version.TryParse(candidate, out var c) && Version.TryParse(current, out var i))
+        {
+            return c > i;
+        }
+
+        return candidate != current;
     }
 }
 

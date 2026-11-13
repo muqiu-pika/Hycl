@@ -124,7 +124,7 @@ public partial class MainViewModel : ObservableObject
         Localization.SetLanguage(services.Config.UiLanguage);
         RebuildLocalizedChrome();
         Localization.LanguageChanged += (_, _) => RebuildLocalizedChrome();
-        Settings = new SettingsPageViewModel(services, ShowToast);
+        Settings = new SettingsPageViewModel(services, ShowToast, RestartLauncher);
         PerfTrace.Mark("settings_vm_ctor_done");
         Tools = new ToolsPageViewModel(services, ShowToast);
         PerfTrace.Mark("tools_vm_ctor_done");
@@ -396,6 +396,31 @@ public partial class MainViewModel : ObservableObject
         Launch.CancelPending();
         Download.Shutdown();
         _services.Plugins.ShutdownAll(TimeSpan.FromSeconds(3));
+    }
+
+    private bool _restarting;
+
+    /// <summary>
+    /// 重启启动器（插件更新生效等场景）：派生分离的等待进程（等本进程退出后拉起新实例），
+    /// 再请求关闭主窗口，走正常 Shutdown 清理链路。
+    /// </summary>
+    public void RestartLauncher()
+    {
+        if (_restarting)
+        {
+            return;
+        }
+
+        _restarting = true;
+        var exePath = Environment.ProcessPath;
+        if (exePath is null || !LauncherRestart.SpawnRelauncher(Environment.ProcessId, exePath))
+        {
+            _restarting = false;
+            ShowToast("重启失败，请手动关闭启动器后重新打开");
+            return;
+        }
+
+        CloseRequested?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>显示轻提示（1.6 秒后自动消失）。</summary>

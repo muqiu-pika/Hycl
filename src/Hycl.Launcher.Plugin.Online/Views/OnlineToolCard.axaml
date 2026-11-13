@@ -100,7 +100,7 @@
                         <StackPanel Spacing="6">
                             <TextBlock Text="加入房间" FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" />
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                                <TextBox Grid.Column="0" Text="{Binding JoinCodeInput}"
+                                <TextBox Grid.Column="0" Text="{Binding JoinCodeInput, Mode=TwoWay}"
                                          PlaceholderText="U/XXXX-XXXX-XXXX-XXXX"
                                          FontFamily="Consolas" FontSize="13"
                                          Background="{DynamicResource SurfaceBrush}"

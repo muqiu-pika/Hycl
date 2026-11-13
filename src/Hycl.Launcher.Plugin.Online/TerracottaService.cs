@@ -67,6 +67,14 @@ public sealed partial class TerracottaService
     /// <summary>工具文件缺失或损坏时统一提示（UI 的「补齐文件后重试」按钮会重新下载）。</summary>
     public const string RepairHint = "陶瓦工具文件缺失或完整性校验未通过，请点击「补齐文件后重试」重新下载联机工具";
 
+    /// <summary>插件与启动器契约 ABI 错位（旧插件跑在新宿主上）时的提示：补齐文件没用，只能更新插件。</summary>
+    public const string IncompatibleHint =
+        "插件与启动器版本不兼容（契约成员已变更），请在「设置 → 插件工坊」更新插件后重启启动器";
+
+    /// <summary>ABI 错位特征异常：插件二进制引用的契约成员在新宿主里已不存在。</summary>
+    public static bool IsAbiMismatch(Exception ex) =>
+        ex is MissingMethodException or TypeLoadException or FileLoadException;
+
     private const int StartTotalTimeoutSeconds = 120;
 
     /// <summary>取消下载后保留的断点临时文件超过该时长即视为残件清理。</summary>
@@ -273,8 +281,10 @@ public sealed partial class TerracottaService
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            Publish(s => s with { Phase = TerracottaPhase.Idle, BinaryReady = false, Error = RepairHint });
-            Log?.Invoke("warn", "自动准备陶瓦工具失败：" + ex.Message);
+            // ABI 错位时提示「更新插件」而不是误导用户去补齐文件；全异常落日志（含堆栈）便于诊断
+            var hint = IsAbiMismatch(ex) ? IncompatibleHint : RepairHint;
+            Publish(s => s with { Phase = TerracottaPhase.Idle, BinaryReady = false, Error = hint });
+            Log?.Invoke("warn", "自动准备陶瓦工具失败：" + ex);
         }
         catch (OperationCanceledException)
         {

@@ -16,4 +16,15 @@ public static class HyclOnlineSites
 
     /// <summary>EdgeOne 托管的社区 EasyTier 公共节点清单（AES-256-GCM 密文 public-nodes.enc）。</summary>
     public static string EdgeOnePublicNodesUrl => EdgeOneSiteUrl.Length == 0 ? "" : EdgeOneSiteUrl.TrimEnd('/') + "/public-nodes.enc";
+
+    /// <summary>
+    /// EdgeOne 托管的工具包文件地址（deploy 工作流的目录约定：tools/terracotta/&lt;版本&gt;/&lt;文件名&gt;）；
+    /// 未部署返回 null。
+    /// 【兼容保留】已分发的插件二进制（≤1.3.1）的 BuildOfficialUrls 直接调用本方法，
+    /// 删除会让旧插件 JIT 抛 MissingMethodException、陶瓦卡永远停在「正在检查」——
+    /// 契约层的 public 成员一经发布即冻结，重构只能加不能删。
+    /// </summary>
+    [Obsolete("旧插件二进制兼容保留；新代码请使用插件内置官方镜像链。")]
+    public static string? EdgeOneToolFileUrl(string toolVersion, string fileName)
+        => EdgeOneSiteUrl.Length == 0 ? null : $"{EdgeOneSiteUrl.TrimEnd('/')}/tools/terracotta/{toolVersion}/{fileName}";
 }
