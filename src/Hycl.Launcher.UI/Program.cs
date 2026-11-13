@@ -37,9 +37,22 @@ internal static class Program
 
     public static AppBuilder BuildAvaloniaApp()
     {
-        return AppBuilder.Configure<App>()
+        var builder = AppBuilder.Configure<App>()
             .UsePlatformDetect()
             .LogToTrace();
+
+        // Windows 渲染后端：跳过 ANGLE（av_libglesv2.dll，约 5MB 原生库），
+        // 优先系统 OpenGL（Wgl），驱动不支持时自动回退软件渲染。
+        // 与发布阶段剔除 av_libglesv2.dll 配套，避免默认 AngleEgl 在缺库时启动失败。
+        if (OperatingSystem.IsWindows())
+        {
+            builder = builder.With(new Win32PlatformOptions
+            {
+                RenderingMode = [Win32RenderingMode.Wgl, Win32RenderingMode.Software],
+            });
+        }
+
+        return builder;
     }
 
     /// <summary>

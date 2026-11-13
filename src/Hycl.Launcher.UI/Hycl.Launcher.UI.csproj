@@ -34,6 +34,9 @@
   <!--
     单文件发布时启用压缩（仅在 PublishSingleFile=true 时生效，不影响日常构建）：
     - EnableCompressionInSingleFile：压缩嵌入程序集，显著缩小 exe，启动耗时实测无差异。
+    - Windows 的 ANGLE 原生库（av_libglesv2.dll，约 5MB）在发布阶段剔除，渲染改走
+      Wgl → Software（见 Program.BuildAvaloniaApp），framework-dependent 版本因此从
+      28.7 MB 降到约 23.6 MB。
 
     PublishReadyToRun 保持 false：R2R 会把每个程序集的 IL 预编译成本机码、等于多存一份，
     实测让 win-x64 自包含单文件（原生库已嵌入）从 47.9 MB 涨到 59.2 MB（+11.3 MB，约 24%），
@@ -135,6 +138,8 @@
                                   or '%(ResolvedFileToPublish.FileName)' == 'System.Threading.AccessControl'
                                   or '%(ResolvedFileToPublish.FileName)' == 'System.IO.FileSystem.AccessControl'" />
       <!-- Windows 产物：仅剔除 Linux/macOS 专属 Avalonia 头（UsePlatformDetect 的平台 guard 不会 JIT 到）。
+           av_libglesv2 是 ANGLE（OpenGL ES）后端，约 5MB；Program.BuildAvaloniaApp 在 Windows 上
+           显式使用 Wgl → Software 的渲染顺序，不再选择 AngleEgl，因此该原生库可以从产物剔除。
            Avalonia.Vulkan / Avalonia.Metal / Avalonia.Dialogs 必须保留：
            它们分别被 Avalonia.Win32（Win32GlManager.InitializeCore）、Avalonia.Skia 与
            Avalonia.Themes.Fluent（启动即加载）以 AssemblyRef 引用，剔除后启动即抛
@@ -145,7 +150,8 @@
                                   or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.FreeDesktop'
                                   or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.FreeDesktop.AtSpi'
                                   or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.Native'
-                                  or '%(ResolvedFileToPublish.FileName)' == 'Tmds.DBus.Protocol')" />
+                                  or '%(ResolvedFileToPublish.FileName)' == 'Tmds.DBus.Protocol'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'av_libglesv2')" />
       <!-- Linux 产物：Windows/macOS 专属 Avalonia 头 -->
       <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
                              Condition="('$(RuntimeIdentifier)' == 'linux-x64' or '$(RuntimeIdentifier)' == 'linux-arm64')

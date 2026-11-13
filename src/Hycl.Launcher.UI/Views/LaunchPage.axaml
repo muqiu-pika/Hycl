@@ -9,69 +9,78 @@
              x:CompileBindings="True">
 
     <!-- 对应网页版 LaunchView：左栏玩家 / 档案（互斥切换），右栏启动 + 快捷方式
-         顶部保持与顶栏固定间距；底部不设固定长度，内容多长就多长：
-         超出视口由整页纵向滚动承载，放得下就原样完整显示 -->
+         布局规则（始终随窗口自适应）：
+         - 左栏固定满高、不滚动：玩家卡随窗口高度拉伸，3D 人偶随高度伸缩、启动按钮贴底
+         - 右栏内容超出窗口高度时独立纵向滚动；放得下时两张卡整体垂直居中
+         - 左栏宽度按 3:7 比例跟随窗口，最小 264 保证内容不被挤坏 -->
     <UserControl.Styles>
-        <!-- 整页纵向滚动条向内收 3px：比原先更贴启动器右缘，仍留 3px 余量不越出圆角窗形 -->
+        <!-- 右栏纵向滚动条向内收 3px：仍留 3px 余量不越出圆角窗形 -->
         <Style Selector="ScrollViewer.page-scroll /template/ ScrollBar#PART_VerticalScrollBar">
             <Setter Property="Margin" Value="0,0,3,0" />
         </Style>
     </UserControl.Styles>
     <Panel>
-    <ScrollViewer Classes="page-scroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-    <Grid ColumnDefinitions="300,*">
-            <!-- ================= 左栏（顶部对齐，高度随内容，底部不设固定范围） ================= -->
-            <!-- MinHeight 为按内容量测的极小高度下限：
-                 头像 178 + 名称（12+24）36 + 账号行（4+15）19 + 操作按钮（12+32）44 + 启动按钮（16+54）70 = 347
-                 卡片内边距 14/16 + 标题 16 + 正文间距 10 = 56 → 内容下限 403，取 404 留 1px 余量
-                 低于该高度时由外层 ScrollViewer 纵向滚动，卡片不再压缩内容；
-                 顶部与右栏同为 18 间距，放得下时自然完整显示、不再拉伸到窗口底边 -->
-            <Grid Margin="18,18,15,18" MinHeight="404" VerticalAlignment="Top">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="3*" MinWidth="264" />
+            <ColumnDefinition Width="7*" />
+        </Grid.ColumnDefinitions>
+            <!-- ================= 左栏（满高拉伸：玩家信息居中、启动按钮贴底） ================= -->
+            <!-- MinHeight 404 为按内容量测的下限：左栏固定不滚动，窗口到最小高度时仍能完整显示；
+                 窗口变高时玩家卡跟随拉高，3D 人偶同步放大（封顶 330） -->
+            <Grid Margin="18,18,15,18" MinHeight="404">
                 <!-- 玩家卡（无档案时整卡隐藏，改用下方空状态卡） -->
                 <c:McCard Title="玩家" IsVisible="{Binding ShowPlayerCard}">
-                    <Grid RowDefinitions="*,Auto">
-                        <!-- 玩家信息在剩余空间内垂直居中，底部固定启动按钮 -->
-                        <StackPanel VerticalAlignment="Center">
-                        <Panel Height="178">
-                            <Ellipse Width="168" Height="168"
-                                     HorizontalAlignment="Center"
-                                     VerticalAlignment="Top">
-                                <Ellipse.Fill>
-                                    <RadialGradientBrush>
-                                        <GradientStop Color="#FFE0EAFD" Offset="0" />
-                                        <GradientStop Color="#00EAF2FE" Offset="0.7" />
-                                    </RadialGradientBrush>
-                                </Ellipse.Fill>
-                            </Ellipse>
-                            <Ellipse Width="104" Height="20"
-                                     HorizontalAlignment="Center"
-                                     VerticalAlignment="Bottom"
-                                     Margin="0,0,0,4">
-                                <Ellipse.Fill>
-                                    <RadialGradientBrush>
-                                        <GradientStop Color="#2E343D4A" Offset="0" />
-                                        <GradientStop Color="#00343D4A" Offset="0.7" />
-                                    </RadialGradientBrush>
-                                </Ellipse.Fill>
-                            </Ellipse>
-                            <c:McSkin3D SkinKey="{Binding ActiveProfile.SkinKey}"
-                                       SkinPath="{Binding ActiveProfile.SkinPath}"
-                                       CapePath="{Binding ActiveProfile.CapePath}"
-                                       IsSlim="{Binding ActiveProfile.IsSlim}"
-                                       AutomationProperties.Name="3D人偶预览"
-                                       ToolTip.Tip="移动鼠标转动头部，按住拖动可旋转人偶"
-                                       HorizontalAlignment="Stretch"
-                                       VerticalAlignment="Stretch" />
-                        </Panel>
+                    <Grid RowDefinitions="*,Auto,Auto,Auto,Auto,Auto">
+                        <!-- 3D 人偶区占据剩余高度：等比缩放，窗口矮时保底 150，窗口高时封顶 330 -->
+                        <Viewbox Grid.Row="0"
+                                 Stretch="Uniform"
+                                 MinHeight="150"
+                                 MaxHeight="330"
+                                 Margin="0,0,0,4">
+                            <Panel Width="240" Height="188">
+                                <Ellipse Width="168" Height="168"
+                                         HorizontalAlignment="Center"
+                                         VerticalAlignment="Top">
+                                    <Ellipse.Fill>
+                                        <RadialGradientBrush>
+                                            <GradientStop Color="#FFE0EAFD" Offset="0" />
+                                            <GradientStop Color="#00EAF2FE" Offset="0.7" />
+                                        </RadialGradientBrush>
+                                    </Ellipse.Fill>
+                                </Ellipse>
+                                <Ellipse Width="104" Height="20"
+                                         HorizontalAlignment="Center"
+                                         VerticalAlignment="Bottom"
+                                         Margin="0,0,0,4">
+                                    <Ellipse.Fill>
+                                        <RadialGradientBrush>
+                                            <GradientStop Color="#2E343D4A" Offset="0" />
+                                            <GradientStop Color="#00343D4A" Offset="0.7" />
+                                        </RadialGradientBrush>
+                                    </Ellipse.Fill>
+                                </Ellipse>
+                                <c:McSkin3D SkinKey="{Binding ActiveProfile.SkinKey}"
+                                           SkinPath="{Binding ActiveProfile.SkinPath}"
+                                           CapePath="{Binding ActiveProfile.CapePath}"
+                                           IsSlim="{Binding ActiveProfile.IsSlim}"
+                                           AutomationProperties.Name="3D人偶预览"
+                                           ToolTip.Tip="移动鼠标转动头部，按住拖动可旋转人偶"
+                                           HorizontalAlignment="Stretch"
+                                           VerticalAlignment="Stretch" />
+                            </Panel>
+                        </Viewbox>
 
-                        <TextBlock Text="{Binding PlayerCardName}"
+                        <TextBlock Grid.Row="1"
+                                   Text="{Binding PlayerCardName}"
                                    FontSize="18"
                                    FontWeight="ExtraBold"
                                    Foreground="{DynamicResource TextBrush}"
                                    HorizontalAlignment="Center"
-                                   Margin="0,12,0,0" />
+                                   Margin="0,10,0,0" />
 
-                        <StackPanel Orientation="Horizontal"
+                        <StackPanel Grid.Row="2"
+                                    Orientation="Horizontal"
                                     Spacing="5"
                                     HorizontalAlignment="Center"
                                     Margin="0,4,0,0">
@@ -83,7 +92,8 @@
                                        Foreground="{DynamicResource Gray3Brush}" />
                         </StackPanel>
 
-                        <StackPanel Orientation="Horizontal"
+                        <StackPanel Grid.Row="3"
+                                    Orientation="Horizontal"
                                     Spacing="8"
                                     HorizontalAlignment="Center"
                                     Margin="0,12,0,0">
@@ -116,7 +126,8 @@
                         </StackPanel>
 
                         <!-- 刷新资料的失败提示：令牌失效时额外给出「重新登录」入口，不静默失败 -->
-                        <StackPanel IsVisible="{Binding HasProfileRefreshError}"
+                        <StackPanel Grid.Row="4"
+                                    IsVisible="{Binding HasProfileRefreshError}"
                                     HorizontalAlignment="Center"
                                     Margin="0,8,0,0">
                             <TextBlock Text="{Binding ProfileRefreshError}"
@@ -131,10 +142,9 @@
                                     IsVisible="{Binding ProfileRefreshNeedsLogin}"
                                     Command="{Binding ReLoginProfileCommand}" />
                         </StackPanel>
-                        </StackPanel>
 
                         <!-- 启动按钮固定在玩家栏底部（无底色 + 深蓝外框，双层文字） -->
-                        <Button Grid.Row="1"
+                        <Button Grid.Row="5"
                                 x:Name="LaunchButton"
                                 Classes="accent-btn"
                                 Classes.launching="{Binding IsLaunching}"
@@ -328,9 +338,15 @@
                 </c:McCard>
             </Grid>
 
-            <!-- ================= 右栏（固定项） ================= -->
-            <!-- Auto,Auto + Top：两张卡片按内容取高，窗口变高时底部留空，不拉伸卡片 -->
-            <Grid Grid.Column="1" RowDefinitions="Auto,Auto" VerticalAlignment="Top" Margin="0,18,18,18">
+            <!-- ================= 右栏（内容超出时独立滚动，放得下时垂直居中） ================= -->
+            <ScrollViewer x:Name="RightScroll"
+                          Grid.Column="1"
+                          Classes="page-scroll"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          Margin="0,18,18,18">
+            <Grid MinHeight="{Binding #RightScroll.Bounds.Height}">
+            <StackPanel VerticalAlignment="Center">
                 <!-- 当前版本：仿照 PCL-CE 的版本信息项（图标 + 标签 + 值），只展示版本真实属性 -->
                 <c:McCard Title="当前版本" Margin="0,0,0,15">
                     <StackPanel>
@@ -457,7 +473,7 @@
                     </StackPanel>
                 </c:McCard>
 
-                <c:McCard Grid.Row="1" Title="快捷方式">
+                <c:McCard Title="快捷方式">
                     <ItemsControl ItemsSource="{Binding QuickLinks}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:QuickLinkViewModel">
@@ -497,9 +513,10 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </c:McCard>
+            </StackPanel>
             </Grid>
+            </ScrollViewer>
     </Grid>
-    </ScrollViewer>
 
         <!-- 游戏崩溃横幅：非零退出码且找到崩溃报告时显示 -->
         <Border Classes="crash-banner"
