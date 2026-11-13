@@ -75,10 +75,6 @@ public partial class OnlineToolCardViewModel : ObservableObject
     [ObservableProperty]
     private bool _isRepairing;
 
-    /// <summary>上游清单探测到的陶瓦工具新版本提示（空 = 无更新信息）。</summary>
-    [ObservableProperty]
-    private string _toolUpdateHint = "";
-
     // ---------- 会话态 ----------
 
     [ObservableProperty]
@@ -358,7 +354,6 @@ public partial class OnlineToolCardViewModel : ObservableObject
 
         // 工具态由引擎快照驱动：自动下载显示进度，校验失败显示补齐入口，通过后整块隐藏
         IsBinaryReady = state.BinaryReady;
-        ToolUpdateHint = state.ToolUpdateHint ?? "";
         if (state.Phase == TerracottaPhase.Downloading)
         {
             IsInstalling = true;

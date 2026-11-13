@@ -33,7 +33,7 @@ dotnet run --project src/Hycl.Launcher.UI
 - 交叉 RID 发布（含跨 OS 与跨架构）已实测：关闭 R2R 后 `linux-x64` 与 `osx-arm64` 均只输出单个可执行文件，体积与 Windows 同量级。
 - `app.manifest` / `hycl.ico` 是 Win32 资源，仅在无 RID 或 `win-*` 目标时应用；非 Windows 目标跳过。
 - macOS 的 `.app` 未签名，首次打开若被 Gatekeeper 拦截，执行 `xattr -dr com.apple.quarantine Hycl.app`。
-- 陶瓦联机插件（`Hycl.Online.dll`）是 anycpu 托管程序集，与平台无关；真正的平台差异在 Hycl-online 清单的 6 个 Terracotta 资产（win/linux/mac × x64/arm64），由插件按 `HyclOnlineTools.ToolAssetKey` 挑选，Unix 上自动 `chmod +x`。
+- 陶瓦联机插件（`Hycl.Online.dll`）是 anycpu 托管程序集，与平台无关；真正的平台差异在插件内置的 6 个 Terracotta 官方资产（win/linux/mac × x64/arm64），由插件按 `HyclOnlineTools.ToolAssetKey` 挑选，下载源为官方镜像（gitee / cnb）与官方 GitHub 仓库（经启动器加速池展开、原站托底），Unix 上自动 `chmod +x`。
 - 游戏启动的跨平台处理集中在 `PlatformInfo` / `JavaDetector` / `RuleEvaluator`：Java 可执行文件与搜索路径、classpath 分隔符、`java.library.path`、natives 目录均按平台取值；Win32 窗口标题注入 / 窗口探测只在 Windows 分支生效。macOS 上的 LWJGL 2 版本（1.12.2 及更早）会自动补 `-XstartOnFirstThread`。
 
 本地交叉发布示例：
