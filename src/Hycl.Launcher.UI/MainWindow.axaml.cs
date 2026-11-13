@@ -704,7 +704,12 @@ public partial class MainWindow : Window
             layer.IsHitTestVisible = !maximized;
         }
 
+        // 状态切换时先无条件撤掉旧区域：SizeChanged 在某些输入路径（触屏双击还原等）
+        // 可能滞后甚至不触发，若跳过本步，最大化前残留的旧尺寸圆角区域会一直裁着
+        // 还原后的窗口——露出底下图层（透底）。区域先归零再按新状态重设，任何路径都收敛。
+        ClearWindowRegion();
         ScheduleWindowRegionUpdate();
+        ScheduleRegionSettleCheck();
     }
 
     // —— Windows 圆角窗形区域：把圆角外的四角从窗口矩形中裁掉，点击可穿透到下层窗口 ——
@@ -716,11 +721,41 @@ public partial class MainWindow : Window
     private DispatcherTimer? _regionDebounceTimer;
     private bool _windowRegionApplied;
 
+    // 区域收敛复核：防抖应用后 400ms 再校验一次区域是否与当前窗口矩形一致。
+    // 还原动画（DWM）期间 GetWindowRect 可能取到中间帧尺寸，或事件交错导致防抖结果过期；
+    // 这道兜底保证任何输入路径（触屏双击还原等）最迟 400ms 后区域与窗口对齐，透底不可能滞留。
+    private DispatcherTimer? _regionSettleTimer;
+    private int _lastAppliedLeft = int.MinValue;
+    private int _lastAppliedTop = int.MinValue;
+    private int _lastAppliedWidth = int.MinValue;
+    private int _lastAppliedHeight = int.MinValue;
+
+    private void ScheduleRegionSettleCheck()
+    {
+        if (_regionSettleTimer is null)
+        {
+            _regionSettleTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(400)
+            };
+            _regionSettleTimer.Tick += (_, _) =>
+            {
+                _regionSettleTimer.Stop();
+                // 幂等：区域已正确则跳过，过期/缺失则按当前矩形重设
+                ApplyWindowRegion();
+            };
+        }
+
+        _regionSettleTimer.Stop();
+        _regionSettleTimer.Start();
+    }
+
     /// <summary>窗口尺寸变化：先撤掉按旧尺寸生成的圆角区域，再防抖按新尺寸重设。</summary>
     private void OnWindowSizeChanged()
     {
         ClearWindowRegion();
         ScheduleWindowRegionUpdate();
+        ScheduleRegionSettleCheck();
     }
 
     /// <summary>撤掉当前圆角窗形区域（恢复为完整矩形，不做任何裁切）。</summary>
@@ -776,8 +811,12 @@ public partial class MainWindow : Window
 
         if (WindowState == WindowState.Maximized)
         {
-            SetWindowRgn(handle.Value, IntPtr.Zero, true);
-            _windowRegionApplied = false;
+            if (_windowRegionApplied)
+            {
+                SetWindowRgn(handle.Value, IntPtr.Zero, true);
+                _windowRegionApplied = false;
+            }
+
             return;
         }
 
@@ -787,7 +826,6 @@ public partial class MainWindow : Window
             return;
         }
 
-        var scale = GetDpiForWindow(handle.Value) / 96d;
         var width = rect.Right - rect.Left;
         var height = rect.Bottom - rect.Top;
         if (width <= 0 || height <= 0)
@@ -795,6 +833,18 @@ public partial class MainWindow : Window
             return;
         }
 
+        // 幂等：区域已应用且窗口矩形与上次应用时一致 → 跳过（避免 settle 复核与防抖
+        // 重复 SetWindowRgn 引起 DWM 重算闪烁）；矩形变了才重设
+        if (_windowRegionApplied
+            && rect.Left == _lastAppliedLeft
+            && rect.Top == _lastAppliedTop
+            && width == _lastAppliedWidth
+            && height == _lastAppliedHeight)
+        {
+            return;
+        }
+
+        var scale = GetDpiForWindow(handle.Value) / 96d;
         var radius = Math.Max(2, (int)Math.Round(10 * scale));
         // CreateRoundRectRgn 的 w/h 是圆角椭圆的直径，传 2r 才能得到半径 r；
         // 必须与 MainFrame 的 CornerRadius（10 逻辑像素）一致，否则裁切形状会和视觉圆角错位。
@@ -813,6 +863,10 @@ public partial class MainWindow : Window
         }
 
         _windowRegionApplied = true;
+        _lastAppliedLeft = rect.Left;
+        _lastAppliedTop = rect.Top;
+        _lastAppliedWidth = width;
+        _lastAppliedHeight = height;
     }
 
     [StructLayout(LayoutKind.Sequential)]
