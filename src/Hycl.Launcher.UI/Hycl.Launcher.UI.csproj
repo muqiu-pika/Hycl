@@ -97,6 +97,43 @@
                                   or '%(ResolvedFileToPublish.FileName)' == 'System.Private.DataContractSerialization'
                                   or '%(ResolvedFileToPublish.FileName)' == 'System.Data.Common'
                                   or '%(ResolvedFileToPublish.FileName)' == 'System.Runtime.Serialization.Formatters'" />
+      <!-- 运行时二级剔除（引用闭包分析确认未使用，Releases\tests\skinprobe 的 ClosureProbe 生成）：
+           源码零引用且运行时不按名加载；单文件压缩后约再省 4MB。
+           System.IO.Pipes 保留与否经源码验证（单实例用 Mutex 不用管道）；msquic 随 System.Net.Quic
+           一起剔除（HttpClient 强制 HTTP/1.1，TLS 走 SChannel 不依赖 QUIC）。 -->
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="'%(ResolvedFileToPublish.FileName)' == 'System.Linq.AsyncEnumerable'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'Microsoft.CSharp'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Linq.Parallel'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Linq.Queryable'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Transactions.Local'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Net.Mail'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Net.Requests'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Net.HttpListener'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Net.WebSockets'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Net.WebSockets.Client'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Net.WebClient'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Net.Quic'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'msquic'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Threading.Tasks.Dataflow'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Formats.Tar'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.IO.Pipes'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.IO.IsolatedStorage'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.IO.FileSystem.Watcher'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Net.ServerSentEvents'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Net.Ping'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Threading.Tasks.Parallel'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Reflection.Emit'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Reflection.DispatchProxy'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Text.Encoding.CodePages'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Diagnostics.StackTrace'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Diagnostics.TextWriterTraceListener'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Web.HttpUtility'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Net.WebHeaderCollection'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Net.Http.Json'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Runtime.InteropServices.JavaScript'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.Threading.AccessControl'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'System.IO.FileSystem.AccessControl'" />
       <!-- Windows 产物：仅剔除 Linux/macOS 专属 Avalonia 头（UsePlatformDetect 的平台 guard 不会 JIT 到）。
            Avalonia.Vulkan / Avalonia.Metal / Avalonia.Dialogs 必须保留：
            它们分别被 Avalonia.Win32（Win32GlManager.InitializeCore）、Avalonia.Skia 与
