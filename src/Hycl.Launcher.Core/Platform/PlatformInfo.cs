@@ -146,6 +146,27 @@ public static class PlatformInfo
         return string.IsNullOrWhiteSpace(home) ? Environment.GetFolderPath(Environment.SpecialFolder.Personal) : home;
     }
 
+    /// <summary>
+    /// 系统「下载」文件夹（资源没有可安装实例时的默认落点）。
+    /// 优先读取用户目录下的 Downloads；不存在时回退用户主目录，保证路径一定可用。
+    /// </summary>
+    public static string GetDownloadsDirectory()
+    {
+        var home = GetUserHome();
+        if (IsLinux)
+        {
+            // 遵循 XDG 用户目录规范：配置里可能把下载目录改名/改位置
+            var xdg = Environment.GetEnvironmentVariable("XDG_DOWNLOAD_DIR");
+            if (!string.IsNullOrWhiteSpace(xdg) && Directory.Exists(xdg))
+            {
+                return xdg;
+            }
+        }
+
+        var downloads = Path.Combine(home, "Downloads");
+        return Directory.Exists(downloads) ? downloads : home;
+    }
+
     private static string GetConfigRoot()
     {
         if (IsWindows)

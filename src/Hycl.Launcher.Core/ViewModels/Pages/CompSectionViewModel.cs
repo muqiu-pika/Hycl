@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.Input;
 using Hycl.Launcher.Core.Download;
 using Hycl.Launcher.Core.Game;
 using Hycl.Launcher.Core.Game.Comp;
+using Hycl.Launcher.Core.Platform;
 using Hycl.Launcher.Core.Services;
 
 namespace Hycl.Launcher.Core.ViewModels.Pages;
@@ -746,6 +747,25 @@ public partial class CompSectionViewModel : ObservableObject
 
     public ObservableCollection<string> TargetInstanceOptions { get; } = [];
 
+    /// <summary>
+    /// 是否存在可安装该资源的实例：false 时保存位置弹窗不显示实例下拉，
+    /// 默认落到系统「下载」文件夹，只允许用户手动指定文件夹。
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsInstanceSelectable))]
+    [NotifyPropertyChangedFor(nameof(ShowNoCompatibleInstanceHint))]
+    private bool _hasCompatibleInstances = true;
+
+    /// <summary>「暂无可安装该资源的实例」提示（无兼容实例时显示在弹窗里）。</summary>
+    public string NoCompatibleInstanceText => "暂无可安装该资源的实例";
+
+    /// <summary>无兼容实例时的补充说明（例如该资源只支持哪些加载器）。</summary>
+    [ObservableProperty]
+    private string _noCompatibleInstanceDetail = "";
+
+    /// <summary>普通资源且没有任何兼容实例：保存位置弹窗改为只允许手动选目录。</summary>
+    public bool ShowNoCompatibleInstanceHint => !IsModpackSave && !HasCompatibleInstances;
+
     [ObservableProperty]
     private bool _isSaveDialogVisible;
 
@@ -755,6 +775,7 @@ public partial class CompSectionViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(SaveDialogConfirmText))]
     [NotifyPropertyChangedFor(nameof(SaveDialogBody))]
     [NotifyPropertyChangedFor(nameof(IsInstanceSelectable))]
+    [NotifyPropertyChangedFor(nameof(ShowNoCompatibleInstanceHint))]
     private bool _isModpackSave;
 
     [ObservableProperty]
@@ -773,7 +794,7 @@ public partial class CompSectionViewModel : ObservableObject
     [ObservableProperty]
     private string _saveHint = "";
 
-    public bool IsInstanceSelectable => !IsModpackSave;
+    public bool IsInstanceSelectable => !IsModpackSave && HasCompatibleInstances;
 
     // ---------- 模组前置解析与确认（对应 PCL-CE CompDependency.ConfirmDependencyInstall） ----------
 
@@ -1296,6 +1317,8 @@ public partial class CompSectionViewModel : ObservableObject
     {
         _dialogInstances.Clear();
         TargetInstanceOptions.Clear();
+        SaveHint = "";
+        NoCompatibleInstanceDetail = "";
         var gameDirectory = _services.Config.EffectiveGameDirectory;
         var subFolder = CompInstallService.GetSubFolder(file.Type);
         List<MinecraftInstance> instances;
@@ -1305,11 +1328,10 @@ public partial class CompSectionViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            SaveDirectory = string.IsNullOrEmpty(subFolder)
-                ? gameDirectory
-                : Path.Combine(gameDirectory, subFolder);
+            HasCompatibleInstances = false;
             SelectedTargetInstance = "";
-            SaveHint = $"扫描实例失败：{ex.Message}";
+            SaveDirectory = PlatformInfo.GetDownloadsDirectory();
+            NoCompatibleInstanceDetail = $"扫描实例失败：{ex.Message}";
             return;
         }
 
@@ -1318,44 +1340,32 @@ public partial class CompSectionViewModel : ObservableObject
             .Where(instance => IsInstanceCompatible(instance, file, requiredLoaders))
             .OrderByDescending(instance => instance.LastWriteTime)
             .ToList();
-        if (requiredLoaders.Count > 0 && compatible.Count == 0)
+
+        // 只列出「能装下这个资源」的实例：版本要匹配，模组类还要加载器匹配。
+        // 一个都没有时不展示实例下拉，直接回退到系统下载文件夹（用户仍可手动指定目录）。
+        HasCompatibleInstances = compatible.Count > 0;
+        if (!HasCompatibleInstances)
         {
-            // 该资源只能装在特定加载器实例上（如仅 Forge）：
-            // 按需求只给出对应加载器的实例，不兼容的（含原版）不展示
-            SaveHint = $"该资源仅支持 {string.Join(" / ", requiredLoaders.Select(LoaderDisplayName))} 实例，未检测到可用的对应实例。";
-        }
-        var preferred = _preferredInstanceId is { Length: > 0 }
-            ? instances.FirstOrDefault(instance =>
-                instance.Id.Equals(_preferredInstanceId, StringComparison.OrdinalIgnoreCase))
-            : null;
-        var current = instances.FirstOrDefault(instance =>
-            instance.Id.Equals(_services.Config.SelectedVersion, StringComparison.OrdinalIgnoreCase));
-        if (preferred is not null && compatible.Contains(preferred))
-        {
-            compatible.Remove(preferred);
-            compatible.Insert(0, preferred);
-        }
-        else if (current is not null && compatible.Contains(current))
-        {
-            compatible.Remove(current);
-            compatible.Insert(0, current);
+            SelectedTargetInstance = "";
+            SaveDirectory = PlatformInfo.GetDownloadsDirectory();
+            NoCompatibleInstanceDetail = requiredLoaders.Count > 0
+                ? $"该资源仅支持 {string.Join(" / ", requiredLoaders.Select(LoaderDisplayName))} 实例。"
+                : "没有实例的游戏版本与该资源匹配。";
+            return;
         }
 
-        foreach (var instance in compatible.Concat(instances.Except(compatible)))
+        var preferred = _preferredInstanceId is { Length: > 0 }
+            ? compatible.FirstOrDefault(instance =>
+                instance.Id.Equals(_preferredInstanceId, StringComparison.OrdinalIgnoreCase))
+            : null;
+        var current = compatible.FirstOrDefault(instance =>
+            instance.Id.Equals(_services.Config.SelectedVersion, StringComparison.OrdinalIgnoreCase));
+        var target = preferred ?? current ?? compatible[0];
+
+        foreach (var instance in compatible)
         {
             _dialogInstances.Add(instance);
             TargetInstanceOptions.Add($"{instance.Name} · {instance.Description}");
-        }
-
-        var target = compatible.FirstOrDefault();
-        if (target is null)
-        {
-            SelectedTargetInstance = "";
-            SaveDirectory = string.IsNullOrEmpty(subFolder)
-                ? gameDirectory
-                : Path.Combine(gameDirectory, subFolder);
-            SaveHint = "未找到可用实例，将保存到游戏目录，也可手动修改路径。";
-            return;
         }
 
         SelectedTargetInstance = TargetInstanceOptions[_dialogInstances.IndexOf(target)];
