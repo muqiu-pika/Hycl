@@ -11,7 +11,8 @@
     <!-- 对应网页版 LaunchView：左栏玩家 / 档案（互斥切换），右栏启动 + 快捷方式
          布局规则（始终随窗口自适应）：
          - 左栏固定满高、不滚动：玩家卡随窗口高度拉伸，3D 人偶随高度伸缩、启动按钮贴底
-         - 右栏内容超出窗口高度时独立纵向滚动；放得下时两张卡整体垂直居中
+         - 右栏纵向铺满：当前版本卡贴顶按内容自适应，快捷方式卡填满剩余高度、行随高度均匀分布；
+           窗口高度不够时整体按内容高度独立纵向滚动
          - 左栏宽度按 3:7 比例跟随窗口，最小 264 保证内容不被挤坏 -->
     <UserControl.Styles>
         <!-- 右栏纵向滚动条向内收 3px：仍留 3px 余量不越出圆角窗形 -->
@@ -338,15 +339,17 @@
                 </c:McCard>
             </Grid>
 
-            <!-- ================= 右栏（内容超出时独立滚动，放得下时垂直居中） ================= -->
+            <!-- ================= 右栏（纵向铺满：版本卡贴顶 + 快捷卡填满剩余高度；不够放时独立滚动） ================= -->
             <ScrollViewer x:Name="RightScroll"
                           Grid.Column="1"
                           Classes="page-scroll"
                           VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled"
                           Margin="0,18,18,18">
-            <Grid MinHeight="{Binding #RightScroll.Bounds.Height}">
-            <StackPanel VerticalAlignment="Center">
+            <!-- MinHeight 让 Grid 至少占满视口：窗口高时 * 行把快捷卡撑满剩余高度，
+                 窗口矮时按内容自然高度测量、交给 ScrollViewer 滚动 -->
+            <Grid MinHeight="{Binding #RightScroll.Bounds.Height}"
+                  RowDefinitions="Auto,*">
                 <!-- 当前版本：仿照 PCL-CE 的版本信息项（图标 + 标签 + 值），只展示版本真实属性 -->
                 <c:McCard Title="当前版本" Margin="0,0,0,15">
                     <StackPanel>
@@ -473,8 +476,15 @@
                     </StackPanel>
                 </c:McCard>
 
-                <c:McCard Title="快捷方式">
+                <!-- 快捷方式：填满右栏剩余高度，各行随高度均匀分布（UniformGrid 均分单元格） -->
+                <c:McCard Title="快捷方式" Grid.Row="1">
                     <ItemsControl ItemsSource="{Binding QuickLinks}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <UniformGrid Columns="1"
+                                             Rows="{Binding QuickLinks.Count}" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:QuickLinkViewModel">
                                 <Button Classes="quick-row"
@@ -513,7 +523,6 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </c:McCard>
-            </StackPanel>
             </Grid>
             </ScrollViewer>
     </Grid>
