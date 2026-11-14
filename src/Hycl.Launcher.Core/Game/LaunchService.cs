@@ -441,6 +441,8 @@ public sealed class LaunchService
         _logger.Info(LogSanitizer.Sanitize($"命令：{java.ExecutablePath} {string.Join(' ', jvmArguments)} {mainClass}"));
 
         onStage?.Invoke("正在启动游戏…");
+        // 取消启动的最后防线：参数已拼完、尚未创建进程时命中取消，直接中断而不是拉起进程再结束
+        cancellationToken.ThrowIfCancellationRequested();
         Process process;
         try
         {

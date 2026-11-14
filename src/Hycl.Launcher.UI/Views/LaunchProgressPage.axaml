@@ -133,6 +133,14 @@
                                MaxWidth="320" />
                 </Grid>
 
+                <!-- 取消启动：选错版本 / 启动卡住时不必等流程走完；进程已创建时一并结束游戏 -->
+                <Button Classes="mc-btn"
+                        HorizontalAlignment="Center"
+                        Margin="0,18,0,0"
+                        MinWidth="180"
+                        Content="取消启动"
+                        Command="{Binding Launch.CancelLaunchCommand}" />
+
             </StackPanel>
             </Border>
             </Grid>

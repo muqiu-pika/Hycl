@@ -30,6 +30,14 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     private CancellationTokenSource? _refreshCts;
     private CancellationTokenSource? _progressCts;
     private CancellationTokenSource? _launchTickerCts;
+    /// <summary>本次启动会话的取消令牌：「取消启动」用它中断在途的检查 / 准备 / 窗口等待。</summary>
+    private CancellationTokenSource? _launchCts;
+    /// <summary>本次启动已创建的游戏进程；窗口出现前取消启动时需要主动结束它。</summary>
+    private GameSession? _launchSession;
+    /// <summary>用户已请求取消本次启动：取消后的任何失败 / 退出都按取消收尾，不再弹失败页。</summary>
+    private bool _launchCancelledByUser;
+    /// <summary>被「取消启动」结束掉的游戏会话：退出看护看到它时按取消处理，不按崩溃提示。</summary>
+    private GameSession? _cancelledLaunchSession;
     private Stopwatch? _launchWatch;
     private readonly List<string> _launchLog = new();
     private readonly object _launchLogGate = new();
@@ -1589,6 +1597,12 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         IsCloseGameConfirmVisible = false;
         LaunchStageText = "正在准备启动…";
         SetLaunchProgress(0.04);
+        _launchCancelledByUser = false;
+        _cancelledLaunchSession = null;
+        _launchSession = null;
+        var launchCts = new CancellationTokenSource();
+        _launchCts = launchCts;
+        var launchToken = launchCts.Token;
         try
         {
             var config = _services.Config;
@@ -1607,9 +1621,16 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                     checkOptions,
                     account,
                     step => _services.Dispatcher.Post(() => AdvanceLaunchStep(step)),
-                    onStage: stage => _services.Dispatcher.Post(() => LaunchStageText = stage))
+                    launchToken,
+                    stage => _services.Dispatcher.Post(() => LaunchStageText = stage))
                 .ConfigureAwait(true);
             ApplyPreflightResult(preflight);
+            if (_launchCancelledByUser)
+            {
+                // 取消落在预检的两个 await 之间（预检正常返回）：按取消收尾，不再展示检查结果
+                FinishCancelledLaunch();
+                return;
+            }
             // 检查阶段的进度文案（如自动下载 Java 的分步进度）不残留到后续阶段
             LaunchStageText = "";
 
@@ -1735,6 +1756,8 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                     })
                 .ConfigureAwait(true);
             _sessions.Add(session);
+            // 记录本次启动会话：窗口出现前取消启动时据此结束进程
+            _launchSession = session;
 
             // 进程创建不等于启动成功：继续等待游戏窗口真正可见。
             // 退出看护不在这里启动——否则窗口检测失败/退出的两条分支会与看护互相覆盖状态
@@ -1756,10 +1779,18 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                             SetLaunchProgress(ProgressForMonitorStage(stage));
                         }
                     });
-                }).ConfigureAwait(true);
+                },
+                cancellationToken: launchToken).ConfigureAwait(true);
 
             if (!result.Success)
             {
+                if (_launchCancelledByUser)
+                {
+                    // 取消后进程退出先于令牌检查命中：按取消收尾，不弹失败页
+                    FinishCancelledLaunch();
+                    return;
+                }
+
                 IsLaunching = false;
                 LaunchStageText = "";
                 _services.Logger.Warn(result.Message);
@@ -1794,6 +1825,13 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             LaunchStageText = "游戏窗口已出现";
             CompleteAllLaunchSteps();
             await Task.Delay(600).ConfigureAwait(true);
+            if (_launchCancelledByUser)
+            {
+                // 窗口已出现但尚未宣告成功时被取消：进程已由取消入口结束，不再计数与看护
+                FinishCancelledLaunch();
+                return;
+            }
+
             // 仅“检测到游戏窗口”算一次成功启动；写入配置并立即持久化（重启不清零）
             LaunchCount = _services.Config.IncrementLaunchCount(instance.Id);
             await _services.ConfigStore.SaveAsync().ConfigureAwait(true);
@@ -1824,8 +1862,20 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                 LauncherVisibilityChanged?.Invoke(this, config.LauncherVisibility);
             }
         }
+        catch (OperationCanceledException) when (launchToken.IsCancellationRequested)
+        {
+            // 用户取消启动（检查 / 准备 / 窗口等待阶段中断）：复位到启动页，残留进程一并结束
+            _services.Logger.Info("启动已由用户取消");
+            FinishCancelledLaunch();
+        }
         catch (LaunchException ex)
         {
+            if (_launchCancelledByUser)
+            {
+                FinishCancelledLaunch();
+                return;
+            }
+
             IsLaunching = false;
             IsGameRunning = _sessions.Count > 0;
             SetLaunchProgress(0d);
@@ -1837,6 +1887,12 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
         }
         catch (Exception ex)
         {
+            if (_launchCancelledByUser)
+            {
+                FinishCancelledLaunch();
+                return;
+            }
+
             IsLaunching = false;
             IsGameRunning = _sessions.Count > 0;
             SetLaunchProgress(0d);
@@ -1847,6 +1903,13 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                 null,
                 SnapshotLaunchLog(),
                 $"启动失败：{ex.Message}"), "启动失败");
+        }
+        finally
+        {
+            _launchSession = null;
+            var staleLaunchCts = _launchCts;
+            _launchCts = null;
+            staleLaunchCts?.Dispose();
         }
     }
 
@@ -1890,6 +1953,69 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     {
         StopLaunchTicker();
         IsLaunchProgressVisible = false;
+    }
+
+    /// <summary>启动中页面的「取消启动」（按钮 / Esc）：中断在途准备与窗口等待；进程已创建时立即结束游戏进程树。</summary>
+    [RelayCommand]
+    private void CancelLaunch() => CancelLaunchCore();
+
+    /// <summary>
+    /// 取消启动入口：置取消标记 → 结束残留进程 → 取消令牌 → 立即回到启动页。
+    /// <see cref="IsLaunching"/> 保持 true 直到启动链路在 catch / finally 真正收尾，
+    /// 期间启动按钮维持「正在启动…」禁用态，避免取消未完成时又点出一次新启动。
+    /// </summary>
+    private void CancelLaunchCore()
+    {
+        if (!IsLaunching || _launchCancelledByUser)
+        {
+            return;
+        }
+
+        _launchCancelledByUser = true;
+        LaunchStageText = "正在取消启动…";
+        AppendLaunchLog("[取消] 用户已取消启动");
+        EnsureCancelledLaunchCleanedUp();
+        try
+        {
+            _launchCts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // 启动链路已收尾
+        }
+
+        AbortLaunchSession();
+        _toast?.Invoke(_cancelledLaunchSession is null ? "已取消启动" : "已取消启动，游戏进程已结束");
+    }
+
+    /// <summary>结束并移除本次启动会话残留的游戏进程（尚未创建过进程则为空操作）。</summary>
+    private void EnsureCancelledLaunchCleanedUp()
+    {
+        var session = _launchSession;
+        if (session is null)
+        {
+            return;
+        }
+
+        _cancelledLaunchSession = session;
+        if (!session.HasExited)
+        {
+            session.Stop();
+            AppendLaunchLog("[取消] 已结束游戏进程");
+        }
+
+        _sessions.Remove(session);
+        _launchSession = null;
+    }
+
+    /// <summary>取消后的统一收尾（幂等，由启动链路在取消路径调用）：清掉残留进程并复位启动按钮状态。</summary>
+    private void FinishCancelledLaunch()
+    {
+        EnsureCancelledLaunchCleanedUp();
+        IsLaunching = false;
+        IsGameRunning = _sessions.Count > 0;
+        LaunchStageText = "";
+        SetLaunchProgress(0d);
     }
 
     /// <summary>展示结构化的启动失败页，并把完整日志快照固定下来供复制。</summary>
@@ -2223,6 +2349,13 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
 
             _services.Dispatcher.Post(() =>
             {
+                if (ReferenceEquals(session, _cancelledLaunchSession))
+                {
+                    // 被取消启动结束的会话：状态已由取消链路复位，不按崩溃 / 正常退出提示
+                    _cancelledLaunchSession = null;
+                    return;
+                }
+
                 _sessions.Remove(session);
                 IsLaunching = false;
                 IsGameRunning = _sessions.Count > 0;
