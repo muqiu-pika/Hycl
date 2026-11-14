@@ -360,6 +360,24 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
             ApplyFilter();
             if (CanCheckUpdates && generation == _loadGeneration)
             {
+                // 缓存优先：文件集签名（路径/大小/修改时间）与上次检测一致且未过期时，
+                // 直接用磁盘缓存渲染，不计算 SHA-1、不发任何社区接口请求。
+                // 只有「增删改了文件」「缓存过期」「缓存缺条目/缺图标」才走联网检测。
+                var cacheKey = ContentInsightCache.MakeKey(_directory, _resourceType?.ToString() ?? "local");
+                var cached = ContentInsightCache.Load(_services.Paths.CacheDirectory, cacheKey);
+                if (TryApplyCachedSnapshot(cached, items, out var appliedCount, out var missingIconCount))
+                {
+                    UpdateCheckText = $"已加载本地缓存：{appliedCount} 项"
+                                      + (missingIconCount > 0 ? "（正在补齐图标）" : "（文件未变动，未联网）");
+                    UpdateListState();
+                    if (missingIconCount > 0)
+                    {
+                        _ = RefreshMissingIconsAsync(generation, cacheKey);
+                    }
+
+                    return;
+                }
+
                 _ = RunUpdateCheckAsync(generation);
             }
         }
@@ -370,6 +388,179 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
                 IsLoading = false;
             }
         }
+    }
+
+    /// <summary>
+    /// 尝试用磁盘缓存直接填充列表：签名一致、缓存未过期、每个文件都能对上条目时返回 true。
+    /// 判定只读文件系统元数据（路径/大小/修改时间），因此打开页面的成本与资源数量无关，
+    /// 也不会触发任何网络请求。
+    /// </summary>
+    private bool TryApplyCachedSnapshot(
+        ContentInsightSnapshot cached,
+        IReadOnlyList<LocalContentItemViewModel> items,
+        out int appliedCount,
+        out int missingIconCount)
+    {
+        appliedCount = 0;
+        missingIconCount = 0;
+        if (cached.IsEmpty || !ContentInsightCache.IsFresh(cached))
+        {
+            return false;
+        }
+
+        var files = items.Where(item => !item.IsDirectory).ToList();
+        var signature = ContentInsightCache.ComputeSignature(
+            files.Select(item => (item.Path, item.File.Size, item.File.Modified.Ticks)));
+        if (!signature.Equals(cached.Signature, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var byPath = cached.Entries
+            .GroupBy(entry => entry.Path, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        // 缺条目 = 数据不全（例如上次检测被中途取消）：按必要刷新处理
+        foreach (var item in files)
+        {
+            if (!byPath.TryGetValue(item.Path, out var entry)
+                || entry.Size != item.File.Size
+                || entry.MTimeTicks != item.File.Modified.Ticks)
+            {
+                return false;
+            }
+        }
+
+        foreach (var item in files)
+        {
+            var entry = byPath[item.Path];
+            ApplyCachedEntry(item, entry);
+            appliedCount++;
+            if (entry.ProjectId.Length > 0 && entry.IconUrl.Length == 0)
+            {
+                missingIconCount++;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>把一条缓存记录回填到列表项（来源/图标/可更新状态）。</summary>
+    private static void ApplyCachedEntry(LocalContentItemViewModel item, ContentInsightEntry entry)
+    {
+        item.Insight = entry;
+        item.SourceText = entry.Source;
+        if (entry.IconUrl.Length > 0)
+        {
+            item.IconUrl = entry.IconUrl;
+        }
+
+        var updateAvailable = entry.LatestVersionId.Length > 0
+                              && !entry.LatestVersionId.Equals(entry.InstalledVersionId, StringComparison.OrdinalIgnoreCase);
+        item.IsUpdateAvailable = updateAvailable;
+        item.LatestVersion = updateAvailable ? entry.LatestVersionName : "";
+    }
+
+    /// <summary>
+    /// 仅补齐缺图标的项目（缓存命中但图标字段为空时的「缺少数据」场景）：
+    /// 只请求图标地址，不重新做指纹反查；失败静默，下次打开再试。
+    /// </summary>
+    private async Task RefreshMissingIconsAsync(int generation, string cacheKey)
+    {
+        var pending = _allItems
+            .Where(item => !item.IsDirectory && item.Insight is { ProjectId.Length: > 0, IconUrl.Length: 0 })
+            .ToList();
+        if (pending.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            var token = cts.Token;
+            var modrinthIds = pending
+                .Where(item => !item.Insight!.IsFromCurseForge)
+                .Select(item => item.Insight!.ProjectId)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var curseForgeIds = pending
+                .Where(item => item.Insight!.IsFromCurseForge)
+                .Select(item => item.Insight!.ProjectId)
+                .Where(id => long.TryParse(id, out var parsed) && parsed > 0)
+                .Select(long.Parse)
+                .Distinct()
+                .ToList();
+            if (modrinthIds.Count == 0 && curseForgeIds.Count == 0)
+            {
+                return;
+            }
+
+            var modrinthIcons = modrinthIds.Count > 0
+                ? await new ModrinthClient(_services.CompRequester).GetProjectIconUrlsAsync(modrinthIds, token).ConfigureAwait(true)
+                : new Dictionary<string, string>();
+            var curseForgeIcons = curseForgeIds.Count > 0
+                ? await new CurseForgeClient(_services.CompRequester, _services.Logger).GetModIconUrlsAsync(curseForgeIds, token).ConfigureAwait(true)
+                : new Dictionary<long, string>();
+
+            if (generation != _loadGeneration)
+            {
+                return;
+            }
+
+            var resolved = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in pending)
+            {
+                var entry = item.Insight!;
+                var icon = entry.IsFromCurseForge
+                    ? (long.TryParse(entry.ProjectId, out var id) && curseForgeIcons.TryGetValue(id, out var cfIcon) ? cfIcon : "")
+                    : (modrinthIcons.TryGetValue(entry.ProjectId, out var mrIcon) ? mrIcon : "");
+                if (icon.Length == 0)
+                {
+                    continue;
+                }
+
+                var updated = entry with { IconUrl = icon };
+                item.Insight = updated;
+                item.IconUrl = icon;
+                resolved[item.Path] = icon;
+            }
+
+            if (resolved.Count == 0)
+            {
+                return;
+            }
+
+            var snapshot = ContentInsightCache.Load(_services.Paths.CacheDirectory, cacheKey);
+            if (snapshot.IsEmpty)
+            {
+                return;
+            }
+
+            var entries = snapshot.Entries
+                .Select(entry => resolved.TryGetValue(entry.Path, out var icon) ? entry with { IconUrl = icon } : entry)
+                .ToList();
+            ContentInsightCache.Save(
+                _services.Paths.CacheDirectory,
+                cacheKey,
+                snapshot with { Entries = entries, SavedAtTicks = DateTime.UtcNow.Ticks });
+            UpdateCheckText = $"已加载本地缓存：{_allItems.Count(item => !item.IsDirectory)} 项（已补齐图标，未重新检测）";
+        }
+        catch (OperationCanceledException)
+        {
+            // 超时不提示：图标缺失只影响观感
+        }
+        catch (Exception ex)
+        {
+            _services.Logger.Warn($"补齐资源图标失败（忽略）：{ex.Message}");
+        }
+    }
+
+    /// <summary>缓存命中后刷新依赖列表状态的派生属性（可更新徽标/筛选结果）。</summary>
+    private void UpdateListState()
+    {
+        NotifyListState();
+        ApplyFilter();
     }
 
     private void OnItemPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -490,11 +681,7 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
         try
         {
             var cacheKey = ContentInsightCache.MakeKey(_directory, _resourceType?.ToString() ?? "local");
-            var file = Path.Combine(_services.Paths.CacheDirectory, "content-insight", cacheKey + ".json");
-            if (File.Exists(file))
-            {
-                File.Delete(file);
-            }
+            ContentInsightCache.Clear(_services.Paths.CacheDirectory, cacheKey);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -820,16 +1007,17 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
 
             // ① 缓存复用：路径/大小/修改时间/SHA-1 一致且 24h 内检查过的文件，直接回填结果
             var cacheKey = ContentInsightCache.MakeKey(_directory, _resourceType?.ToString() ?? "local");
-            var cachedEntries = ContentInsightCache.Load(_services.Paths.CacheDirectory, cacheKey);
+            var cachedSnapshot = ContentInsightCache.Load(_services.Paths.CacheDirectory, cacheKey);
+            var cachedEntries = cachedSnapshot.Entries;
             var working = new Dictionary<string, LookupWorking>(StringComparer.OrdinalIgnoreCase);
             var reusedCount = 0;
             foreach (var (item, hash) in hashed)
             {
-                // 只复用「已识别到项目」的缓存条目；未匹配的「本地」条目（旧版本崩溃时写下的）
-                // 每次都重新走双源匹配——对齐 PCL-CE 的 CompLoaded 语义，网络恢复后可自动补识别
+                // 未变动的文件一律复用缓存（含未识别到社区的「本地」条目）：
+                // 只要文件指纹一致，就说明不是新加/改动的资源，没必要再发一次反查请求。
+                // 需要强制重查时走「重新检测」（清缓存）或等 TTL 过期。
                 var cached = cachedEntries.FirstOrDefault(entry =>
-                    entry.Source != "本地"
-                    && ContentInsightCache.MatchesFile(entry, item.Path, item.File.Size, item.File.Modified.Ticks, hash.Sha1)
+                    ContentInsightCache.MatchesFile(entry, item.Path, item.File.Size, item.File.Modified.Ticks, hash.Sha1)
                     && ContentInsightCache.IsFresh(entry));
                 if (cached is null)
                 {
@@ -1081,7 +1269,17 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
                 item.Insight = entries[^1];
             }
 
-            ContentInsightCache.Save(_services.Paths.CacheDirectory, cacheKey, entries);
+            ContentInsightCache.Save(
+                _services.Paths.CacheDirectory,
+                cacheKey,
+                new ContentInsightSnapshot
+                {
+                    // 签名来自本轮的扫描结果：下次打开只要文件集没变，就能直接命中缓存、不联网
+                    Signature = ContentInsightCache.ComputeSignature(
+                        hashed.Select(entry => (entry.Item.Path, entry.Item.File.Size, entry.Item.File.Modified.Ticks))),
+                    Entries = entries,
+                    SavedAtTicks = DateTime.UtcNow.Ticks
+                });
 
             if (generation != _loadGeneration)
             {
