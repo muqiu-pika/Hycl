@@ -109,6 +109,8 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         };
         Export = new InstanceExportViewModel(services, message => StatusMessage = message);
         Servers = new InstanceServersViewModel(services, message => StatusMessage = message);
+        Files.InstancePickRequested = () =>
+            StatusMessage = "请在左侧版本列表中选择已安装加载器（Forge / Fabric / NeoForge 等）的实例，再从该实例进入资源管理。";
     }
 
     /// <summary>

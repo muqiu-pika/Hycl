@@ -1588,5 +1588,53 @@
                 </StackPanel>
             </Border>
         </Panel>
+
+        <!-- 加载器缺失提示（对齐 PCL-CE：原版实例不可使用模组） -->
+        <Panel Grid.ColumnSpan="3"
+               IsVisible="{Binding Files.IsLoaderBlockedDialogVisible}"
+               Background="{DynamicResource DialogScrimBrush}"
+               ZIndex="4">
+            <Border Background="{DynamicResource GlassSurfaceBrush}"
+                    BorderBrush="{DynamicResource SoftLineBrush}"
+                    BorderThickness="1"
+                    CornerRadius="10"
+                    Width="560"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Padding="18,16">
+                <StackPanel Spacing="0">
+                    <TextBlock Text="{Binding Files.LoaderBlockedTitle}"
+                               FontSize="17"
+                               FontWeight="Bold"
+                               HorizontalAlignment="Center"
+                               Foreground="{DynamicResource PrimaryDeepBrush}" />
+                    <Border Height="2"
+                            Margin="0,8,0,0"
+                            CornerRadius="1"
+                            Background="{DynamicResource PrimaryDeepBrush}" />
+                    <TextBlock Margin="6,12,6,0"
+                               FontSize="12.5"
+                               LineHeight="21"
+                               TextWrapping="Wrap"
+                               Text="{Binding Files.LoaderBlockedBody}"
+                               Foreground="{DynamicResource Gray2Brush}" />
+                    <StackPanel Orientation="Horizontal"
+                                Spacing="16"
+                                HorizontalAlignment="Center"
+                                Margin="0,18,0,0">
+                        <Button Classes="line-btn"
+                                MinWidth="140"
+                                Height="34"
+                                Content="转到下载页面"
+                                Command="{Binding Files.GoDownloadPageFromBlockedCommand}" />
+                        <Button Classes="line-btn"
+                                MinWidth="140"
+                                Height="34"
+                                Content="实例选择"
+                                Command="{Binding Files.PickAnotherInstanceCommand}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Panel>
     </Grid>
 </UserControl>

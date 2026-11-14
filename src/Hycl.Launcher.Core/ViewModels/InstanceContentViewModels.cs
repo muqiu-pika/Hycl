@@ -152,6 +152,9 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
     /// <summary>进入下载页并选中对应资源类别（由主窗口接线）。</summary>
     public Action<CompResourceType>? DownloadRequested { get; set; }
 
+    /// <summary>提示用户去左侧版本列表切换实例（由实例页接线，用于「实例选择」按钮）。</summary>
+    public Action? InstancePickRequested { get; set; }
+
     public ObservableCollection<LocalContentItemViewModel> Items { get; } = new();
 
     public ObservableCollection<ModRelationLine> Relations { get; } = new();
@@ -199,6 +202,18 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _isRelationsDialogVisible;
+
+    /// <summary>「该实例不可使用模组」提示卡是否显示（对齐 PCL-CE 的加载器缺失提示）。</summary>
+    [ObservableProperty]
+    private bool _isLoaderBlockedDialogVisible;
+
+    [ObservableProperty]
+    private string _loaderBlockedTitle = "该实例不可使用模组";
+
+    /// <summary>提示卡正文：说明需要先装加载器，或切换到了错误的实例。</summary>
+    public string LoaderBlockedBody =>
+        "你需要先安装 Forge、Fabric 等模组加载器才能使用模组，请在下载页面安装这些实例。\n"
+        + "如果你已经安装过了模组加载器，那么你很可能选择了错误的实例，请点击实例选择按钮切换实例。";
 
     [ObservableProperty]
     private string _relationsSummary = "";
@@ -294,6 +309,7 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
         SelectedSort = SortByName;
         SortDescending = false;
         IsRelationsDialogVisible = false;
+        IsLoaderBlockedDialogVisible = false;
         Relations.Clear();
         DetachItems();
         _allItems.Clear();
@@ -730,11 +746,51 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
     [RelayCommand]
     private void DownloadNew()
     {
+        if (_resourceType is not { } type)
+        {
+            return;
+        }
+
+        // 模组必须有模组加载器才能加载：原版（或只有 OptiFine 之类非加载器整合）实例
+        // 先弹出与 PCL-CE 一致的「该实例不可使用模组」提示，而不是直接跳下载页。
+        if (type == CompResourceType.Mod && !IsLoaderCapable(_loader))
+        {
+            LoaderBlockedTitle = $"该实例不可使用{CompLocalization.TypeName(type)}";
+            IsLoaderBlockedDialogVisible = true;
+            return;
+        }
+
+        DownloadRequested?.Invoke(type);
+    }
+
+    /// <summary>提示卡里的「转到下载页面」：仍然跳转下载页，用户可自行安装加载器。</summary>
+    [RelayCommand]
+    private void GoDownloadPageFromBlocked()
+    {
+        IsLoaderBlockedDialogVisible = false;
         if (_resourceType is { } type)
         {
             DownloadRequested?.Invoke(type);
         }
     }
+
+    /// <summary>提示卡里的「实例选择」：收起提示并引导到左侧版本列表。</summary>
+    [RelayCommand]
+    private void PickAnotherInstance()
+    {
+        IsLoaderBlockedDialogVisible = false;
+        InstancePickRequested?.Invoke();
+    }
+
+    [RelayCommand]
+    private void CloseLoaderBlockedDialog() => IsLoaderBlockedDialogVisible = false;
+
+    /// <summary>实例是否具备加载模组的能力（原版 / 仅 OptiFine 都不算）。</summary>
+    private static bool IsLoaderCapable(string loader) => loader.Trim().ToLowerInvariant() switch
+    {
+        "forge" or "cleanroom" or "neoforge" or "fabric" or "legacy fabric" or "quilt" or "liteloader" => true,
+        _ => false
+    };
 
     [RelayCommand]
     private async Task InstallFromFileAsync()
