@@ -40,11 +40,13 @@ public static class CompApiCache
     /// <summary>尝试取缓存的项目文件/版本列表（详情页「文件 / 版本列表」数据源）。</summary>
     public static IReadOnlyList<CompFile>? TryGetFiles(string cacheDirectory, string source, string projectId)
     {
-        return TryGet<List<CompFile>>(cacheDirectory, $"files-{MakeKey(source + "|" + projectId)}", DetailTtl);
+        // 文件缓存带 schema 版本：CurseForge 文件的加载器字段曾整段缺失（ModLoaders 为空），
+        // 旧缓存不能再用，否则详情页的加载器分组仍会错。改字段结构时同步递增版本号。
+        return TryGet<List<CompFile>>(cacheDirectory, $"files2-{MakeKey(source + "|" + projectId)}", DetailTtl);
     }
 
     public static void SaveFiles(string cacheDirectory, string source, string projectId, IReadOnlyList<CompFile> files)
-        => Save(cacheDirectory, $"files-{MakeKey(source + "|" + projectId)}", files);
+        => Save(cacheDirectory, $"files2-{MakeKey(source + "|" + projectId)}", files);
 
     private static string MakeKey(string raw)
     {

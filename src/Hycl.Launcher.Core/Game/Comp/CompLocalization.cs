@@ -245,6 +245,40 @@ public static partial class CompLocalization
         ["mod-world"] = "模组世界"
     };
 
+    /// <summary>
+    /// 真正的模组加载器标识（小写）。CurseForge 会把加载器名塞进 gameVersions 数组
+    /// （如 "NeoForge" / "Fabric"），需要与 MC 版本号拆开；"minecraft"/"datapack" 等
+    /// 只是来源标记，不算加载器，分组时会退化为「仅版本」。
+    /// </summary>
+    public static readonly IReadOnlySet<string> LoaderTokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "forge", "neoforge", "fabric", "quilt", "liteloader", "rift", "optifine", "iris", "canvas",
+        "cleanroom", "labymod"
+    };
+
+    /// <summary>该字符串是否表示一个加载器（用于从 gameVersions 里拆加载器）。</summary>
+    public static bool IsLoaderToken(string? value)
+        => !string.IsNullOrWhiteSpace(value) && LoaderTokens.Contains(value.Trim());
+
+    /// <summary>CurseForge 的 "Client" / "Server" 表示文件适用侧，不是游戏版本。</summary>
+    public static bool IsPseudoGameVersion(string? value)
+        => value is not null
+           && (value.Equals("Client", StringComparison.OrdinalIgnoreCase)
+               || value.Equals("Server", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// 归一化加载器标签：只保留真实加载器并转小写去重；
+    /// 传入 null 或全为 minecraft/datapack 等标记时返回空列表（调用方按「无加载器约束」处理）。
+    /// </summary>
+    public static IReadOnlyList<string> NormalizeLoaders(IEnumerable<string>? values)
+        => values is null
+            ? []
+            : values
+                .Where(IsLoaderToken)
+                .Select(value => value.Trim().ToLowerInvariant())
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
     /// <summary>加载器显示名（品牌名保持原文，非品牌项补中文）。</summary>
     private static readonly Dictionary<string, string> LoaderNames = new(StringComparer.OrdinalIgnoreCase)
     {

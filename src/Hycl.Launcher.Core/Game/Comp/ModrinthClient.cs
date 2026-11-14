@@ -504,7 +504,7 @@ public sealed partial class ModrinthClient(CompRequester requester)
             ReleaseDate = version.DatePublished,
             Status = FromVersionType(version.VersionType),
             GameVersions = version.GameVersions ?? [],
-            ModLoaders = version.Loaders ?? [],
+            ModLoaders = CompLocalization.NormalizeLoaders(version.Loaders),
             Hash = file.Hashes is not null && file.Hashes.TryGetValue("sha1", out var sha1) ? sha1 : null,
             Size = file.Size,
             DownloadUrls = DownloadSources.GetModDownloadUrls(file.Url, requester.Solution),

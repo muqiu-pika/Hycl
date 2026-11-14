@@ -532,6 +532,16 @@ public sealed partial class CurseForgeClient(CompRequester requester, LauncherLo
 
         var hash = json.Hashes?.FirstOrDefault(h => h.Algo == 1)?.Value
                    ?? json.Hashes?.FirstOrDefault(h => h.Algo == 2)?.Value;
+        // CurseForge 的 gameVersions 数组混装了两类值：MC 版本号（1.21.1）与加载器名（NeoForge/Fabric），
+        // 还有 Client/Server 这种侧标记。拆开后：版本进 GameVersions，加载器进 ModLoaders——
+        // 否则详情页拿不到文件的加载器，加载器分组会全部塌成「只有版本号」的组。
+        var rawGameVersions = json.GameVersions ?? [];
+        var loaders = CompLocalization.NormalizeLoaders(rawGameVersions);
+        var gameVersions = rawGameVersions
+            .Where(value => !CompLocalization.IsLoaderToken(value)
+                            && !CompLocalization.IsPseudoGameVersion(value)
+                            && !string.IsNullOrWhiteSpace(value))
+            .ToList();
         var dependencies = (json.Dependencies ?? [])
             .Where(d => d.ModId is not 306612 and not 634179)   // Fabric API / Embeddium（PCL-CE 同款排除）
             .Select(d => new CompDependencyRef(d.ModId.ToString(), d.RelationType == 3))
@@ -545,8 +555,8 @@ public sealed partial class CurseForgeClient(CompRequester requester, LauncherLo
             Version = "",
             ReleaseDate = json.FileDate,
             Status = (CompFileStatus)Math.Clamp(json.ReleaseType, 1, 3),
-            GameVersions = json.GameVersions ?? [],
-            ModLoaders = [],
+            GameVersions = gameVersions,
+            ModLoaders = loaders,
             Hash = string.IsNullOrEmpty(hash) ? null : hash,
             Size = json.FileLength,
             DownloadUrls = DownloadSources.GetModDownloadUrls(url, requester.Solution),

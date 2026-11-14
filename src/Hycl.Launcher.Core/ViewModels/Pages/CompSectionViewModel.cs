@@ -500,8 +500,12 @@ public partial class CompSectionViewModel : ObservableObject
     /// <summary>加载器胶囊仅在模组且至少两个加载器时展示。</summary>
     public bool HasDetailLoaderFilter => DetailLoaderChips.Count >= 2;
 
-    /// <summary>当前筛选下可安装文件总数。</summary>
-    public int DetailFileCount => DetailGroups.Sum(group => group.Files.Count);
+    /// <summary>当前筛选下可安装文件数（同一文件出现在多个加载器分组时只算一次）。</summary>
+    public int DetailFileCount => DetailGroups
+        .SelectMany(group => group.Files)
+        .Select(item => item.File.Id)
+        .Distinct(StringComparer.Ordinal)
+        .Count();
 
     public string DetailFileCountText => DetailFileCount == 0 ? "" : $"共 {DetailFileCount} 个文件";
 
@@ -639,20 +643,38 @@ public partial class CompSectionViewModel : ObservableObject
             return;
         }
 
-        var grouped = _detailFiles
-            .Where(MatchesDetailScope)
-            .GroupBy(file => (Loader: PrimaryLoader(file), Version: GroupVersionLabel(file)))
-            .Select(group => new
+        // 同一文件可能同时支持多个加载器（如 Forge + NeoForge）：在每个加载器分组里都要出现，
+        // 否则只过滤到某个加载器时该加载器分组会莫名缺项。非模组类型不做加载器分组。
+        var buckets = new Dictionary<(string Loader, string Version), List<CompFile>>();
+        foreach (var file in _detailFiles.Where(MatchesDetailScope))
+        {
+            var version = GroupVersionLabel(file);
+            foreach (var loader in GroupLoaders(file))
             {
-                group.Key.Loader,
-                group.Key.Version,
-                Files = group
+                if (!buckets.TryGetValue((loader, version), out var list))
+                {
+                    buckets[(loader, version)] = list = [];
+                }
+
+                if (list.All(existing => existing.Id != file.Id))
+                {
+                    list.Add(file);
+                }
+            }
+        }
+
+        var grouped = buckets
+            .OrderByDescending(pair => pair.Key.Version, CompLocalization.VersionComparer)
+            .ThenBy(pair => LoaderOrder(pair.Key.Loader))
+            .Select(pair => new
+            {
+                pair.Key.Loader,
+                pair.Key.Version,
+                Files = pair.Value
                     .OrderByDescending(file => file.ReleaseDate ?? DateTimeOffset.MinValue)
                     .Select(ToDetailItem)
                     .ToList()
             })
-            .OrderByDescending(group => group.Version, CompLocalization.VersionComparer)
-            .ThenBy(group => LoaderOrder(group.Loader))
             .ToList();
 
         foreach (var group in grouped)
@@ -759,12 +781,30 @@ public partial class CompSectionViewModel : ObservableObject
         return _detailVersionGrouped ? DetailVersionGroup(newest) : newest;
     }
 
-    /// <summary>文件的加载器标签（多加载器文件取排位最靠前的一个，用于分组标题）。</summary>
-    private static string PrimaryLoader(CompFile file) => file.ModLoaders
-        .Select(CompLocalization.LoaderName)
-        .Where(name => name.Length > 0)
-        .OrderBy(LoaderOrder)
-        .FirstOrDefault() ?? "";
+    /// <summary>
+    /// 文件应归属的加载器分组：模组按文件声明的加载器逐个分组；选了具体加载器胶囊时只归到该加载器；
+    /// 非模组类型（资源包/光影/数据包）不参与加载器分组，统一空串。
+    /// </summary>
+    private IReadOnlyList<string> GroupLoaders(CompFile file)
+    {
+        if (Type != CompResourceType.Mod)
+        {
+            return [""];
+        }
+
+        if (_detailLoaderScope != AllDetailLoaders)
+        {
+            return [_detailLoaderScope];
+        }
+
+        var loaders = file.ModLoaders
+            .Select(CompLocalization.LoaderName)
+            .Where(name => name.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(LoaderOrder)
+            .ToList();
+        return loaders.Count > 0 ? loaders : [""];
+    }
 
     /// <summary>加载器展示顺序：NeoForge → Forge → Fabric → Quilt → 其它（对齐 PCL-CE 的分组顺序）。</summary>
     private static int LoaderOrder(string loader) => loader.ToLowerInvariant() switch
