@@ -376,17 +376,25 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
             ApplyFilter();
             if (CanCheckUpdates && generation == _loadGeneration)
             {
-                // 缓存优先：文件集签名（路径/大小/修改时间）与上次检测一致且未过期时，
-                // 直接用磁盘缓存渲染，不计算 SHA-1、不发任何社区接口请求。
-                // 只有「增删改了文件」「缓存过期」「缓存缺条目/缺图标」才走联网检测。
                 var cacheKey = ContentInsightCache.MakeKey(_directory, _resourceType?.ToString() ?? "local");
                 var cached = ContentInsightCache.Load(_services.Paths.CacheDirectory, cacheKey);
-                if (TryApplyCachedSnapshot(cached, items, out var appliedCount, out var missingIconCount))
+
+                // ① 先把缓存里能对上的资源立刻画出来：图标、来源、可更新标记全部先显示，
+                //    不等联网、也不看 TTL——用户进入页面就能看到上次的结果。
+                var shown = ApplyCachedEntriesImmediately(items, cached);
+                if (shown > 0)
                 {
-                    UpdateCheckText = $"已加载本地缓存：{appliedCount} 项"
-                                      + (missingIconCount > 0 ? "（正在补齐图标）" : "（文件未变动，未联网）");
                     UpdateListState();
-                    if (missingIconCount > 0)
+                }
+
+                // ② 再比对文件集：一致且未过期说明没有变化，无需任何请求；
+                //    否则后台逐文件比对（只请求新增/变动的），完成后更新缓存。
+                if (IsSnapshotCurrent(cached) && ContentInsightCache.IsFresh(cached))
+                {
+                    var missingIcons = CountMissingIcons(items);
+                    UpdateCheckText = $"已加载本地缓存：{shown} 项"
+                                      + (missingIcons > 0 ? "（正在补齐图标）" : "（文件未变动，未联网）");
+                    if (missingIcons > 0)
                     {
                         _ = RefreshMissingIconsAsync(generation, cacheKey);
                     }
@@ -394,6 +402,7 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
                     return;
                 }
 
+                UpdateCheckText = shown > 0 ? $"已显示缓存内容：{shown} 项，正在检查变更…" : "";
                 _ = RunUpdateCheckAsync(generation);
             }
         }
@@ -407,24 +416,53 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 尝试用磁盘缓存直接填充列表：签名一致、缓存未过期、每个文件都能对上条目时返回 true。
-    /// 判定只读文件系统元数据（路径/大小/修改时间），因此打开页面的成本与资源数量无关，
-    /// 也不会触发任何网络请求。
+    /// 用缓存立刻填充列表（不判断 TTL、不判断整体签名）：只要单个文件的路径/大小/修改时间对得上，
+    /// 就把上次的图标、来源与可更新状态先显示出来。这样进入页面第一帧就有内容，
+    /// 后台再慢慢核对差异（新增/改动的文件才需要联网）。
     /// </summary>
-    private bool TryApplyCachedSnapshot(
-        ContentInsightSnapshot cached,
+    private static int ApplyCachedEntriesImmediately(
         IReadOnlyList<LocalContentItemViewModel> items,
-        out int appliedCount,
-        out int missingIconCount)
+        ContentInsightSnapshot cached)
     {
-        appliedCount = 0;
-        missingIconCount = 0;
-        if (cached.IsEmpty || !ContentInsightCache.IsFresh(cached))
+        if (cached.IsEmpty)
+        {
+            return 0;
+        }
+
+        var byPath = cached.Entries
+            .GroupBy(entry => entry.Path, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        var applied = 0;
+        foreach (var item in items)
+        {
+            if (item.IsDirectory
+                || !byPath.TryGetValue(item.Path, out var entry)
+                || entry.Size != item.File.Size
+                || entry.MTimeTicks != item.File.Modified.Ticks)
+            {
+                continue;
+            }
+
+            ApplyCachedEntry(item, entry);
+            applied++;
+        }
+
+        return applied;
+    }
+
+    /// <summary>
+    /// 文件集是否与缓存一致（路径/大小/修改时间的有序签名相同，且每个文件都有对应条目）。
+    /// 只看文件系统元数据，代价与资源数量线性相关但不读文件内容。
+    /// </summary>
+    private bool IsSnapshotCurrent(ContentInsightSnapshot cached)
+    {
+        if (cached.IsEmpty)
         {
             return false;
         }
 
-        var files = items.Where(item => !item.IsDirectory).ToList();
+        var files = _allItems.Where(item => !item.IsDirectory).ToList();
         var signature = ContentInsightCache.ComputeSignature(
             files.Select(item => (item.Path, item.File.Size, item.File.Modified.Ticks)));
         if (!signature.Equals(cached.Signature, StringComparison.OrdinalIgnoreCase))
@@ -432,34 +470,17 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
             return false;
         }
 
-        var byPath = cached.Entries
-            .GroupBy(entry => entry.Path, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-
+        var known = cached.Entries
+            .Select(entry => entry.Path)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         // 缺条目 = 数据不全（例如上次检测被中途取消）：按必要刷新处理
-        foreach (var item in files)
-        {
-            if (!byPath.TryGetValue(item.Path, out var entry)
-                || entry.Size != item.File.Size
-                || entry.MTimeTicks != item.File.Modified.Ticks)
-            {
-                return false;
-            }
-        }
-
-        foreach (var item in files)
-        {
-            var entry = byPath[item.Path];
-            ApplyCachedEntry(item, entry);
-            appliedCount++;
-            if (entry.ProjectId.Length > 0 && entry.IconUrl.Length == 0)
-            {
-                missingIconCount++;
-            }
-        }
-
-        return true;
+        return files.All(item => known.Contains(item.Path));
     }
+
+    /// <summary>已识别到社区项目但缺图标的条目数（缓存命中后需要补一次轻量图标请求）。</summary>
+    private static int CountMissingIcons(IReadOnlyList<LocalContentItemViewModel> items)
+        => items.Count(item => !item.IsDirectory
+                               && item.Insight is { ProjectId.Length: > 0, IconUrl.Length: 0 });
 
     /// <summary>把一条缓存记录回填到列表项（来源/图标/可更新状态）。</summary>
     private static void ApplyCachedEntry(LocalContentItemViewModel item, ContentInsightEntry entry)
@@ -1034,7 +1055,7 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
         _updateCts = cts;
         var token = cts.Token;
         IsCheckingUpdates = true;
-        UpdateCheckText = "正在计算文件指纹…";
+        UpdateCheckText = "正在比对本地缓存…";
         try
         {
             var hashed = await Task.Run(async () =>
