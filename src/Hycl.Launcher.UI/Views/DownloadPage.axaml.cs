@@ -1,6 +1,7 @@
 using System.IO;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Platform.Storage;
 using Avalonia.VisualTree;
 using Hycl.Launcher.Core.ViewModels.Pages;
@@ -26,7 +27,17 @@ public partial class DownloadPage : UserControl
         foreach (var section in viewModel.CompSections)
         {
             section.FolderPicker = PickFolderAsync;
+            section.CopyText = CopyTextAsync;
         }
+    }
+
+    /// <summary>详情页「复制名称」：把文本写入系统剪贴板（平台差异交给 Avalonia 处理）。</summary>
+    private async Task CopyTextAsync(string text)
+    {
+        var top = TopLevel.GetTopLevel(this) ?? throw new InvalidOperationException("窗口未就绪");
+        var data = new DataTransfer();
+        data.Add(DataTransferItem.CreateText(text));
+        await (top.Clipboard ?? throw new InvalidOperationException("剪贴板不可用")).SetDataAsync(data);
     }
 
     /// <summary>底部任务条整块点击进入下载详情页；点取消等子按钮时交给按钮自身处理。</summary>

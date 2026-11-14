@@ -14,6 +14,31 @@
         <Style Selector="ScrollViewer.page-scroll /template/ ScrollBar#PART_VerticalScrollBar">
             <Setter Property="Margin" Value="0,0,-15,0" />
         </Style>
+
+        <!-- 详情页版本/加载器胶囊：默认透明文字按钮，选中为主色实心（对齐 PCL-CE 的版本标签行） -->
+        <Style Selector="Button.version-chip">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="12" />
+            <Setter Property="Padding" Value="11,3" />
+            <Setter Property="Margin" Value="0,0,4,4" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+        </Style>
+        <Style Selector="Button.version-chip:pointerover">
+            <Setter Property="Background" Value="{DynamicResource Primary8Brush}" />
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryDeepBrush}" />
+        </Style>
+        <Style Selector="Button.version-chip.active">
+            <Setter Property="Background" Value="{DynamicResource PrimaryBrush}" />
+            <Setter Property="Foreground" Value="White" />
+        </Style>
+        <Style Selector="Button.version-chip.active:pointerover">
+            <Setter Property="Background" Value="{DynamicResource PrimaryBrush}" />
+            <Setter Property="Foreground" Value="White" />
+        </Style>
     </UserControl.Styles>
     <Grid ColumnDefinitions="186,*">
 
@@ -728,22 +753,21 @@
                                 </StackPanel>
                             </StackPanel>
 
-                            <!-- ═══ 详情页：项目信息 + 文件版本 + 下载 ═══ -->
+                            <!-- ═══ 详情页：项目信息卡 + 版本胶囊 + 加载器分组列表（对齐 PCL-CE PageDownloadCompDetail） ═══ -->
                             <StackPanel Spacing="8"
                                         IsVisible="{Binding ActiveCompSection.SelectedProject, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                <!-- 顶卡：返回 + 图标 + 标题/作者/来源 -->
+                                <!-- 顶卡：返回 + 大图标 + 标题/原文名 + 信息行 + 操作按钮 -->
                                 <Border Background="{DynamicResource GlassSurfaceBrush}"
                                         BorderBrush="{DynamicResource SoftLineBrush}"
                                         BorderThickness="1"
                                         CornerRadius="10"
-                                        Padding="12,10">
-                                    <StackPanel Spacing="8">
-                                    <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="10">
+                                        Padding="14,12">
+                                    <StackPanel Spacing="10">
                                         <Button Classes="line-btn"
                                                 MinHeight="0"
-                                                Height="30"
-                                                Padding="9,4"
-                                                VerticalAlignment="Center"
+                                                Height="28"
+                                                Padding="8,3"
+                                                HorizontalAlignment="Left"
                                                 ToolTip.Tip="返回搜索结果"
                                                 Command="{Binding ActiveCompSection.CloseDetailCommand}">
                                             <StackPanel Orientation="Horizontal" Spacing="4">
@@ -752,168 +776,272 @@
                                                             Height="13"
                                                             VerticalAlignment="Center"
                                                             Foreground="{DynamicResource BlockButtonTextBrush}" />
-                                                <TextBlock Text="返回"
-                                                           FontSize="12"
-                                                           VerticalAlignment="Center" />
+                                                <TextBlock Text="返回" FontSize="12" VerticalAlignment="Center" />
                                             </StackPanel>
                                         </Button>
-                                        <Border Grid.Column="1"
-                                                Width="52"
-                                                Height="52"
-                                                CornerRadius="8"
-                                                VerticalAlignment="Center"
-                                                Background="{DynamicResource Primary8Brush}">
-                                            <Border.Clip>
-                                                <RectangleGeometry Rect="0,0,52,52" RadiusX="8" RadiusY="8" />
-                                            </Border.Clip>
-                                            <c:HyclImage Url="{Binding ActiveCompSection.SelectedProject.IconUrl}"
-                                                         Width="52"
-                                                         Height="52"
-                                                         HorizontalAlignment="Center"
-                                                         VerticalAlignment="Center" />
-                                        </Border>
-                                        <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="3">
-                                            <TextBlock Text="{Binding ActiveCompSection.SelectedProject.Title}"
-                                                       FontSize="16"
-                                                       FontWeight="Bold"
-                                                       TextWrapping="Wrap"
-                                                       Foreground="{DynamicResource TextBrush}" />
-                                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                                <TextBlock Text="作者："
-                                                           FontSize="11.5"
-                                                           VerticalAlignment="Center"
-                                                           Foreground="{DynamicResource Gray3Brush}" />
-                                                <TextBlock Text="{Binding ActiveCompSection.SelectedProjectAuthor}"
-                                                           FontSize="11.5"
-                                                           VerticalAlignment="Center"
-                                                           Foreground="{DynamicResource Gray3Brush}" />
-                                                <Border Classes="tag">
-                                                    <TextBlock Text="{Binding ActiveCompSection.SelectedProject.SourceText}" />
-                                                </Border>
-                                            </StackPanel>
-                                        </StackPanel>
-                                        <StackPanel Grid.Column="3"
-                                                    Orientation="Horizontal"
-                                                    Spacing="6"
-                                                    VerticalAlignment="Center">
-                                            <c:McComboBox Width="132"
-                                                          Height="30"
-                                                          VerticalAlignment="Center"
-                                                          ToolTip.Tip="收藏到哪个收藏夹"
-                                                          Items="{Binding ActiveCompSection.FavoriteFolderNames}"
-                                                          SelectedItem="{Binding ActiveCompSection.SelectedFavoriteFolder, Mode=TwoWay}" />
-                                            <Button Classes="mc-btn"
-                                                    MinHeight="0"
-                                                    Height="30"
-                                                    Padding="10,4"
-                                                    VerticalAlignment="Center"
-                                                    ToolTip.Tip="收藏到所选收藏夹（离线可查看）"
-                                                    Command="{Binding ActiveCompSection.ToggleFavoriteCommand}">
-                                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                                    <c:HyclIcon Kind="star"
-                                                                Width="13"
-                                                                Height="13"
-                                                                VerticalAlignment="Center"
-                                                                Foreground="{DynamicResource PrimaryDeepBrush}" />
-                                                    <TextBlock Text="{Binding ActiveCompSection.FavoriteActionText}"
+
+                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                                            <Border Width="64"
+                                                    Height="64"
+                                                    CornerRadius="8"
+                                                    VerticalAlignment="Top"
+                                                    Background="{DynamicResource Primary8Brush}">
+                                                <Border.Clip>
+                                                    <RectangleGeometry Rect="0,0,64,64" RadiusX="8" RadiusY="8" />
+                                                </Border.Clip>
+                                                <c:HyclImage Url="{Binding ActiveCompSection.SelectedProject.IconUrl}"
+                                                             Width="64"
+                                                             Height="64"
+                                                             HorizontalAlignment="Center"
+                                                             VerticalAlignment="Center" />
+                                            </Border>
+
+                                            <StackPanel Grid.Column="1" Spacing="8" VerticalAlignment="Center">
+                                                <!-- 标题 + 原文名 -->
+                                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                                    <TextBlock Text="{Binding ActiveCompSection.SelectedProject.Title}"
+                                                               FontSize="18"
+                                                               FontWeight="Bold"
+                                                               TextWrapping="Wrap"
+                                                               Foreground="{DynamicResource TextBrush}" />
+                                                    <TextBlock Text="{Binding ActiveCompSection.SelectedProjectSubTitle}"
                                                                FontSize="12"
-                                                               VerticalAlignment="Center"
-                                                               Foreground="{DynamicResource PrimaryDeepBrush}" />
+                                                               VerticalAlignment="Bottom"
+                                                               Margin="0,0,0,2"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               Foreground="{DynamicResource Gray3Brush}"
+                                                               IsVisible="{Binding ActiveCompSection.SelectedProjectSubTitle, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                                 </StackPanel>
-                                            </Button>
-                                            <Button Classes="line-btn"
-                                                    MinHeight="0"
-                                                    Height="30"
-                                                    Padding="9,4"
-                                                    VerticalAlignment="Center"
-                                                    ToolTip.Tip="新建收藏夹"
-                                                    Content="新建夹"
-                                                    Command="{Binding ActiveCompSection.BeginCreateFavoriteFolderCommand}" />
-                                        </StackPanel>
-                                        <c:McLoading Grid.Column="4"
-                                                     Width="56"
-                                                     Height="46"
-                                                     IconSize="24"
-                                                     HorizontalAlignment="Right"
-                                                     IsVisible="{Binding ActiveCompSection.IsLoadingVersions}" />
-                                    </Grid>
-                                    <Grid Margin="0,8,0,0"
-                                          ColumnDefinitions="Auto,*,Auto,Auto"
-                                          ColumnSpacing="8"
-                                          IsVisible="{Binding ActiveCompSection.IsNewFavoriteFolderVisible}">
-                                        <TextBlock Text="收藏夹名称"
-                                                   Classes="sline"
-                                                   VerticalAlignment="Center" />
-                                        <TextBox Grid.Column="1"
-                                                 Height="30"
-                                                 PlaceholderText="例如：常用模组"
-                                                 Text="{Binding ActiveCompSection.NewFavoriteFolderName, Mode=TwoWay}" />
-                                        <Button Grid.Column="2"
-                                                Classes="mc-btn"
-                                                MinHeight="0"
-                                                Height="30"
-                                                Padding="12,4"
-                                                Content="新建"
-                                                Command="{Binding ActiveCompSection.ConfirmCreateFavoriteFolderCommand}" />
-                                        <Button Grid.Column="3"
-                                                Classes="line-btn"
-                                                MinHeight="0"
-                                                Height="30"
-                                                Padding="10,4"
-                                                Content="取消"
-                                                Command="{Binding ActiveCompSection.CancelCreateFavoriteFolderCommand}" />
-                                    </Grid>
+
+                                                <!-- 信息行：分类 / 下载量 / 更新时间 / 来源 -->
+                                                <WrapPanel>
+                                                    <StackPanel Orientation="Horizontal" Spacing="5" Margin="0,0,16,2">
+                                                        <c:HyclIcon Kind="blocks"
+                                                                    Width="12"
+                                                                    Height="12"
+                                                                    VerticalAlignment="Center"
+                                                                    Foreground="{DynamicResource Gray3Brush}" />
+                                                        <TextBlock Text="{Binding ActiveCompSection.SelectedProjectInfoText}"
+                                                                   FontSize="11.5"
+                                                                   VerticalAlignment="Center"
+                                                                   Foreground="{DynamicResource Gray3Brush}" />
+                                                    </StackPanel>
+                                                    <StackPanel Orientation="Horizontal" Spacing="5" Margin="0,0,16,2">
+                                                        <c:HyclIcon Kind="download"
+                                                                    Width="12"
+                                                                    Height="12"
+                                                                    VerticalAlignment="Center"
+                                                                    Foreground="{DynamicResource Gray3Brush}" />
+                                                        <TextBlock Text="{Binding ActiveCompSection.SelectedProjectDownloadText}"
+                                                                   FontSize="11.5"
+                                                                   VerticalAlignment="Center"
+                                                                   Foreground="{DynamicResource Gray3Brush}" />
+                                                    </StackPanel>
+                                                    <StackPanel Orientation="Horizontal" Spacing="5" Margin="0,0,16,2">
+                                                        <c:HyclIcon Kind="refresh"
+                                                                    Width="12"
+                                                                    Height="12"
+                                                                    VerticalAlignment="Center"
+                                                                    Foreground="{DynamicResource Gray3Brush}" />
+                                                        <TextBlock Text="{Binding ActiveCompSection.SelectedProjectUpdateText}"
+                                                                   FontSize="11.5"
+                                                                   VerticalAlignment="Center"
+                                                                   Foreground="{DynamicResource Gray3Brush}" />
+                                                    </StackPanel>
+                                                    <StackPanel Orientation="Horizontal" Spacing="5" Margin="0,0,16,2">
+                                                        <c:HyclIcon Kind="globe"
+                                                                    Width="12"
+                                                                    Height="12"
+                                                                    VerticalAlignment="Center"
+                                                                    Foreground="{DynamicResource Gray3Brush}" />
+                                                        <TextBlock Text="{Binding ActiveCompSection.SelectedProjectSourceText}"
+                                                                   FontSize="11.5"
+                                                                   VerticalAlignment="Center"
+                                                                   Foreground="{DynamicResource Gray3Brush}" />
+                                                    </StackPanel>
+                                                    <StackPanel Orientation="Horizontal" Spacing="5" Margin="0,0,16,2">
+                                                        <c:HyclIcon Kind="shirt"
+                                                                    Width="12"
+                                                                    Height="12"
+                                                                    VerticalAlignment="Center"
+                                                                    Foreground="{DynamicResource Gray3Brush}" />
+                                                        <TextBlock Text="{Binding ActiveCompSection.SelectedProjectAuthor}"
+                                                                   FontSize="11.5"
+                                                                   VerticalAlignment="Center"
+                                                                   Foreground="{DynamicResource Gray3Brush}" />
+                                                    </StackPanel>
+                                                </WrapPanel>
+
+                                                <!-- 操作按钮：外部站点 / MC 百科 / 复制名称 / 收藏 -->
+                                                <WrapPanel>
+                                                    <Button Classes="line-btn"
+                                                            MinHeight="0"
+                                                            Height="30"
+                                                            Padding="12,4"
+                                                            Margin="0,0,8,6"
+                                                            Command="{Binding ActiveCompSection.OpenProjectWebsiteCommand}">
+                                                        <TextBlock Text="{Binding ActiveCompSection.WebsiteActionText}" FontSize="12" />
+                                                    </Button>
+                                                    <Button Classes="line-btn"
+                                                            MinHeight="0"
+                                                            Height="30"
+                                                            Padding="12,4"
+                                                            Margin="0,0,8,6"
+                                                            ToolTip.Tip="在 MC 百科搜索该资源"
+                                                            Content="转到 MC 百科"
+                                                            FontSize="12"
+                                                            Command="{Binding ActiveCompSection.OpenProjectWikiCommand}" />
+                                                    <Button Classes="line-btn"
+                                                            MinHeight="0"
+                                                            Height="30"
+                                                            Padding="12,4"
+                                                            Margin="0,0,8,6"
+                                                            Content="复制名称"
+                                                            FontSize="12"
+                                                            Command="{Binding ActiveCompSection.CopyProjectNameCommand}" />
+                                                    <c:McComboBox Width="128"
+                                                                  Height="30"
+                                                                  Margin="0,0,8,6"
+                                                                  VerticalAlignment="Center"
+                                                                  ToolTip.Tip="收藏到哪个收藏夹"
+                                                                  Items="{Binding ActiveCompSection.FavoriteFolderNames}"
+                                                                  SelectedItem="{Binding ActiveCompSection.SelectedFavoriteFolder, Mode=TwoWay}" />
+                                                    <Button Classes="line-btn"
+                                                            MinHeight="0"
+                                                            Height="30"
+                                                            Padding="10,4"
+                                                            Margin="0,0,8,6"
+                                                            ToolTip.Tip="收藏到所选收藏夹（离线可查看）"
+                                                            Command="{Binding ActiveCompSection.ToggleFavoriteCommand}">
+                                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                                            <c:HyclIcon Kind="star"
+                                                                        Width="13"
+                                                                        Height="13"
+                                                                        VerticalAlignment="Center"
+                                                                        Foreground="{DynamicResource PrimaryDeepBrush}" />
+                                                            <TextBlock Text="{Binding ActiveCompSection.FavoriteActionText}"
+                                                                       FontSize="12"
+                                                                       VerticalAlignment="Center"
+                                                                       Foreground="{DynamicResource PrimaryDeepBrush}" />
+                                                        </StackPanel>
+                                                    </Button>
+                                                    <Button Classes="line-btn"
+                                                            MinHeight="0"
+                                                            Height="30"
+                                                            Padding="9,4"
+                                                            Margin="0,0,8,6"
+                                                            ToolTip.Tip="新建收藏夹"
+                                                            Content="新建夹"
+                                                            FontSize="12"
+                                                            Command="{Binding ActiveCompSection.BeginCreateFavoriteFolderCommand}" />
+                                                </WrapPanel>
+
+                                                <!-- 新建收藏夹内联输入 -->
+                                                <Grid ColumnDefinitions="Auto,*,Auto,Auto"
+                                                      ColumnSpacing="8"
+                                                      IsVisible="{Binding ActiveCompSection.IsNewFavoriteFolderVisible}">
+                                                    <TextBlock Text="收藏夹名称" Classes="sline" VerticalAlignment="Center" />
+                                                    <TextBox Grid.Column="1"
+                                                             Height="30"
+                                                             PlaceholderText="例如：常用模组"
+                                                             Text="{Binding ActiveCompSection.NewFavoriteFolderName, Mode=TwoWay}" />
+                                                    <Button Grid.Column="2"
+                                                            Classes="mc-btn"
+                                                            MinHeight="0"
+                                                            Height="30"
+                                                            Padding="12,4"
+                                                            Content="新建"
+                                                            Command="{Binding ActiveCompSection.ConfirmCreateFavoriteFolderCommand}" />
+                                                    <Button Grid.Column="3"
+                                                            Classes="line-btn"
+                                                            MinHeight="0"
+                                                            Height="30"
+                                                            Padding="10,4"
+                                                            Content="取消"
+                                                            Command="{Binding ActiveCompSection.CancelCreateFavoriteFolderCommand}" />
+                                                </Grid>
+                                            </StackPanel>
+                                        </Grid>
+
+                                        <TextBlock Text="{Binding ActiveCompSection.SelectedProjectDescription}"
+                                                   FontSize="11.5"
+                                                   MaxHeight="66"
+                                                   TextWrapping="Wrap"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Foreground="{DynamicResource Gray3Brush}" />
                                     </StackPanel>
                                 </Border>
 
-                                <!-- 信息卡：分类 / 更新时间 / 下载量 / 支持版本 / 加载器 -->
+                                <!-- 版本胶囊 + 加载器胶囊 -->
                                 <Border Background="{DynamicResource GlassSurfaceBrush}"
                                         BorderBrush="{DynamicResource SoftLineBrush}"
                                         BorderThickness="1"
                                         CornerRadius="10"
                                         Padding="12,9">
-                                    <StackPanel Spacing="8">
-                                        <Grid ColumnDefinitions="72,*"
-                                              RowDefinitions="Auto,Auto,Auto,Auto,Auto"
-                                              ColumnSpacing="6"
-                                              RowSpacing="6">
-                                            <TextBlock Text="分类" Classes="sline" />
+                                    <StackPanel Spacing="7">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBlock Text="可下载版本"
+                                                       FontSize="12.5"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource TextBrush}" />
                                             <TextBlock Grid.Column="1"
-                                                       Text="{Binding ActiveCompSection.SelectedProjectCategoryText}"
+                                                       Text="{Binding ActiveCompSection.DetailFileCountText}"
                                                        FontSize="11.5"
-                                                       TextWrapping="Wrap"
-                                                       Foreground="{DynamicResource TextBrush}" />
-                                            <TextBlock Grid.Row="1" Text="更新时间" Classes="sline" />
-                                            <TextBlock Grid.Row="1"
-                                                       Grid.Column="1"
-                                                       Text="{Binding ActiveCompSection.SelectedProjectUpdateText}"
-                                                       FontSize="11.5"
-                                                       Foreground="{DynamicResource TextBrush}" />
-                                            <TextBlock Grid.Row="2" Text="下载量" Classes="sline" />
-                                            <TextBlock Grid.Row="2"
-                                                       Grid.Column="1"
-                                                       Text="{Binding ActiveCompSection.SelectedProjectDownloadText}"
-                                                       FontSize="11.5"
-                                                       Foreground="{DynamicResource TextBrush}" />
-                                            <TextBlock Grid.Row="3" Text="支持版本" Classes="sline" />
-                                            <TextBlock Grid.Row="3"
-                                                       Grid.Column="1"
-                                                       Text="{Binding ActiveCompSection.SelectedProjectGameVersionText}"
-                                                       FontSize="11.5"
-                                                       TextWrapping="Wrap"
-                                                       Foreground="{DynamicResource TextBrush}" />
-                                            <TextBlock Grid.Row="4" Text="加载器" Classes="sline" />
-                                            <TextBlock Grid.Row="4"
-                                                       Grid.Column="1"
-                                                       Text="{Binding ActiveCompSection.SelectedProjectLoaderText}"
-                                                       FontSize="11.5"
-                                                       TextWrapping="Wrap"
-                                                       Foreground="{DynamicResource TextBrush}" />
+                                                       VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource Gray3Brush}" />
                                         </Grid>
-                                        <TextBlock Text="{Binding ActiveCompSection.SelectedProjectDescription}"
-                                                   FontSize="11.5"
+
+                                        <ItemsControl ItemsSource="{Binding ActiveCompSection.DetailVersionChips}"
+                                                      IsVisible="{Binding ActiveCompSection.HasDetailVersionFilter}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:DetailChipViewModel">
+                                                    <Button Classes="version-chip"
+                                                            Classes.active="{Binding IsSelected}"
+                                                            Content="{Binding Text}"
+                                                            Command="{Binding $parent[UserControl].((vm:DownloadPageViewModel)DataContext).ActiveCompSection.SelectDetailVersionCommand}"
+                                                            CommandParameter="{Binding}" />
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+
+                                        <ItemsControl ItemsSource="{Binding ActiveCompSection.DetailLoaderChips}"
+                                                      IsVisible="{Binding ActiveCompSection.HasDetailLoaderFilter}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:DetailChipViewModel">
+                                                    <Button Classes="version-chip"
+                                                            Classes.active="{Binding IsSelected}"
+                                                            Content="{Binding Text}"
+                                                            Command="{Binding $parent[UserControl].((vm:DownloadPageViewModel)DataContext).ActiveCompSection.SelectDetailLoaderCommand}"
+                                                            CommandParameter="{Binding}" />
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+
+                                        <c:McLoading Width="90"
+                                                     Height="40"
+                                                     Text="正在获取文件列表"
+                                                     HorizontalAlignment="Left"
+                                                     IsVisible="{Binding ActiveCompSection.IsLoadingVersions}" />
+                                        <TextBlock Classes="dl-empty"
+                                                   Margin="0,2,0,0"
+                                                   HorizontalAlignment="Left"
+                                                   Text="{Binding ActiveCompSection.DetailEmptyText}"
+                                                   IsVisible="{Binding ActiveCompSection.IsDetailEmpty}" />
+                                        <TextBlock FontSize="11.5"
                                                    TextWrapping="Wrap"
-                                                   Foreground="{DynamicResource Gray3Brush}" />
+                                                   Foreground="{DynamicResource ErrorBrush}"
+                                                   Text="{Binding ActiveCompSection.VersionErrorText}"
+                                                   IsVisible="{Binding ActiveCompSection.VersionErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                     </StackPanel>
                                 </Border>
 
@@ -938,118 +1066,101 @@
                                            Text="{Binding ActiveCompSection.DownloadErrorText}"
                                            IsVisible="{Binding ActiveCompSection.DownloadErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
 
-                                <!-- 文件 / 版本列表：PCL-CE 风格的表格式布局（表头 + 对齐列），
-                                     下载目标实例在保存对话框按资源声明的加载器过滤 -->
-                                <Border Background="{DynamicResource GlassSurfaceBrush}"
-                                        BorderBrush="{DynamicResource SoftLineBrush}"
-                                        BorderThickness="1"
-                                        CornerRadius="10"
-                                        Padding="12,9">
-                                    <StackPanel Spacing="8">
-                                        <TextBlock Text="文件 / 版本列表"
-                                                   FontSize="13"
-                                                   FontWeight="SemiBold"
-                                                   Foreground="{DynamicResource TextBrush}" />
-                                        <TextBlock Classes="sline"
-                                                   Foreground="{DynamicResource ErrorBrush}"
-                                                   Text="{Binding ActiveCompSection.VersionErrorText}"
-                                                   IsVisible="{Binding ActiveCompSection.VersionErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-
-                                        <!-- 详情页筛选：选项来自本资源文件出现过的 MC 版本/加载器（PCL-CE 同） -->
-                                        <WrapPanel IsVisible="{Binding ActiveCompSection.HasDetailVersionFilter}">
-                                            <c:McComboBox MinWidth="124"
-                                                          Margin="0,0,8,4"
-                                                          ToolTip.Tip="按 Minecraft 版本筛选"
-                                                          Items="{Binding ActiveCompSection.DetailVersionOptions}"
-                                                          SelectedItem="{Binding ActiveCompSection.SelectedDetailVersion, Mode=TwoWay}" />
-                                            <c:McComboBox MinWidth="112"
-                                                          Margin="0,0,8,4"
-                                                          ToolTip.Tip="按加载器筛选"
-                                                          IsVisible="{Binding ActiveCompSection.HasDetailLoaderFilter}"
-                                                          Items="{Binding ActiveCompSection.DetailLoaderOptions}"
-                                                          SelectedItem="{Binding ActiveCompSection.SelectedDetailLoader, Mode=TwoWay}" />
-                                        </WrapPanel>
-
-                                        <!-- 表头：与数据行共享同一列宽定义 -->
-                                        <Grid ColumnDefinitions="*,86,70,74,62"
-                                              Margin="8,0,10,0"
-                                              IsVisible="{Binding ActiveCompSection.IsDetailEmpty, Converter={x:Static BoolConverters.Not}}">
-                                            <TextBlock Text="文件" FontSize="11" Foreground="{DynamicResource Gray3Brush}" />
-                                            <TextBlock Grid.Column="1" Text="加载器" FontSize="11" Foreground="{DynamicResource Gray3Brush}" />
-                                            <TextBlock Grid.Column="2" Text="游戏版本" FontSize="11" Foreground="{DynamicResource Gray3Brush}" />
-                                            <TextBlock Grid.Column="3" Text="发布日期" FontSize="11" Foreground="{DynamicResource Gray3Brush}" />
-                                            <TextBlock Grid.Column="4" Text="大小" FontSize="11" Foreground="{DynamicResource Gray3Brush}" TextAlignment="Right" />
-                                        </Grid>
-                                        <Border Height="1" Background="{DynamicResource HairlineBrush}"
-                                                IsVisible="{Binding ActiveCompSection.IsDetailEmpty, Converter={x:Static BoolConverters.Not}}" />
-
-                                        <ItemsControl ItemsSource="{Binding ActiveCompSection.VersionFiles}">
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate x:DataType="vm:CompFileItemViewModel">
-                                                    <Button Classes="ver-row"
-                                                            ToolTip.Tip="{Binding File.FileName}"
-                                                            Command="{Binding InstallCommand}">
-                                                        <Grid ColumnDefinitions="*,86,70,74,62" ColumnSpacing="0">
-                                                            <StackPanel VerticalAlignment="Center" Spacing="1" Margin="8,0,0,0">
-                                                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                                                    <TextBlock Text="{Binding Title}"
-                                                                               FontSize="12.5"
-                                                                               FontWeight="SemiBold"
-                                                                               TextTrimming="CharacterEllipsis"
-                                                                               Foreground="{DynamicResource TextBrush}" />
-                                                                    <Border Classes="tag">
-                                                                        <TextBlock Text="{Binding StatusText}" />
-                                                                    </Border>
-                                                                </StackPanel>
-                                                                <TextBlock Text="{Binding SourceText}"
-                                                                           FontSize="10.5"
-                                                                           Foreground="{DynamicResource Gray3Brush}" />
-                                                            </StackPanel>
+                                <!-- 加载器分组：标题可折叠，展开后逐行列出文件（点行即下载） -->
+                                <ItemsControl ItemsSource="{Binding ActiveCompSection.DetailGroups}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:CompFileGroupViewModel">
+                                            <Border Background="{DynamicResource GlassSurfaceBrush}"
+                                                    BorderBrush="{DynamicResource SoftLineBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="10"
+                                                    Padding="6,4"
+                                                    Margin="0,0,0,6">
+                                                <StackPanel>
+                                                    <Button Classes="ver-row" Command="{Binding ToggleCommand}">
+                                                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                                                            <TextBlock Text="{Binding Header}"
+                                                                       FontSize="13.5"
+                                                                       FontWeight="SemiBold"
+                                                                       VerticalAlignment="Center"
+                                                                       Margin="6,0,0,0"
+                                                                       Foreground="{DynamicResource TextBrush}" />
                                                             <TextBlock Grid.Column="1"
-                                                                       Text="{Binding LoaderText}"
-                                                                       FontSize="11"
-                                                                       VerticalAlignment="Center"
-                                                                       Margin="0,0,6,0"
-                                                                       TextTrimming="CharacterEllipsis"
-                                                                       Foreground="{DynamicResource Gray2Brush}" />
-                                                            <TextBlock Grid.Column="2"
-                                                                       Text="{Binding GameVersionText}"
-                                                                       FontSize="11"
-                                                                       VerticalAlignment="Center"
-                                                                       Margin="0,0,6,0"
-                                                                       TextTrimming="CharacterEllipsis"
-                                                                       Foreground="{DynamicResource Gray2Brush}" />
-                                                            <TextBlock Grid.Column="3"
-                                                                       Text="{Binding DateText}"
-                                                                       FontSize="11"
+                                                                       Text="{Binding CountText}"
+                                                                       FontSize="11.5"
                                                                        VerticalAlignment="Center"
                                                                        Foreground="{DynamicResource Gray3Brush}" />
-                                                            <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                                                <TextBlock Text="{Binding SizeText}"
-                                                                           FontSize="11"
-                                                                           HorizontalAlignment="Right"
-                                                                           Foreground="{DynamicResource Gray3Brush}" />
-                                                                <c:HyclIcon Width="13"
-                                                                            Height="13"
-                                                                            VerticalAlignment="Center"
-                                                                            IsVisible="{Binding !IsInstalling}"
-                                                                            Foreground="{DynamicResource PrimaryBrush}"
-                                                                            Kind="download" />
-                                                            </StackPanel>
+                                                            <c:HyclIcon Grid.Column="2"
+                                                                        Width="14"
+                                                                        Height="14"
+                                                                        VerticalAlignment="Center"
+                                                                        Foreground="{DynamicResource Gray2Brush}"
+                                                                        Kind="chevron-down"
+                                                                        IsVisible="{Binding IsExpanded}" />
+                                                            <c:HyclIcon Grid.Column="2"
+                                                                        Width="14"
+                                                                        Height="14"
+                                                                        VerticalAlignment="Center"
+                                                                        Foreground="{DynamicResource Gray2Brush}"
+                                                                        Kind="chevron-right"
+                                                                        IsVisible="{Binding !IsExpanded}" />
                                                         </Grid>
                                                     </Button>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
 
-                                        <!-- 筛选后无文件：给出空状态，版本行（安装入口）随之为空 -->
-                                        <TextBlock Classes="dl-empty"
-                                                   Margin="0,4,0,2"
-                                                   HorizontalAlignment="Left"
-                                                   Text="{Binding ActiveCompSection.DetailEmptyText}"
-                                                   IsVisible="{Binding ActiveCompSection.IsDetailEmpty}" />
-                                    </StackPanel>
-                                </Border>
+                                                    <ItemsControl Margin="0,2,0,2" ItemsSource="{Binding Files}" IsVisible="{Binding IsExpanded}">
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate x:DataType="vm:CompFileItemViewModel">
+                                                                <Button Classes="ver-row"
+                                                                        ToolTip.Tip="{Binding File.FileName}"
+                                                                        Command="{Binding InstallCommand}">
+                                                                    <Grid ColumnDefinitions="*,Auto,84,74,24" ColumnSpacing="0">
+                                                                        <StackPanel VerticalAlignment="Center" Spacing="1" Margin="8,0,0,0">
+                                                                            <TextBlock Text="{Binding Title}"
+                                                                                       FontSize="12.5"
+                                                                                       FontWeight="SemiBold"
+                                                                                       TextTrimming="CharacterEllipsis"
+                                                                                       Foreground="{DynamicResource TextBrush}" />
+                                                                            <TextBlock FontSize="10.5"
+                                                                                       TextTrimming="CharacterEllipsis"
+                                                                                       Foreground="{DynamicResource Gray3Brush}"
+                                                                                       Text="{Binding GameVersionText}" />
+                                                                        </StackPanel>
+                                                                        <Border Grid.Column="1"
+                                                                                Classes="tag"
+                                                                                VerticalAlignment="Center"
+                                                                                Margin="0,0,10,0">
+                                                                            <TextBlock Text="{Binding StatusText}" />
+                                                                        </Border>
+                                                                        <TextBlock Grid.Column="2"
+                                                                                   Text="{Binding DateText}"
+                                                                                   FontSize="11"
+                                                                                   VerticalAlignment="Center"
+                                                                                   Foreground="{DynamicResource Gray3Brush}" />
+                                                                        <TextBlock Grid.Column="3"
+                                                                                   Text="{Binding SizeText}"
+                                                                                   FontSize="11"
+                                                                                   VerticalAlignment="Center"
+                                                                                   HorizontalAlignment="Right"
+                                                                                   Margin="0,0,8,0"
+                                                                                   Foreground="{DynamicResource Gray3Brush}" />
+                                                                        <c:HyclIcon Grid.Column="4"
+                                                                                    Width="13"
+                                                                                    Height="13"
+                                                                                    VerticalAlignment="Center"
+                                                                                    HorizontalAlignment="Center"
+                                                                                    IsVisible="{Binding !IsInstalling}"
+                                                                                    Foreground="{DynamicResource PrimaryBrush}"
+                                                                                    Kind="download" />
+                                                                    </Grid>
+                                                                </Button>
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
                             </StackPanel>
                         </StackPanel>
                     </ScrollViewer>

@@ -485,6 +485,46 @@ public static partial class CompLocalization
     public static string DisplayUpdateTime(CompProject project)
         => project.LastUpdate?.ToLocalTime().ToString("yyyy-MM-dd") ?? "未知";
 
+    /// <summary>
+    /// 相对更新时间（详情页顶卡用，对齐 PCL-CE 的「2 天前」文案）；
+    /// 缺失时间时回退「未知」，超过一年直接给年份。
+    /// </summary>
+    public static string DisplayRelativeUpdateTime(CompProject project)
+    {
+        if (project.LastUpdate is not { } last)
+        {
+            return "未知";
+        }
+
+        var span = DateTimeOffset.Now - last.ToLocalTime();
+        if (span.TotalMinutes < 1)
+        {
+            return "刚刚";
+        }
+
+        if (span.TotalHours < 1)
+        {
+            return $"{(int)span.TotalMinutes} 分钟前";
+        }
+
+        if (span.TotalDays < 1)
+        {
+            return $"{(int)span.TotalHours} 小时前";
+        }
+
+        if (span.TotalDays < 30)
+        {
+            return $"{(int)span.TotalDays} 天前";
+        }
+
+        if (span.TotalDays < 365)
+        {
+            return $"{(int)(span.TotalDays / 30)} 个月前";
+        }
+
+        return $"{(int)(span.TotalDays / 365)} 年前";
+    }
+
     /// <summary>加载器 slug → 显示名；未知值原文首字母大写，空值返回空串（由调用方跳过）。</summary>
     public static string LoaderName(string loader)
     {

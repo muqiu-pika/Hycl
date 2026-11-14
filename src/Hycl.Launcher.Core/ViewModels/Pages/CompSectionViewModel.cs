@@ -22,11 +22,14 @@ public sealed class CompProjectItemViewModel
         Author = CompLocalization.DisplayAuthor(project);
         CategoryText = CompLocalization.DisplayCategoryText(project);
         UpdateText = CompLocalization.DisplayUpdateTime(project);
+        UpdateRelativeText = CompLocalization.DisplayRelativeUpdateTime(project);
         IconUrl = project.IconUrl;
         SourceText = project.FromCurseForge ? "CurseForge" : "Modrinth";
-        DownloadText = project.DownloadCount >= 10000
-            ? $"{project.DownloadCount / 10000.0:0.#} 万下载"
-            : $"{project.DownloadCount} 下载";
+        DownloadText = project.DownloadCount >= 100_000_000
+            ? $"{project.DownloadCount / 100_000_000.0:0.##} 亿下载"
+            : project.DownloadCount >= 10000
+                ? $"{project.DownloadCount / 10000.0:0.#} 万下载"
+                : $"{project.DownloadCount} 下载";
         Tags = CompLocalization.DisplayTags(project);
         GameVersionText = CompLocalization.DisplayGameVersions(project);
         LoaderText = CompLocalization.DisplayLoaderText(project);
@@ -43,6 +46,9 @@ public sealed class CompProjectItemViewModel
     public string CategoryText { get; }
 
     public string UpdateText { get; }
+
+    /// <summary>相对更新时间（详情页顶卡用，例如「2 天前」）。</summary>
+    public string UpdateRelativeText { get; }
 
     public string GameVersionText { get; }
 
@@ -132,6 +138,49 @@ public sealed partial class CompFileItemViewModel : ObservableObject
 
     [RelayCommand]
     private async Task InstallAsync() => await _owner.InstallFileAsync(this).ConfigureAwait(true);
+}
+
+/// <summary>详情页的胶囊筛选项（版本或加载器），选中态由父视图模型维护。</summary>
+public sealed partial class DetailChipViewModel : ObservableObject
+{
+    public DetailChipViewModel(string text, string value)
+    {
+        Text = text;
+        Value = value;
+    }
+
+    public string Text { get; }
+
+    /// <summary>筛选值（"全部版本"/"全部加载器"/"远古版" 或具体版本号/加载器名）。</summary>
+    public string Value { get; }
+
+    [ObservableProperty]
+    private bool _isSelected;
+}
+
+/// <summary>
+/// 详情页的文件分组（对应 PCL-CE 的「NeoForge 26.3」「Fabric 26.3」折叠组）：
+/// 标题 + 可展开的文件行，默认折叠、点标题展开。
+/// </summary>
+public sealed partial class CompFileGroupViewModel : ObservableObject
+{
+    public CompFileGroupViewModel(string header, IReadOnlyList<CompFileItemViewModel> files)
+    {
+        Header = header;
+        Files = files;
+    }
+
+    public string Header { get; }
+
+    public IReadOnlyList<CompFileItemViewModel> Files { get; }
+
+    public string CountText => $"{Files.Count} 个文件";
+
+    [ObservableProperty]
+    private bool _isExpanded;
+
+    [RelayCommand]
+    private void Toggle() => IsExpanded = !IsExpanded;
 }
 
 /// <summary>前置弹窗中的一行（项目、来源、版本或未解析原因）。</summary>
@@ -252,6 +301,9 @@ public partial class CompSectionViewModel : ObservableObject
     public void PrepareTarget(string? gameVersion, string? loader, string? preferredInstanceId)
     {
         _preferredInstanceId = preferredInstanceId;
+        // 记下目标版本/加载器：打开任意资源详情时，版本与加载器胶囊会自动选到这一组
+        _targetGameVersion = string.IsNullOrWhiteSpace(gameVersion) ? null : gameVersion.Trim();
+        _targetLoader = string.IsNullOrWhiteSpace(loader) ? null : loader.Trim();
         _suppressFilterSearch = true;
         try
         {
@@ -410,198 +462,362 @@ public partial class CompSectionViewModel : ObservableObject
 
     public ObservableCollection<CompProjectItemViewModel> Results { get; } = [];
 
-    public ObservableCollection<CompFileItemViewModel> VersionFiles { get; } = [];
-
-    // ---------- 详情页版本/加载器筛选（对应 PCL-CE PageDownloadCompDetail 的筛选项与 UpdateFilterResult） ----------
+    // ---------- 详情页版本/加载器筛选（对应 PCL-CE PageDownloadCompDetail：胶囊行 + 分组列表） ----------
 
     private const string AllDetailVersions = "全部版本";
     private const string AllDetailLoaders = "全部加载器";
+    private const string LegacyDetailVersions = "远古版";
 
-    /// <summary>当前项目拉取到的全部文件；筛选基于它，VersionFiles 只是筛选后的展示子集。</summary>
+    /// <summary>当前项目拉取到的全部文件；筛选基于它，DetailGroups 只是筛选后的展示结果。</summary>
     private IReadOnlyList<CompFile> _detailFiles = [];
 
-    /// <summary>文件 Id → 条目 VM；筛选重建列表时复用，保留「下载中」等行内状态。</summary>
+    /// <summary>文件 Id → 条目 VM；重建列表时复用，保留「下载中」等行内状态。</summary>
     private readonly Dictionary<string, CompFileItemViewModel> _detailItems = new(StringComparer.Ordinal);
 
     private bool _detailVersionGrouped;
-    private bool _isBuildingDetailFilters;
+    private string _detailVersionScope = AllDetailVersions;
+    private string _detailLoaderScope = AllDetailLoaders;
 
-    /// <summary>详情页版本筛选项：全部 + 该资源文件出现过的 MC 版本（按版本号降序）。</summary>
-    public ObservableCollection<string> DetailVersionOptions { get; } = [];
+    /// <summary>由实例资源列表带来的目标版本/加载器：文件列表加载完成后自动选中对应胶囊。</summary>
+    private string? _targetGameVersion;
+    private string? _targetLoader;
 
-    /// <summary>详情页加载器筛选项：仅模组生成，来自该资源文件出现过的加载器。</summary>
-    public ObservableCollection<string> DetailLoaderOptions { get; } = [];
+    /// <summary>详情页顶部的版本胶囊（全部 / 各正式版本 / 远古版）。</summary>
+    public ObservableCollection<DetailChipViewModel> DetailVersionChips { get; } = [];
 
-    [ObservableProperty]
-    private string _selectedDetailVersion = AllDetailVersions;
+    /// <summary>详情页的加载器胶囊（仅模组生成，选项来自该资源文件出现过的加载器）。</summary>
+    public ObservableCollection<DetailChipViewModel> DetailLoaderChips { get; } = [];
 
-    [ObservableProperty]
-    private string _selectedDetailLoader = AllDetailLoaders;
+    /// <summary>按「加载器 + 版本」分组的可展开文件列表（对齐 PCL-CE 的 NeoForge 26.3 / Fabric 26.3 分组）。</summary>
+    public ObservableCollection<CompFileGroupViewModel> DetailGroups { get; } = [];
 
     [ObservableProperty]
     private string _detailEmptyText = "";
 
-    /// <summary>版本筛选仅在该资源自身有 2 个及以上版本时展示（PCL-CE 同）。</summary>
-    public bool HasDetailVersionFilter => DetailVersionOptions.Count >= 2;
+    /// <summary>版本胶囊仅在至少两个版本时展示（PCL-CE 同）。</summary>
+    public bool HasDetailVersionFilter => DetailVersionChips.Count >= 2;
 
-    /// <summary>加载器筛选仅模组展示，且与版本筛选同时出现（PCL-CE 同）。</summary>
-    public bool HasDetailLoaderFilter => Type == CompResourceType.Mod && HasDetailVersionFilter;
+    /// <summary>加载器胶囊仅在模组且至少两个加载器时展示。</summary>
+    public bool HasDetailLoaderFilter => DetailLoaderChips.Count >= 2;
+
+    /// <summary>当前筛选下可安装文件总数。</summary>
+    public int DetailFileCount => DetailGroups.Sum(group => group.Files.Count);
+
+    public string DetailFileCountText => DetailFileCount == 0 ? "" : $"共 {DetailFileCount} 个文件";
 
     /// <summary>筛选后没有任何可安装文件（无错误时展示空状态，安装入口随之为空）。</summary>
     public bool IsDetailEmpty =>
         SelectedProject is not null
         && !IsLoadingVersions
-        && VersionFiles.Count == 0
+        && DetailFileCount == 0
         && VersionErrorText.Length == 0;
-
-    partial void OnSelectedDetailVersionChanged(string value)
-    {
-        if (!_isBuildingDetailFilters)
-        {
-            ApplyDetailFilter();
-        }
-    }
-
-    partial void OnSelectedDetailLoaderChanged(string value)
-    {
-        if (!_isBuildingDetailFilters)
-        {
-            ApplyDetailFilter();
-        }
-    }
 
     partial void OnIsLoadingVersionsChanged(bool value) => OnPropertyChanged(nameof(IsDetailEmpty));
 
     partial void OnVersionErrorTextChanged(string value) => OnPropertyChanged(nameof(IsDetailEmpty));
 
-    /// <summary>
-    /// 从当前资源自身文件的 GameVersions / ModLoaders 生成筛选项（不使用全局版本全集）。
-    /// 版本超过 8 个时按 PCL-CE 的做法折叠大版本（1.21.11 → 1.21），否则使用精确版本。
-    /// </summary>
-    private void BuildDetailFilters()
+    /// <summary>点选版本胶囊：重建分组列表。</summary>
+    [RelayCommand]
+    private void SelectDetailVersion(DetailChipViewModel? chip)
     {
-        _isBuildingDetailFilters = true;
-        try
+        if (chip is null)
         {
-            var versions = _detailFiles
-                .SelectMany(file => file.GameVersions)
-                .Select(CompLocalization.GameVersionName)
-                .Where(CompLocalization.IsReleaseGameVersion)
+            return;
+        }
+
+        _detailVersionScope = chip.Value;
+        foreach (var item in DetailVersionChips)
+        {
+            item.IsSelected = ReferenceEquals(item, chip);
+        }
+
+        BuildDetailGroups();
+    }
+
+    /// <summary>点选加载器胶囊：重建分组列表。</summary>
+    [RelayCommand]
+    private void SelectDetailLoader(DetailChipViewModel? chip)
+    {
+        if (chip is null)
+        {
+            return;
+        }
+
+        _detailLoaderScope = chip.Value;
+        foreach (var item in DetailLoaderChips)
+        {
+            item.IsSelected = ReferenceEquals(item, chip);
+        }
+
+        BuildDetailGroups();
+    }
+
+    /// <summary>
+    /// 从当前资源自身文件的 GameVersions / ModLoaders 生成胶囊行（不使用全局版本全集）。
+    /// 版本超过 8 个时按 PCL-CE 的做法折叠大版本（1.21.11 → 1.21），否则使用精确版本；
+    /// 存在快照/早期版本文件时追加「远古版」胶囊。由实例进入时自动选中该实例的版本与加载器。
+    /// </summary>
+    private void BuildDetailChips()
+    {
+        var versions = _detailFiles
+            .SelectMany(file => file.GameVersions)
+            .Select(CompLocalization.GameVersionName)
+            .Where(CompLocalization.IsReleaseGameVersion)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(version => version, CompLocalization.VersionComparer)
+            .ToList();
+
+        _detailVersionGrouped = versions.Count >= 9;
+        if (_detailVersionGrouped)
+        {
+            versions = versions
+                .Select(DetailVersionGroup)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderByDescending(version => version, CompLocalization.VersionComparer)
                 .ToList();
-
-            _detailVersionGrouped = versions.Count >= 9;
-            if (_detailVersionGrouped)
-            {
-                versions = versions
-                    .Select(DetailVersionGroup)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderByDescending(version => version, CompLocalization.VersionComparer)
-                    .ToList();
-            }
-
-            DetailVersionOptions.Clear();
-            DetailVersionOptions.Add(AllDetailVersions);
-            foreach (var version in versions)
-            {
-                DetailVersionOptions.Add(version);
-            }
-
-            DetailLoaderOptions.Clear();
-            if (Type == CompResourceType.Mod)
-            {
-                DetailLoaderOptions.Add(AllDetailLoaders);
-                foreach (var loader in _detailFiles
-                             .SelectMany(file => file.ModLoaders)
-                             .Select(CompLocalization.LoaderName)
-                             .Where(name => name.Length > 0)
-                             .Distinct(StringComparer.OrdinalIgnoreCase)
-                             .OrderBy(name => name, StringComparer.OrdinalIgnoreCase))
-                {
-                    DetailLoaderOptions.Add(loader);
-                }
-            }
-
-            SelectedDetailVersion = AllDetailVersions;
-            SelectedDetailLoader = AllDetailLoaders;
         }
-        finally
+
+        DetailVersionChips.Clear();
+        DetailVersionChips.Add(new DetailChipViewModel("全部", AllDetailVersions));
+        foreach (var version in versions)
         {
-            _isBuildingDetailFilters = false;
+            DetailVersionChips.Add(new DetailChipViewModel(version, version));
+        }
+
+        // 「远古版」：文件里出现过快照/旧版本（非纯数字正式版号）时才有意义
+        var hasLegacy = _detailFiles.Any(file => file.GameVersions
+            .Select(CompLocalization.GameVersionName)
+            .Any(name => name.Length > 0 && !CompLocalization.IsReleaseGameVersion(name)));
+        if (hasLegacy)
+        {
+            DetailVersionChips.Add(new DetailChipViewModel(LegacyDetailVersions, LegacyDetailVersions));
+        }
+
+        DetailLoaderChips.Clear();
+        if (Type == CompResourceType.Mod)
+        {
+            DetailLoaderChips.Add(new DetailChipViewModel(AllDetailLoaders, AllDetailLoaders));
+            foreach (var loader in _detailFiles
+                         .SelectMany(file => file.ModLoaders)
+                         .Select(CompLocalization.LoaderName)
+                         .Where(name => name.Length > 0)
+                         .Distinct(StringComparer.OrdinalIgnoreCase)
+                         .OrderBy(LoaderOrder))
+            {
+                DetailLoaderChips.Add(new DetailChipViewModel(loader, loader));
+            }
+        }
+
+        // 自动选中：从实例资源列表进入时，版本胶囊落到该实例的游戏版本，
+        // 加载器胶囊落到该实例的加载器（存在才选中，否则回退「全部」）。
+        var versionChip = FindVersionChip(_targetGameVersion) ?? DetailVersionChips[0];
+        _detailVersionScope = versionChip.Value;
+        foreach (var chip in DetailVersionChips)
+        {
+            chip.IsSelected = ReferenceEquals(chip, versionChip);
+        }
+
+        var loaderChip = FindLoaderChip(_targetLoader) ?? DetailLoaderChips.FirstOrDefault();
+        _detailLoaderScope = loaderChip?.Value ?? AllDetailLoaders;
+        foreach (var chip in DetailLoaderChips)
+        {
+            chip.IsSelected = ReferenceEquals(chip, loaderChip);
         }
 
         OnPropertyChanged(nameof(HasDetailVersionFilter));
         OnPropertyChanged(nameof(HasDetailLoaderFilter));
     }
 
-    /// <summary>按当前版本/加载器筛选重建 VersionFiles；条目 VM 复用，避免打断进行中的下载行状态。</summary>
-    private void ApplyDetailFilter()
+    /// <summary>按当前版本/加载器胶囊重建分组列表；条目 VM 复用，避免打断进行中的下载行状态。</summary>
+    private void BuildDetailGroups()
     {
+        DetailGroups.Clear();
         if (_detailFiles.Count == 0)
         {
-            VersionFiles.Clear();
             DetailEmptyText = "";
-            OnPropertyChanged(nameof(IsDetailEmpty));
+            NotifyDetailState();
             return;
         }
 
-        var versionFilter = SelectedDetailVersion == AllDetailVersions ? null : SelectedDetailVersion;
-        var loaderFilter = Type == CompResourceType.Mod && SelectedDetailLoader != AllDetailLoaders
-            ? SelectedDetailLoader
-            : null;
-
-        var matches = _detailFiles
-            .Where(file => MatchesDetailFilter(file, versionFilter, loaderFilter))
+        var grouped = _detailFiles
+            .Where(MatchesDetailScope)
+            .GroupBy(file => (Loader: PrimaryLoader(file), Version: GroupVersionLabel(file)))
+            .Select(group => new
+            {
+                group.Key.Loader,
+                group.Key.Version,
+                Files = group
+                    .OrderByDescending(file => file.ReleaseDate ?? DateTimeOffset.MinValue)
+                    .Select(ToDetailItem)
+                    .ToList()
+            })
+            .OrderByDescending(group => group.Version, CompLocalization.VersionComparer)
+            .ThenBy(group => LoaderOrder(group.Loader))
             .ToList();
 
-        VersionFiles.Clear();
-        foreach (var file in matches.Take(60))
+        foreach (var group in grouped)
         {
-            if (!_detailItems.TryGetValue(file.Id, out var item))
+            var header = group.Loader.Length > 0 ? $"{group.Loader} {group.Version}" : group.Version;
+            var vm = new CompFileGroupViewModel(header, group.Files)
             {
-                item = new CompFileItemViewModel(file, this);
-                _detailItems[file.Id] = item;
-            }
-
-            VersionFiles.Add(item);
+                // 首个分组默认展开；从实例进入/选中胶囊后，展开匹配的分组
+                IsExpanded = DetailGroups.Count == 0 || IsAutoExpandedGroup(group.Loader, group.Version)
+            };
+            DetailGroups.Add(vm);
         }
 
-        DetailEmptyText = VersionFiles.Count == 0
-            ? versionFilter is null && loaderFilter is null
+        DetailEmptyText = DetailGroups.Count == 0
+            ? _detailVersionScope == AllDetailVersions && _detailLoaderScope == AllDetailLoaders
                 ? "该项目没有可安装的文件"
                 : "当前筛选条件下没有可安装的文件"
             : "";
+        NotifyDetailState();
+    }
+
+    private void NotifyDetailState()
+    {
+        OnPropertyChanged(nameof(DetailFileCount));
+        OnPropertyChanged(nameof(DetailFileCountText));
         OnPropertyChanged(nameof(IsDetailEmpty));
     }
 
-    private bool MatchesDetailFilter(CompFile file, string? versionFilter, string? loaderFilter)
+    /// <summary>取（或复用）文件条目 VM。</summary>
+    private CompFileItemViewModel ToDetailItem(CompFile file)
     {
-        if (versionFilter is not null)
+        if (_detailItems.TryGetValue(file.Id, out var item))
         {
-            var matched = file.GameVersions.Any(version =>
-            {
-                var name = CompLocalization.GameVersionName(version);
-                return name.Length > 0
-                       && string.Equals(
-                           _detailVersionGrouped ? DetailVersionGroup(name) : name,
-                           versionFilter,
-                           StringComparison.OrdinalIgnoreCase);
-            });
-            if (!matched)
+            return item;
+        }
+
+        item = new CompFileItemViewModel(file, this);
+        _detailItems[file.Id] = item;
+        return item;
+    }
+
+    /// <summary>按当前胶囊过滤文件。</summary>
+    private bool MatchesDetailScope(CompFile file)
+    {
+        if (_detailLoaderScope != AllDetailLoaders
+            && !file.ModLoaders
+                .Select(CompLocalization.LoaderName)
+                .Any(name => name.Equals(_detailLoaderScope, StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        if (_detailVersionScope == AllDetailVersions)
+        {
+            return true;
+        }
+
+        if (_detailVersionScope == LegacyDetailVersions)
+        {
+            return file.GameVersions
+                .Select(CompLocalization.GameVersionName)
+                .Any(name => name.Length > 0 && !CompLocalization.IsReleaseGameVersion(name));
+        }
+
+        return file.GameVersions.Any(version =>
+        {
+            var name = CompLocalization.GameVersionName(version);
+            if (name.Length == 0)
             {
                 return false;
             }
-        }
 
-        if (loaderFilter is not null)
+            var candidate = _detailVersionGrouped ? DetailVersionGroup(name) : name;
+            return candidate.Equals(_detailVersionScope, StringComparison.OrdinalIgnoreCase);
+        });
+    }
+
+    /// <summary>分组标题里的版本段：选了具体版本就用该版本，否则取文件支持的最高正式版。</summary>
+    private string GroupVersionLabel(CompFile file)
+    {
+        if (_detailVersionScope is not AllDetailVersions and not LegacyDetailVersions)
         {
-            return file.ModLoaders
-                .Select(CompLocalization.LoaderName)
-                .Any(name => string.Equals(name, loaderFilter, StringComparison.OrdinalIgnoreCase));
+            return _detailVersionScope;
         }
 
-        return true;
+        if (_detailVersionScope == LegacyDetailVersions)
+        {
+            var legacy = file.GameVersions
+                .Select(CompLocalization.GameVersionName)
+                .FirstOrDefault(name => name.Length > 0 && !CompLocalization.IsReleaseGameVersion(name));
+            return legacy ?? LegacyDetailVersions;
+        }
+
+        var newest = file.GameVersions
+            .Select(CompLocalization.GameVersionName)
+            .Where(CompLocalization.IsReleaseGameVersion)
+            .OrderByDescending(name => name, CompLocalization.VersionComparer)
+            .FirstOrDefault();
+        if (newest is null || newest.Length == 0)
+        {
+            return "其它版本";
+        }
+
+        return _detailVersionGrouped ? DetailVersionGroup(newest) : newest;
+    }
+
+    /// <summary>文件的加载器标签（多加载器文件取排位最靠前的一个，用于分组标题）。</summary>
+    private static string PrimaryLoader(CompFile file) => file.ModLoaders
+        .Select(CompLocalization.LoaderName)
+        .Where(name => name.Length > 0)
+        .OrderBy(LoaderOrder)
+        .FirstOrDefault() ?? "";
+
+    /// <summary>加载器展示顺序：NeoForge → Forge → Fabric → Quilt → 其它（对齐 PCL-CE 的分组顺序）。</summary>
+    private static int LoaderOrder(string loader) => loader.ToLowerInvariant() switch
+    {
+        "neoforge" => 0,
+        "forge" => 1,
+        "fabric" => 2,
+        "quilt" => 3,
+        "liteloader" => 4,
+        "optifine" => 5,
+        "" => 9,
+        _ => 6
+    };
+
+    /// <summary>按胶囊选中的版本/加载器找对应的版本胶囊（含大版本折叠后的匹配）。</summary>
+    private DetailChipViewModel? FindVersionChip(string? version)
+    {
+        if (string.IsNullOrWhiteSpace(version))
+        {
+            return null;
+        }
+
+        var direct = DetailVersionChips.FirstOrDefault(chip =>
+            chip.Value.Equals(version, StringComparison.OrdinalIgnoreCase));
+        if (direct is not null)
+        {
+            return direct;
+        }
+
+        var grouped = DetailVersionGroup(version);
+        return DetailVersionChips.FirstOrDefault(chip =>
+            chip.Value.Equals(grouped, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private DetailChipViewModel? FindLoaderChip(string? loader)
+        => string.IsNullOrWhiteSpace(loader)
+            ? null
+            : DetailLoaderChips.FirstOrDefault(chip =>
+                chip.Value.Equals(loader, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>是否展开该分组：只在胶囊收窄了范围（从实例进入或手动选了版本/加载器）时展开匹配项。</summary>
+    private bool IsAutoExpandedGroup(string loader, string version)
+    {
+        if (_detailVersionScope == AllDetailVersions && _detailLoaderScope == AllDetailLoaders)
+        {
+            return false;
+        }
+
+        var loaderMatch = _detailLoaderScope == AllDetailLoaders
+                          || loader.Equals(_detailLoaderScope, StringComparison.OrdinalIgnoreCase);
+        var versionMatch = _detailVersionScope == AllDetailVersions
+                           || version.Equals(_detailVersionScope, StringComparison.OrdinalIgnoreCase);
+        return loaderMatch && versionMatch;
     }
 
     /// <summary>折叠为大版本：1.21.11 / 1.21.1 → 1.21；快照等非标准版本保持原样。</summary>
@@ -617,28 +833,21 @@ public partial class CompSectionViewModel : ObservableObject
             : version;
     }
 
-    /// <summary>切项目/关闭详情时清空详情筛选状态。</summary>
+    /// <summary>切项目/关闭详情时清空详情筛选状态（实例带来的目标版本/加载器保留，直到返回列表）。</summary>
     private void ResetDetailFilters()
     {
-        _isBuildingDetailFilters = true;
-        try
-        {
-            _detailFiles = [];
-            _detailItems.Clear();
-            DetailVersionOptions.Clear();
-            DetailLoaderOptions.Clear();
-            SelectedDetailVersion = AllDetailVersions;
-            SelectedDetailLoader = AllDetailLoaders;
-            DetailEmptyText = "";
-        }
-        finally
-        {
-            _isBuildingDetailFilters = false;
-        }
+        _detailFiles = [];
+        _detailItems.Clear();
+        DetailVersionChips.Clear();
+        DetailLoaderChips.Clear();
+        DetailGroups.Clear();
+        _detailVersionScope = AllDetailVersions;
+        _detailLoaderScope = AllDetailLoaders;
+        DetailEmptyText = "";
 
         OnPropertyChanged(nameof(HasDetailVersionFilter));
         OnPropertyChanged(nameof(HasDetailLoaderFilter));
-        OnPropertyChanged(nameof(IsDetailEmpty));
+        NotifyDetailState();
     }
 
     /// <summary>版本筛选选项：静态版本全集 + 本机已安装版本，按版本号降序；不随搜索结果变化。</summary>
@@ -712,6 +921,26 @@ public partial class CompSectionViewModel : ObservableObject
     [ObservableProperty]
     private string _selectedProjectLoaderText = "";
 
+    /// <summary>详情页标题下的原文名（中文译名与源站标题不同时展示，例如「Just Enough Items」）。</summary>
+    [ObservableProperty]
+    private string _selectedProjectSubTitle = "";
+
+    /// <summary>详情页信息行的分类文本（PCL-CE 顶卡里的「信息显示 支持库」）。</summary>
+    [ObservableProperty]
+    private string _selectedProjectInfoText = "";
+
+    /// <summary>来源站名（CurseForge / Modrinth）。</summary>
+    [ObservableProperty]
+    private string _selectedProjectSourceText = "";
+
+    /// <summary>「转到 CurseForge / 转到 Modrinth」按钮文案。</summary>
+    public string WebsiteActionText => SelectedProject?.Project.FromCurseForge == true
+        ? "转到 CurseForge"
+        : "转到 Modrinth";
+
+    /// <summary>详情页是否有原始标题可复制。</summary>
+    public bool CanCopyProjectName => SelectedProject is not null;
+
     /// <summary>详情页下载进度：直接映射底部安装任务状态，供详情内联展示。</summary>
     public bool IsDownloading => _install.IsInstalling;
 
@@ -744,6 +973,9 @@ public partial class CompSectionViewModel : ObservableObject
 
     /// <summary>UI 注入的文件夹选择器（返回 null 表示用户取消）。</summary>
     public Func<string, Task<string?>>? FolderPicker { get; set; }
+
+    /// <summary>UI 注入的剪贴板写入（详情页「复制名称」按钮用）。</summary>
+    public Func<string, Task>? CopyText { get; set; }
 
     public ObservableCollection<string> TargetInstanceOptions { get; } = [];
 
@@ -1017,13 +1249,19 @@ public partial class CompSectionViewModel : ObservableObject
         SelectedProjectDescription = CompLocalization.DisplayDescription(item.Project);
         SelectedProjectAuthor = item.Author;
         SelectedProjectCategoryText = item.CategoryText;
-        SelectedProjectUpdateText = item.UpdateText;
+        SelectedProjectUpdateText = item.UpdateRelativeText;
         SelectedProjectDownloadText = item.DownloadText;
         SelectedProjectGameVersionText = item.GameVersionText;
         SelectedProjectLoaderText = item.LoaderText;
+        SelectedProjectSubTitle = item.Project.Title.Trim().Equals(item.Title.Trim(), StringComparison.OrdinalIgnoreCase)
+            ? ""
+            : item.Project.Title.Trim();
+        SelectedProjectInfoText = item.CategoryText;
+        SelectedProjectSourceText = item.SourceText;
+        OnPropertyChanged(nameof(WebsiteActionText));
+        OnPropertyChanged(nameof(CanCopyProjectName));
         VersionErrorText = "";
         ResetDetailFilters();
-        VersionFiles.Clear();
         IsLoadingVersions = true;
         var translation = CompLocalization.TranslateDescriptionAsync(_services.DownloadClient, item.Project, token);
         try
@@ -1046,8 +1284,8 @@ public partial class CompSectionViewModel : ObservableObject
             }
 
             _detailFiles = files;
-            BuildDetailFilters();
-            ApplyDetailFilter();
+            BuildDetailChips();
+            BuildDetailGroups();
 
             var translated = await translation.ConfigureAwait(true);
             if (generation == _detailGeneration && ReferenceEquals(SelectedProject, item))
@@ -1124,10 +1362,93 @@ public partial class CompSectionViewModel : ObservableObject
         SelectedProjectDownloadText = "";
         SelectedProjectGameVersionText = "";
         SelectedProjectLoaderText = "";
+        SelectedProjectSubTitle = "";
+        SelectedProjectInfoText = "";
+        SelectedProjectSourceText = "";
+        // 返回搜索结果：实例带来的目标版本/加载器不再约束后续浏览
+        _targetGameVersion = null;
+        _targetLoader = null;
+        OnPropertyChanged(nameof(WebsiteActionText));
+        OnPropertyChanged(nameof(CanCopyProjectName));
         ResetDetailFilters();
-        VersionFiles.Clear();
         VersionErrorText = "";
     }
+
+    /// <summary>「转到 CurseForge / 转到 Modrinth」：优先用接口返回的项目主页，缺失时按 slug 拼装。</summary>
+    [RelayCommand]
+    private void OpenProjectWebsite()
+    {
+        var project = SelectedProject?.Project;
+        if (project is null)
+        {
+            return;
+        }
+
+        var url = project.WebsiteUrl;
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            var slug = project.Slug.Length > 0 ? project.Slug : project.Id;
+            var section = TypeSlug(project.Type);
+            url = project.FromCurseForge
+                ? $"https://www.curseforge.com/minecraft/{section}/{slug}"
+                : $"https://modrinth.com/{section}/{slug}";
+        }
+
+        if (!_services.System.OpenUrl(url))
+        {
+            _toast?.Invoke("无法打开浏览器，请检查系统默认程序设置");
+        }
+    }
+
+    /// <summary>「转到 MC 百科」：按资源名在 MC 百科搜索（中文译名命中率最高）。</summary>
+    [RelayCommand]
+    private void OpenProjectWiki()
+    {
+        var title = SelectedProject?.Title;
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return;
+        }
+
+        var url = $"https://search.mcmod.cn/s?key={Uri.EscapeDataString(title.Trim())}";
+        if (!_services.System.OpenUrl(url))
+        {
+            _toast?.Invoke("无法打开浏览器，请检查系统默认程序设置");
+        }
+    }
+
+    /// <summary>「复制名称」：把资源标题写入剪贴板（剪贴板由 UI 层注入）。</summary>
+    [RelayCommand]
+    private async Task CopyProjectNameAsync()
+    {
+        var name = SelectedProject?.Title;
+        if (string.IsNullOrWhiteSpace(name) || CopyText is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await CopyText(name.Trim()).ConfigureAwait(true);
+            _toast?.Invoke($"已复制名称：{name.Trim()}");
+        }
+        catch (Exception ex)
+        {
+            _toast?.Invoke($"复制失败：{ex.Message}");
+        }
+    }
+
+    /// <summary>资源类型的站点路径段（用于拼装项目主页地址）。</summary>
+    private static string TypeSlug(CompResourceType type) => type switch
+    {
+        CompResourceType.Mod => "mods",
+        CompResourceType.ModPack => "modpacks",
+        CompResourceType.ResourcePack => "resourcepacks",
+        CompResourceType.Shader => "shaders",
+        CompResourceType.DataPack => "datapacks",
+        CompResourceType.World => "worlds",
+        _ => "mods"
+    };
 
     /// <summary>收藏 / 取消收藏当前项目到选中的收藏夹（写入本地收藏夹，不依赖社区接口）。</summary>
     [RelayCommand]
