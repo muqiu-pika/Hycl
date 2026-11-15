@@ -85,6 +85,13 @@ public sealed partial class TerracottaService
     // 30s 在卧室网络/首次打洞场景下必然误报「等待房间号超时」。
     private const int HostPollSeconds = 180;
     private const int JoinPollSeconds = 180;
+
+    /// <summary>
+    /// 加入房间的最大尝试次数：陶瓦等房主只给 15 秒（rooms/scaffolding/room.rs 的 5×3s 循环），
+    /// 弱网下一次等不到很常见；重试成本低、收益高，但也不能无限重试拖住界面。
+    /// </summary>
+    private const int JoinAttempts = 3;
+
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan HttpTimeout = TimeSpan.FromSeconds(8);
 
@@ -454,17 +461,38 @@ public sealed partial class TerracottaService
                 }
 
                 Publish(s => s with { Phase = TerracottaPhase.Joining, Room = code });
-                await GetAsync(
-                    $"/state/guesting?room={Uri.EscapeDataString(code)}&player={Uri.EscapeDataString(player)}{nodeQuery}",
-                    cancellationToken).ConfigureAwait(false);
-                Log?.Invoke("info", "已请求加入陶瓦房间，等待连接就绪…");
-                var final = await PollUntilReadyAsync(TerracottaMode.Join, JoinPollSeconds, cancellationToken).ConfigureAwait(false);
+                TerracottaStateJson? joined = null;
+                for (var attempt = 1; ; attempt++)
+                {
+                    // /state/guesting 只在 waiting 状态生效；异常后陶瓦会自动回到 waiting，
+                    // 但这里仍显式确认一次，避免复位未完成时请求被静默丢弃
+                    await EnsureWaitingAsync(cancellationToken).ConfigureAwait(false);
+                    await GetAsync(
+                        $"/state/guesting?room={Uri.EscapeDataString(code)}&player={Uri.EscapeDataString(player)}{nodeQuery}",
+                        cancellationToken).ConfigureAwait(false);
+                    Log?.Invoke("info", attempt == 1
+                        ? "已请求加入陶瓦房间，等待连接就绪…"
+                        : $"已重新请求加入陶瓦房间（第 {attempt} 次尝试）…");
+                    try
+                    {
+                        joined = await PollUntilReadyAsync(TerracottaMode.Join, JoinPollSeconds, cancellationToken).ConfigureAwait(false);
+                        break;
+                    }
+                    catch (TerracottaStateException ex) when (ex.Type == 0 && attempt < JoinAttempts)
+                    {
+                        // PingHostFail：陶瓦只在 15 秒内等房主（scaffolding-mc-server-*）出现，
+                        // 公共节点抖动/打洞慢时经常一次等不到，复位后重试通常就能连上
+                        Log?.Invoke("warn", $"15 秒内未发现房主（第 {attempt} 次），复位后重试…");
+                        await Task.Delay(TimeSpan.FromMilliseconds(600), cancellationToken).ConfigureAwait(false);
+                    }
+                }
+
                 if (generation != _operation)
                 {
                     return Current;
                 }
 
-                Publish(s => s with { Phase = TerracottaPhase.Ready, Room = code, Url = final.Url });
+                Publish(s => s with { Phase = TerracottaPhase.Ready, Room = code, Url = joined!.Url });
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -964,6 +992,7 @@ public sealed partial class TerracottaService
 
             if (state.State is "exception" or "fatal" or "failed")
             {
+                Log?.Invoke("warn", $"陶瓦状态 {state.State}，异常类型 {(state.Type?.ToString() ?? "未知")}");
                 try
                 {
                     await GetAsync("/state/ide", CancellationToken.None).ConfigureAwait(false);
@@ -973,7 +1002,7 @@ public sealed partial class TerracottaService
                     // 复位尽力而为
                 }
 
-                throw new InvalidOperationException(DescribeException(state.Type, mode == TerracottaMode.Host));
+                throw new TerracottaStateException(DescribeException(state.Type, mode == TerracottaMode.Host), state.Type);
             }
 
             if (mode == TerracottaMode.Host && state.State == "host-ok" && !string.IsNullOrEmpty(state.Room))
@@ -1007,7 +1036,10 @@ public sealed partial class TerracottaService
     /// <summary>把上游 exception 的 type 翻成可操作提示（定义见 http-api.md）。</summary>
     private static string DescribeException(int? type, bool isHost) => type switch
     {
-        0 => "无法连接房主：房间已关闭或网络不稳定，请确认房主房间仍在后重试",
+        // 0 = PingHostFail：陶瓦在 15s 内没在房间网络里找到 hostname 以 scaffolding-mc-server- 开头的房主
+        0 => "未找到房主：房间码可能已失效（房主重新建房会换新码），"
+             + "或本机与房主没有共同可用的陶瓦公共节点（开了代理/VPN 时常见）。"
+             + "已自动重试仍未成功，请让房主重新建房取新码，或关闭代理后重试",
         1 => "与房主的连接已中断，请重新加入",
         2 => "本机 EasyTier 崩溃了，请重试；多次失败可更换网络环境",
         3 => "房主端 EasyTier 崩溃，请关闭房间后重新创建",
@@ -1187,6 +1219,12 @@ public sealed partial class TerracottaService
 
     [GeneratedRegex("\"port\"\\s*:\\s*(\\d+)")]
     private static partial Regex PortPattern();
+
+    /// <summary>陶瓦进入 exception/fatal 状态时抛出，带上游的异常类型（0=PingHostFail … 5=ScaffoldingInvalidResponse）。</summary>
+    private sealed class TerracottaStateException(string message, int? type) : InvalidOperationException(message)
+    {
+        public int? Type { get; } = type;
+    }
 
     private sealed record SessionDirectory(string Directory, bool IsMac, Process? Process);
 
