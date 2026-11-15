@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -15,6 +16,13 @@ public static class CompApiCache
     private static readonly TimeSpan SearchTtl = TimeSpan.FromHours(6);
 
     private static readonly TimeSpan DetailTtl = TimeSpan.FromHours(6);
+
+    // 文件列表内存层：详情页来回切换时直接复用反序列化结果。磁盘命中虽然免了网络，
+    // 但 CurseForge 的文件列表（pageSize=10000）落盘可达数 MB，若每次点击都在
+    // 调用线程（UI 线程）同步读盘 + 反序列化，详情页打开会明显卡顿。
+    private static readonly ConcurrentDictionary<string, (DateTimeOffset CachedAt, IReadOnlyList<CompFile> Files)> FileMemoryCache = new();
+
+    private const int FileMemoryCacheCapacity = 48;
 
     private static string CacheDirectory(string cacheDirectory) => Path.Combine(cacheDirectory, "comp-api");
 
@@ -43,6 +51,44 @@ public static class CompApiCache
         // 文件缓存带 schema 版本：CurseForge 文件的加载器字段曾整段缺失（ModLoaders 为空），
         // 旧缓存不能再用，否则详情页的加载器分组仍会错。改字段结构时同步递增版本号。
         return TryGet<List<CompFile>>(cacheDirectory, $"files2-{MakeKey(source + "|" + projectId)}", DetailTtl);
+    }
+
+    /// <summary>
+    /// 文件列表的完整读取链：内存层（命中即返回，零反序列化）→ 磁盘层（后台线程读盘解析，
+    /// 避免数 MB JSON 卡住调用线程）→ 在线加载（<paramref name="loader"/>，结果写回磁盘）。
+    /// 所有结果都会进入内存层，详情页来回切换不再重复解析。
+    /// </summary>
+    public static async Task<IReadOnlyList<CompFile>> GetOrLoadFilesAsync(
+        string cacheDirectory,
+        string source,
+        string projectId,
+        Func<CancellationToken, Task<IReadOnlyList<CompFile>>> loader,
+        CancellationToken cancellationToken = default)
+    {
+        var key = MakeKey(source + "|" + projectId);
+        if (FileMemoryCache.TryGetValue(key, out var cached)
+            && DateTimeOffset.UtcNow - cached.CachedAt <= DetailTtl)
+        {
+            return cached.Files;
+        }
+
+        IReadOnlyList<CompFile>? files = await Task.Run(
+                () => TryGet<List<CompFile>>(cacheDirectory, $"files2-{key}", DetailTtl),
+                cancellationToken).ConfigureAwait(false);
+        if (files is null)
+        {
+            files = await loader(cancellationToken).ConfigureAwait(false);
+            // 磁盘写入（含整个列表的 JSON 序列化）同样不能在调用线程上做
+            _ = Task.Run(() => Save(cacheDirectory, $"files2-{key}", files), CancellationToken.None);
+        }
+
+        if (FileMemoryCache.Count >= FileMemoryCacheCapacity)
+        {
+            FileMemoryCache.Clear();
+        }
+
+        FileMemoryCache[key] = (DateTimeOffset.UtcNow, files);
+        return files;
     }
 
     public static void SaveFiles(string cacheDirectory, string source, string projectId, IReadOnlyList<CompFile> files)

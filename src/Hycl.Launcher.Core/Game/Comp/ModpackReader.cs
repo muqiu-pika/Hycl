@@ -41,7 +41,7 @@ public sealed record ModpackFileEntry
 /// </summary>
 public sealed record ModpackDefinition
 {
-    /// <summary>modrinth / curseforge / hmcl / mcbbs / mmc。</summary>
+    /// <summary>modrinth / curseforge / hmcl / mcbbs / mmc / compress。</summary>
     public required string Kind { get; init; }
 
     public required string FormatName { get; init; }
@@ -65,6 +65,12 @@ public sealed record ModpackDefinition
 
     /// <summary>解压时跳过的完整条目名（如清单文件本身、HMCL 的 minecraft/pack.json）。</summary>
     public IReadOnlyList<string> ExcludedEntries { get; init; } = [];
+
+    /// <summary>
+    /// 解压时跳过的条目前缀（含末尾 /）。完整客户端包（compress）用它排除
+    /// versions / libraries / assets 等由安装器重新提供的目录，避免解压出陈旧副本。
+    /// </summary>
+    public IReadOnlyList<string> ExcludedPrefixes { get; init; } = [];
 
     /// <summary>Modrinth 直链文件。</summary>
     public IReadOnlyList<ModpackFileEntry> Files { get; init; } = [];
@@ -295,7 +301,9 @@ public static class ModpackReader
         string BaseFolder,
         string? ManifestEntry,
         string? RejectReason = null,
-        string? NestedEntry = null);
+        string? NestedEntry = null,
+        string? VersionEntry = null,
+        string? VersionId = null);
 
     private static ModpackInspection Inspect(PackSource source, string fallbackName)
     {
@@ -357,19 +365,24 @@ public static class ModpackReader
             return Classify(source, baseFolder, entryName);
         }
 
-        // 完整客户端包（含 versions/<id>/<id>.json）：PCL-CE 与 KAMUCL 都只能“解压后作为游戏目录”
+        // 完整客户端包 / 手动打包（含 versions/<id>/<id>.json）：HMCL 同样支持自动导入
+        // （ManuallyCreatedModpackException 路径）。交由 ParseCompress：安装器重新提供
+        // 原版与加载器，包内 mods / config / saves 等原样解压进实例目录。
         var fullPack = source.Entries
-            .Select(entry => FullPackRegex.Match(entry))
-            .FirstOrDefault(match => match.Success
-                                     && match.Groups[1].Value.Equals(match.Groups[2].Value, StringComparison.OrdinalIgnoreCase));
-        if (fullPack is not null)
+            .Select(entry => (Entry: entry, Match: FullPackRegex.Match(entry)))
+            .FirstOrDefault(pair => pair.Match.Success
+                                    && pair.Match.Groups[1].Value.Equals(
+                                        pair.Match.Groups[2].Value, StringComparison.OrdinalIgnoreCase));
+        if (fullPack.Match is not null
+            && FindFullPackBase(fullPack.Entry) is { } packBase)
         {
             return new Detection(
                 "compress",
                 "完整客户端包（含 versions 目录）",
-                "",
+                packBase,
                 null,
-                "这是包含 versions 目录的完整客户端包。请解压后，把启动器设置中的游戏目录指向其中的 .minecraft 文件夹。");
+                VersionEntry: fullPack.Entry,
+                VersionId: fullPack.Match.Groups[1].Value);
         }
 
         return new Detection(
@@ -520,8 +533,94 @@ public static class ModpackReader
             "hmcl" => ParseHmcl(source, detected, fallbackName),
             "mcbbs" => ParseMcbbs(source, detected, fallbackName),
             "mmc" => ParseMmc(source, detected, fallbackName),
+            "compress" => ParseCompress(source, detected, fallbackName),
             _ => throw new CompException($"暂不支持该整合包格式：{detected.FormatName}。")
         };
+
+    /// <summary>
+    /// 完整客户端包 / 手动打包：从 versions/&lt;id&gt;/&lt;id&gt;.json 读出游戏版本与加载器，
+    /// 安装器负责安装原版与加载器（写干净的版本 JSON），包内其余内容原样解压进实例目录。
+    /// versions / libraries / assets 等由安装器提供的目录不重复解压（见 ExcludedPrefixes）。
+    /// </summary>
+    private static ModpackDefinition ParseCompress(PackSource source, Detection detected, string fallbackName)
+    {
+        var baseFolder = detected.BaseFolder;
+        var versionEntry = detected.VersionEntry
+                           ?? throw new CompException("完整客户端包缺少 versions 目录");
+        var gameVersion = detected.VersionId ?? "";
+
+        JsonObject? root = null;
+        try
+        {
+            root = ParseJson(source.ReadText(versionEntry)) as JsonObject;
+        }
+        catch (Exception ex) when (ex is CompException or IOException)
+        {
+            // 版本 JSON 读不出来时仍可用目录名当游戏版本继续（纯整合包没有自定义版本信息也能装）
+            root = null;
+        }
+
+        // JSON 内声明的 id 优先于目录名（两者一般一致）
+        var jsonId = root?["id"]?.ToString();
+        if (!string.IsNullOrWhiteSpace(jsonId))
+        {
+            gameVersion = jsonId;
+        }
+
+        if (string.IsNullOrWhiteSpace(gameVersion))
+        {
+            throw new CompException("完整客户端包缺少可识别的游戏版本（versions 目录名与版本 JSON 均未提供）");
+        }
+
+        var loader = DetectLoaderFromLibraries(
+            (root?["libraries"] as JsonArray)?.Select(node => node?["name"]?.ToString() ?? "") ?? [],
+            gameVersion);
+
+        return new ModpackDefinition
+        {
+            Kind = "compress",
+            FormatName = detected.FormatName,
+            Name = SuggestName(root?["name"]?.ToString() ?? root?["id"]?.ToString(), fallbackName),
+            GameVersion = gameVersion,
+            LoaderKind = loader.Kind,
+            LoaderVersion = loader.Version,
+            OverridePrefixes = [baseFolder],
+            ExcludedPrefixes =
+            [
+                baseFolder + "versions/",
+                baseFolder + "libraries/",
+                baseFolder + "assets/",
+                baseFolder + "logs/",
+                baseFolder + "crash-reports/"
+            ],
+            ExcludedEntries = FullPackJunkEntries.Select(junk => baseFolder + junk).ToList()
+        };
+    }
+
+    /// <summary>完整客户端包解压时跳过的启动器/运行时元数据文件（对齐 HMCL ModAdviser 黑名单中与实例无关的部分）。</summary>
+    private static readonly string[] FullPackJunkEntries =
+    [
+        "launcher_profiles.json",
+        "launcher_accounts.json",
+        "usercache.json",
+        "usernamecache.json",
+        "launcher.pack.lzma",
+        "launcher_log.txt",
+        "clientId.txt",
+        ".lastupdate"
+    ];
+
+    /// <summary>取 versions/ 段之前的基目录（根目录包返回空串）；不匹配返回 null。</summary>
+    private static string? FindFullPackBase(string entryName)
+    {
+        var index = entryName.IndexOf("versions/", StringComparison.OrdinalIgnoreCase);
+        if (index < 0)
+        {
+            return null;
+        }
+
+        return entryName[..index];
+    }
 
     private static ModpackDefinition ParseModrinth(PackSource source, Detection detected, string fallbackName)
     {

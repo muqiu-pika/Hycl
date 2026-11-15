@@ -371,7 +371,9 @@ public sealed class ModpackExportService(
                 Candidate = candidate,
                 ProjectId = hit.ProjectId,
                 Sha1 = hit.Sha1,
-                Sha512 = hit.Sha512,
+                // Modrinth 规范要求 sha1 与 sha512 同时存在，HMCL/Prism 会在校验时直接拒绝
+                // 缺 sha512 的清单；个别镜像响应可能缺字段，用本地算好的哈希兜底
+                Sha512 = string.IsNullOrEmpty(hit.Sha512) ? value.Sha512 : hit.Sha512,
                 DownloadUrl = hit.DownloadUrl,
                 Size = hit.Size > 0 ? hit.Size : value.Size
             });
@@ -483,7 +485,10 @@ public sealed class ModpackExportService(
         var files = new List<ModrinthIndexFile>();
         foreach (var match in matches)
         {
-            if (string.IsNullOrEmpty(match.DownloadUrl) || string.IsNullOrEmpty(match.Sha1))
+            // 缺 sha512 的条目写入清单会被 HMCL / Prism / Modrinth App 整体拒绝，退化为 overrides
+            if (string.IsNullOrEmpty(match.DownloadUrl)
+                || string.IsNullOrEmpty(match.Sha1)
+                || string.IsNullOrEmpty(match.Sha512))
             {
                 continue;
             }

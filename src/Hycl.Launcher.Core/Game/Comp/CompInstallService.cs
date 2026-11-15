@@ -322,7 +322,8 @@ public sealed class CompInstallService
             var packPath = sourcePath;
             if (Directory.Exists(sourcePath))
             {
-                // 先识别再打包：完整客户端包（含 versions 目录）直接拒绝，不必把整个 .minecraft 压一遍
+                // 先识别再打包：不支持的格式直接拒绝，不必把整个目录压一遍
+                // （完整客户端包 / 手动打包含 versions 目录同样走这条链路，由 ParseCompress 支持）
                 var folderInspection = InspectModpack(sourcePath);
                 if (!folderInspection.IsSupported)
                 {
@@ -665,11 +666,17 @@ public sealed class CompInstallService
             {
                 using var archive = ZipFile.OpenRead(packPath);
                 var excluded = definition.ExcludedEntries.ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var excludedPrefixes = definition.ExcludedPrefixes;
                 foreach (var entry in archive.Entries)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     var fullName = entry.FullName.Replace('\\', '/');
                     if (fullName.EndsWith('/') || excluded.Contains(fullName))
+                    {
+                        continue;
+                    }
+
+                    if (excludedPrefixes.Any(prefix => fullName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
                     {
                         continue;
                     }

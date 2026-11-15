@@ -471,8 +471,9 @@ public partial class CompSectionViewModel : ObservableObject
     /// <summary>当前项目拉取到的全部文件；筛选基于它，DetailGroups 只是筛选后的展示结果。</summary>
     private IReadOnlyList<CompFile> _detailFiles = [];
 
-    /// <summary>文件 Id → 条目 VM；重建列表时复用，保留「下载中」等行内状态。</summary>
-    private readonly Dictionary<string, CompFileItemViewModel> _detailItems = new(StringComparer.Ordinal);
+    /// <summary>文件 Id → 条目 VM；重建列表时复用，保留「下载中」等行内状态。
+    /// 计算可能发生在后台线程（详情分组重建），用并发容器。</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, CompFileItemViewModel> _detailItems = new(StringComparer.Ordinal);
 
     private bool _detailVersionGrouped;
     private string _detailVersionScope = AllDetailVersions;
@@ -520,9 +521,9 @@ public partial class CompSectionViewModel : ObservableObject
 
     partial void OnVersionErrorTextChanged(string value) => OnPropertyChanged(nameof(IsDetailEmpty));
 
-    /// <summary>点选版本胶囊：重建分组列表。</summary>
+    /// <summary>点选版本胶囊：后台重算分组列表（万级文件的筛选分桶不卡 UI）。</summary>
     [RelayCommand]
-    private void SelectDetailVersion(DetailChipViewModel? chip)
+    private async Task SelectDetailVersion(DetailChipViewModel? chip)
     {
         if (chip is null)
         {
@@ -535,12 +536,12 @@ public partial class CompSectionViewModel : ObservableObject
             item.IsSelected = ReferenceEquals(item, chip);
         }
 
-        BuildDetailGroups();
+        await RebuildDetailGroupsAsync().ConfigureAwait(true);
     }
 
-    /// <summary>点选加载器胶囊：重建分组列表。</summary>
+    /// <summary>点选加载器胶囊：后台重算分组列表。</summary>
     [RelayCommand]
-    private void SelectDetailLoader(DetailChipViewModel? chip)
+    private async Task SelectDetailLoader(DetailChipViewModel? chip)
     {
         if (chip is null)
         {
@@ -553,7 +554,7 @@ public partial class CompSectionViewModel : ObservableObject
             item.IsSelected = ReferenceEquals(item, chip);
         }
 
-        BuildDetailGroups();
+        await RebuildDetailGroupsAsync().ConfigureAwait(true);
     }
 
     /// <summary>
@@ -561,9 +562,16 @@ public partial class CompSectionViewModel : ObservableObject
     /// 版本超过 8 个时按 PCL-CE 的做法折叠大版本（1.21.11 → 1.21），否则使用精确版本；
     /// 存在快照/早期版本文件时追加「远古版」胶囊。由实例进入时自动选中该实例的版本与加载器。
     /// </summary>
-    private void BuildDetailChips()
+    private sealed record DetailChipsData(
+        List<string> Versions,
+        bool Grouped,
+        bool HasLegacy,
+        List<string> Loaders);
+
+    /// <summary>胶囊数据的纯计算部分：对上万条文件做 SelectMany/去重/排序，放到后台线程跑，避免卡 UI。</summary>
+    private static DetailChipsData ComputeDetailChips(IReadOnlyList<CompFile> files, CompResourceType type)
     {
-        var versions = _detailFiles
+        var versions = files
             .SelectMany(file => file.GameVersions)
             .Select(CompLocalization.GameVersionName)
             .Where(CompLocalization.IsReleaseGameVersion)
@@ -571,8 +579,8 @@ public partial class CompSectionViewModel : ObservableObject
             .OrderByDescending(version => version, CompLocalization.VersionComparer)
             .ToList();
 
-        _detailVersionGrouped = versions.Count >= 9;
-        if (_detailVersionGrouped)
+        var grouped = versions.Count >= 9;
+        if (grouped)
         {
             versions = versions
                 .Select(DetailVersionGroup)
@@ -581,18 +589,39 @@ public partial class CompSectionViewModel : ObservableObject
                 .ToList();
         }
 
+        // 「远古版」：文件里出现过快照/旧版本（非纯数字正式版号）时才有意义
+        var hasLegacy = files.Any(file => file.GameVersions
+            .Select(CompLocalization.GameVersionName)
+            .Any(name => name.Length > 0 && !CompLocalization.IsReleaseGameVersion(name)));
+
+        var loaders = new List<string>();
+        if (type == CompResourceType.Mod)
+        {
+            loaders = files
+                .SelectMany(file => file.ModLoaders)
+                .Select(CompLocalization.LoaderName)
+                .Where(name => name.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(LoaderOrder)
+                .ToList();
+        }
+
+        return new DetailChipsData(versions, grouped, hasLegacy, loaders);
+    }
+
+    /// <summary>胶囊行构建（UI 线程）：条目数量只有个位数，直接构建。</summary>
+    private void ApplyDetailChips(DetailChipsData data)
+    {
+        _detailVersionGrouped = data.Grouped;
+
         DetailVersionChips.Clear();
         DetailVersionChips.Add(new DetailChipViewModel("全部", AllDetailVersions));
-        foreach (var version in versions)
+        foreach (var version in data.Versions)
         {
             DetailVersionChips.Add(new DetailChipViewModel(version, version));
         }
 
-        // 「远古版」：文件里出现过快照/旧版本（非纯数字正式版号）时才有意义
-        var hasLegacy = _detailFiles.Any(file => file.GameVersions
-            .Select(CompLocalization.GameVersionName)
-            .Any(name => name.Length > 0 && !CompLocalization.IsReleaseGameVersion(name)));
-        if (hasLegacy)
+        if (data.HasLegacy)
         {
             DetailVersionChips.Add(new DetailChipViewModel(LegacyDetailVersions, LegacyDetailVersions));
         }
@@ -601,12 +630,7 @@ public partial class CompSectionViewModel : ObservableObject
         if (Type == CompResourceType.Mod)
         {
             DetailLoaderChips.Add(new DetailChipViewModel(AllDetailLoaders, AllDetailLoaders));
-            foreach (var loader in _detailFiles
-                         .SelectMany(file => file.ModLoaders)
-                         .Select(CompLocalization.LoaderName)
-                         .Where(name => name.Length > 0)
-                         .Distinct(StringComparer.OrdinalIgnoreCase)
-                         .OrderBy(LoaderOrder))
+            foreach (var loader in data.Loaders)
             {
                 DetailLoaderChips.Add(new DetailChipViewModel(loader, loader));
             }
@@ -632,21 +656,17 @@ public partial class CompSectionViewModel : ObservableObject
         OnPropertyChanged(nameof(HasDetailLoaderFilter));
     }
 
-    /// <summary>按当前版本/加载器胶囊重建分组列表；条目 VM 复用，避免打断进行中的下载行状态。</summary>
-    private void BuildDetailGroups()
-    {
-        DetailGroups.Clear();
-        if (_detailFiles.Count == 0)
-        {
-            DetailEmptyText = "";
-            NotifyDetailState();
-            return;
-        }
+    private sealed record DetailGroupData(string Loader, string Version, List<CompFileItemViewModel> Files);
 
-        // 同一文件可能同时支持多个加载器（如 Forge + NeoForge）：在每个加载器分组里都要出现，
-        // 否则只过滤到某个加载器时该加载器分组会莫名缺项。非模组类型不做加载器分组。
+    /// <summary>
+    /// 分组的纯计算部分（后台线程）：同一文件可能同时支持多个加载器（如 Forge + NeoForge）：
+    /// 在每个加载器分组里都要出现，否则只过滤到某个加载器时该加载器分组会莫名缺项。
+    /// 非 Mod 类型不做加载器分组（GroupLoaders 内部已处理）。
+    /// </summary>
+    private List<DetailGroupData> ComputeDetailGroups(IReadOnlyList<CompFile> files)
+    {
         var buckets = new Dictionary<(string Loader, string Version), List<CompFile>>();
-        foreach (var file in _detailFiles.Where(MatchesDetailScope))
+        foreach (var file in files.Where(MatchesDetailScope))
         {
             var version = GroupVersionLabel(file);
             foreach (var loader in GroupLoaders(file))
@@ -663,20 +683,23 @@ public partial class CompSectionViewModel : ObservableObject
             }
         }
 
-        var grouped = buckets
+        return buckets
             .OrderByDescending(pair => pair.Key.Version, CompLocalization.VersionComparer)
             .ThenBy(pair => LoaderOrder(pair.Key.Loader))
-            .Select(pair => new
-            {
+            .Select(pair => new DetailGroupData(
                 pair.Key.Loader,
                 pair.Key.Version,
-                Files = pair.Value
+                pair.Value
                     .OrderByDescending(file => file.ReleaseDate ?? DateTimeOffset.MinValue)
                     .Select(ToDetailItem)
-                    .ToList()
-            })
+                    .ToList()))
             .ToList();
+    }
 
+    /// <summary>分组结果落到 UI 集合（UI 线程）：分组数远小于文件数，直接构建。</summary>
+    private void ApplyDetailGroups(IReadOnlyList<DetailGroupData> grouped)
+    {
+        DetailGroups.Clear();
         foreach (var group in grouped)
         {
             var header = group.Loader.Length > 0 ? $"{group.Loader} {group.Version}" : group.Version;
@@ -694,6 +717,20 @@ public partial class CompSectionViewModel : ObservableObject
                 : "当前筛选条件下没有可安装的文件"
             : "";
         NotifyDetailState();
+    }
+
+    /// <summary>后台重算分组并回 UI：项目切换/胶囊连点时按代数丢弃过期结果。</summary>
+    private async Task RebuildDetailGroupsAsync()
+    {
+        var generation = _detailGeneration;
+        var files = _detailFiles;
+        var grouped = await Task.Run(() => ComputeDetailGroups(files)).ConfigureAwait(true);
+        if (generation != _detailGeneration || !ReferenceEquals(_detailFiles, files))
+        {
+            return;
+        }
+
+        ApplyDetailGroups(grouped);
     }
 
     private void NotifyDetailState()
@@ -1306,16 +1343,17 @@ public partial class CompSectionViewModel : ObservableObject
         var translation = CompLocalization.TranslateDescriptionAsync(_services.DownloadClient, item.Project, token);
         try
         {
-            // 文件/版本列表走缓存（6h）：详情页来回切换不再重复请求
+            // 文件/版本列表：内存层（零反序列化）→ 磁盘层（后台线程读盘解析）→ 在线加载。
+            // CurseForge 的全量文件列表可达数 MB，任何一步在 UI 线程同步做都会让详情页卡顿。
             var cacheSource = item.Project.FromCurseForge ? "curseforge" : "modrinth";
-            var files = CompApiCache.TryGetFiles(_services.Paths.CacheDirectory, cacheSource, item.Project.Id);
-            if (files is null)
-            {
-                files = item.Project.FromCurseForge
-                    ? await CurseForge.GetFilesAsync(item.Project.Id, Type, token).ConfigureAwait(true)
-                    : await Modrinth.GetFilesAsync(item.Project.Id, Type, token).ConfigureAwait(true);
-                CompApiCache.SaveFiles(_services.Paths.CacheDirectory, cacheSource, item.Project.Id, files);
-            }
+            var files = await CompApiCache.GetOrLoadFilesAsync(
+                _services.Paths.CacheDirectory,
+                cacheSource,
+                item.Project.Id,
+                ct => item.Project.FromCurseForge
+                    ? CurseForge.GetFilesAsync(item.Project.Id, Type, ct)
+                    : Modrinth.GetFilesAsync(item.Project.Id, Type, ct),
+                token).ConfigureAwait(true);
 
             token.ThrowIfCancellationRequested();
             if (generation != _detailGeneration)
@@ -1324,8 +1362,22 @@ public partial class CompSectionViewModel : ObservableObject
             }
 
             _detailFiles = files;
-            BuildDetailChips();
-            BuildDetailGroups();
+            // 胶囊与分组的纯计算（上万条文件的 SelectMany/分桶/排序）放后台线程，
+            // UI 线程只做少量 VM 创建与集合更新
+            var chips = await Task.Run(() => ComputeDetailChips(files, Type), token).ConfigureAwait(true);
+            if (generation != _detailGeneration)
+            {
+                return;
+            }
+
+            ApplyDetailChips(chips);
+            var grouped = await Task.Run(() => ComputeDetailGroups(files), token).ConfigureAwait(true);
+            if (generation != _detailGeneration || !ReferenceEquals(_detailFiles, files))
+            {
+                return;
+            }
+
+            ApplyDetailGroups(grouped);
 
             var translated = await translation.ConfigureAwait(true);
             if (generation == _detailGeneration && ReferenceEquals(SelectedProject, item))
