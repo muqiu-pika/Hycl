@@ -233,6 +233,32 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// 全局 Esc 返回：先关独立下载进度页，再从任意标签页回到启动页（主页）。
+    /// 走气泡阶段兜底——启动中页面、启动页弹窗、下拉框等各自消费的 Esc 不会到达这里。
+    /// </summary>
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        if (e.Handled || e.Key != Key.Escape || DataContext is not MainViewModel vm)
+        {
+            return;
+        }
+
+        if (vm.IsDownloadProgressOpen)
+        {
+            vm.CloseDownloadProgress();
+            e.Handled = true;
+            return;
+        }
+
+        if (vm.SelectedTabIndex != 0)
+        {
+            vm.SelectedTabIndex = 0;
+            e.Handled = true;
+        }
+    }
+
     /// <summary>立即收起启动层并恢复标题栏/内容区透明度（用于关闭启动动画的场景）。</summary>
     private void StopStartupAnimation()
     {

@@ -85,11 +85,14 @@ public class McSkin3D : Control
     private Bitmap? _skinBitmap;
     private Bitmap? _capeBitmap;
 
-    // 初始朝向固定为正视前方（yaw/pitch 均为 0），且不持久化：每次冷启动都从正面开始。
-    private double _yaw;
-    private double _pitch;
-    private double _targetYaw;
-    private double _targetPitch;
+    // 初始朝向默认为斜侧站姿（对齐 PCL-CE 的斜侧预览），且不持久化：每次冷启动都从该姿态开始。
+    private const double DefaultYaw = 0.36;
+    private const double DefaultPitch = 0.06;
+
+    private double _yaw = DefaultYaw;
+    private double _pitch = DefaultPitch;
+    private double _targetYaw = DefaultYaw;
+    private double _targetPitch = DefaultPitch;
 
     // 头部局部朝向（相对身体）：鼠标悬停时像 MC 物品栏里的小人一样转头，指针离开后回正。
     private double _headYaw;
@@ -158,22 +161,22 @@ public class McSkin3D : Control
             || change.Property == IsSlimProperty)
         {
             ReloadModel();
-            // 换皮肤 / 切账号 / 披风变化后回到正视前方，避免带上一次拖拽的角度。
+            // 换皮肤 / 切账号 / 披风变化后回到默认斜侧站姿，避免带上一次拖拽的角度。
             ResetOrientation();
             InvalidateVisual();
         }
     }
 
     /// <summary>
-    /// 朝向复位到正视前方（yaw=0、pitch=0）。仅在控件内部使用，不写入任何配置，
-    /// 因此冷启动永远是正面，切换账号或重新加载皮肤也会回到正面。
+    /// 朝向复位到默认斜侧站姿（<see cref="DefaultYaw"/>/<see cref="DefaultPitch"/>）。
+    /// 仅在控件内部使用，不写入任何配置：冷启动、切换账号或重新加载皮肤都会回到该姿态。
     /// </summary>
     private void ResetOrientation()
     {
-        _yaw = 0;
-        _targetYaw = 0;
-        _pitch = 0;
-        _targetPitch = 0;
+        _yaw = DefaultYaw;
+        _targetYaw = DefaultYaw;
+        _pitch = DefaultPitch;
+        _targetPitch = DefaultPitch;
         _headYaw = 0;
         _targetHeadYaw = 0;
         _headPitch = 0;
