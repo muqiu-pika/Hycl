@@ -1713,11 +1713,49 @@ public sealed partial class InstanceExportViewModel : ObservableObject
         }
     }
 
+    /// <summary>导出文件名清洗：剔除非 ASCII 字符，空白折叠成连字符；全部被剔除时返回空串（由调用方回退）。</summary>
+    private static string SanitizeExportName(string raw)
+    {
+        var builder = new System.Text.StringBuilder();
+        var pendingSpace = false;
+        foreach (var c in raw)
+        {
+            if (char.IsWhiteSpace(c))
+            {
+                pendingSpace = builder.Length > 0;
+                continue;
+            }
+
+            if (c <= 127 && !Path.GetInvalidFileNameChars().Contains(c))
+            {
+                if (pendingSpace && builder.Length > 0 && builder[^1] != '-')
+                {
+                    builder.Append('-');
+                }
+
+                pendingSpace = false;
+                builder.Append(c);
+            }
+            else
+            {
+                pendingSpace = false;
+            }
+        }
+
+        return builder.ToString().Trim('-');
+    }
+
     public void Configure(MinecraftInstance? instance, string contentRoot)
     {
         _instance = instance;
         _contentRoot = contentRoot;
-        ExportName = instance is null ? "" : $"{instance.Id}-导出";
+        // 导出文件名默认不带中文：其它启动器/系统对非 ASCII 文件名处理参差（HMCL 传输、
+        // 网盘解压等都可能出乱码），非 ASCII 字符直接剔除，保留 ASCII 字母数字与常用符号
+        ExportName = instance is null ? "" : SanitizeExportName(instance.Id) is { Length: > 0 } ascii
+            ? ascii
+            : SanitizeExportName($"modpack-{instance.GameVersion}") is { Length: > 0 } fallback
+                ? fallback
+                : "modpack";
         StatusMessage = "";
         Progress = 0;
         ProgressText = "";
