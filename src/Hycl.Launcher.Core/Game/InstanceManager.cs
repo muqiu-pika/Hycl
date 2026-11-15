@@ -509,6 +509,13 @@ public sealed class InstanceManager
         VersionInfo info,
         CancellationToken cancellationToken)
     {
+        // Hycl 自定义元数据优先：合并型自包含 JSON（Fabric 系安装）没有继承链，
+        // 不读这个字段就会拿 id（可能是实例名）当游戏版本
+        if (!string.IsNullOrWhiteSpace(info.HyclGameVersion))
+        {
+            return info.HyclGameVersion;
+        }
+
         var current = info;
         var gameVersion = info.Id;
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

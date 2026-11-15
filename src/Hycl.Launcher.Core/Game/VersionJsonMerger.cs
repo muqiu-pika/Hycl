@@ -50,6 +50,19 @@ public static class VersionJsonMerger
         outputJson.Remove("inheritsFrom");
         outputJson.Remove("jar");
         outputJson["id"] = outputId;
+        // 记录真实原版版本：自包含合并后没有继承链，没有这个字段游戏版本就丢了
+        // （实例扫描会拿 id 当游戏版本，导出整合包会写成 dependencies.minecraft=<实例名>）
+        var rootVersion = minecraftJson["inheritsFrom"]?.ToString();
+        if (string.IsNullOrWhiteSpace(rootVersion))
+        {
+            rootVersion = minecraftJson["id"]?.ToString();
+        }
+
+        if (!string.IsNullOrWhiteSpace(rootVersion))
+        {
+            outputJson["hyclGameVersion"] = rootVersion;
+        }
+
         return outputJson;
     }
 

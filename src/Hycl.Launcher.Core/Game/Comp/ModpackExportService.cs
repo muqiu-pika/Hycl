@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
+using System.Text.RegularExpressions;
 using Hycl.Launcher.Core.Game;
 using Hycl.Launcher.Core.Serialization;
 using Hycl.Launcher.Core.Services;
@@ -982,11 +983,50 @@ public sealed class ModpackExportService(
                         loaderKind = fallback.Kind;
                         loaderVersion ??= fallback.Version;
                     }
+
+                    // 老版本安装器写出的自包含 JSON 既没有继承链也没有实例名里的版本号
+                    //（如整合包实例 "Fabulously Optimized"），从日志配置文件名恢复
+                    //（原版 logging 配置 id 与 MC 版本一致，如 client-1.21.2.xml）。
+                    if (gameVersion.Equals(instance.Id, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var recovered = RecoverGameVersionFromLogging(
+                            raw?.Logging?.Client?.File?.Id);
+                        if (!string.IsNullOrWhiteSpace(recovered))
+                        {
+                            gameVersion = recovered;
+                        }
+                    }
                 }
             }
         }
 
+        // 坏元数据守卫：modded 实例的游戏版本仍然是实例 id = 版本信息不可得，
+        // 导出会写出 dependencies.minecraft=<实例名> 的清单（HMCL 导入即报
+        // "Remote library game has no version ..."），宁可让用户重装加载器也不导坏包。
+        // 版本名以数字开头视为可信（如 "1.20.1-fabric" 这类自命名实例）。
+        if (instance.Loader != "原版"
+            && gameVersion.Equals(instance.Id, StringComparison.OrdinalIgnoreCase)
+            && gameVersion.Length > 0
+            && !char.IsAsciiDigit(gameVersion[0]))
+        {
+            throw new CompException(
+                "无法确定该实例的 Minecraft 版本（版本 JSON 缺少版本元数据），暂时无法导出整合包。"
+                + "可在版本管理页对该实例重新安装一次加载器（会写入版本元数据）后再导出。");
+        }
+
         return new PackMeta(gameVersion, loaderKind, loaderVersion);
+    }
+
+    /// <summary>从版本 JSON 的日志配置文件名恢复游戏版本（client-&lt;版本&gt;.xml，1.7 起与 MC 版本一致）。</summary>
+    private static string? RecoverGameVersionFromLogging(string? loggingConfigId)
+    {
+        if (string.IsNullOrWhiteSpace(loggingConfigId))
+        {
+            return null;
+        }
+
+        var match = Regex.Match(loggingConfigId, @"^client-(.+)\.xml$", RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups[1].Value : null;
     }
 
     /// <summary>

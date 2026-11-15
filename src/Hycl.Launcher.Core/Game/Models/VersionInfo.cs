@@ -16,6 +16,15 @@ public sealed class VersionInfo
     [JsonPropertyName("inheritsFrom")]
     public string? InheritsFrom { get; set; }
 
+    /// <summary>
+    /// Hycl 自定义元数据：合并型自包含版本 JSON（Fabric 系安装）记录的真实原版版本。
+    /// 自包含 JSON 不带 inheritsFrom（合并时已移除），否则游戏版本不可恢复，
+    /// 导出整合包会写出 dependencies.minecraft=&lt;实例名&gt; 的坏清单。
+    /// 其它启动器忽略未知字段，无副作用。
+    /// </summary>
+    [JsonPropertyName("hyclGameVersion")]
+    public string? HyclGameVersion { get; set; }
+
     [JsonPropertyName("mainClass")]
     public string? MainClass { get; set; }
 
