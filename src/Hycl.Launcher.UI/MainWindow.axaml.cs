@@ -234,7 +234,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 全局 Esc 返回：先关独立下载进度页，再从任意标签页回到启动页（主页）。
+    /// 全局 Esc「上一步」：先关独立下载进度页，再退当前页内部层级（下载页资源分区 → 安装根、
+    /// 工具页插件功能页 → 工具首页），最后从任意标签页回到启动页。
     /// 走气泡阶段兜底——启动中页面、启动页弹窗、下拉框等各自消费的 Esc 不会到达这里。
     /// </summary>
     protected override void OnKeyDown(KeyEventArgs e)
@@ -245,16 +246,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (vm.IsDownloadProgressOpen)
+        if (vm.TryNavigateBack())
         {
-            vm.CloseDownloadProgress();
-            e.Handled = true;
-            return;
-        }
-
-        if (vm.SelectedTabIndex != 0)
-        {
-            vm.SelectedTabIndex = 0;
             e.Handled = true;
         }
     }

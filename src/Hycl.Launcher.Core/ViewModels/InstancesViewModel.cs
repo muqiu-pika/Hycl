@@ -417,6 +417,47 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
     [RelayCommand]
     private void ToggleFolderMenu() => IsFolderMenuOpen = !IsFolderMenuOpen;
 
+    /// <summary>版本页内部存在上一层：命名弹窗 / 文件夹菜单 / 资源关系与加载器锁定弹窗 / 展开的搜索栏。</summary>
+    public bool CanGoBack =>
+        IsNameDialogVisible
+        || IsFolderMenuOpen
+        || Files.IsRelationsDialogVisible
+        || Files.IsLoaderBlockedDialogVisible
+        || IsSearchOpen;
+
+    /// <summary>全局 Esc「上一步」：先关最上层的弹窗 / 菜单，再收起搜索栏。</summary>
+    public void GoBack()
+    {
+        if (IsNameDialogVisible)
+        {
+            IsNameDialogVisible = false;
+            return;
+        }
+
+        if (IsFolderMenuOpen)
+        {
+            IsFolderMenuOpen = false;
+            return;
+        }
+
+        if (Files.IsRelationsDialogVisible)
+        {
+            Files.IsRelationsDialogVisible = false;
+            return;
+        }
+
+        if (Files.IsLoaderBlockedDialogVisible)
+        {
+            Files.IsLoaderBlockedDialogVisible = false;
+            return;
+        }
+
+        if (IsSearchOpen)
+        {
+            IsSearchOpen = false;
+        }
+    }
+
     /// <summary>文件夹下拉菜单中选中一项：收起菜单并切换当前游戏目录。</summary>
     [RelayCommand]
     private void SelectFolder(InstanceFolderItem? folder)

@@ -10,7 +10,7 @@ namespace Hycl.Launcher.Core.ViewModels.Pages;
 /// 工具页：只展示「已启用」插件的入口卡片；点进去切换到该插件自己的功能/设置页。
 /// 插件的安装、更新、卸载、启用/禁用都在设置页「插件工坊」完成。
 /// </summary>
-public partial class ToolsPageViewModel : ObservableObject, IPageLifecycle
+public partial class ToolsPageViewModel : ObservableObject, IPageLifecycle, IBackNavigable
 {
     private readonly LauncherServices _services;
     private readonly Action<string>? _toast;
@@ -82,12 +82,18 @@ public partial class ToolsPageViewModel : ObservableObject, IPageLifecycle
     }
 
     [RelayCommand]
-    private void ClosePlugin()
+    public void ClosePlugin()
     {
         _currentPluginId = null;
         CurrentPluginTitle = "";
         CurrentPluginPage = null;
     }
+
+    /// <summary>工具页内部存在上一层：当前停在某个插件的功能页，而非工具首页。</summary>
+    public bool CanGoBack => CurrentPluginPage is not null;
+
+    /// <summary>全局 Esc「上一步」：关闭插件功能页，回到工具首页。</summary>
+    public void GoBack() => ClosePlugin();
 
     /// <summary>插件被禁用/卸载时自动退出其功能页，避免停在已失效的界面上。</summary>
     private void OnPluginsChanged()

@@ -19,7 +19,7 @@ namespace Hycl.Launcher.Core.ViewModels.Pages;
 /// 启动页 ViewModel：玩家档案切换、当前版本展示、启动与快捷方式。
 /// 表现层数据来自 Hycl (2) 的启动页，业务调用继续使用现有 Core 的实例扫描与启动服务。
 /// </summary>
-public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
+public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle, IBackNavigable
 {
     private readonly LauncherServices _services;
     private readonly Action<string>? _toast;
@@ -2255,6 +2255,63 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
     private void ReturnToLaunchPage()
     {
         IsLaunchProgressVisible = false;
+    }
+
+    /// <summary>启动页内部存在上一层：任一弹窗（关闭确认 / 登录 / 皮肤 / 重命名 / 批量删除确认）正在显示。
+    /// 关闭游戏确认与正版登录取消确认由视图层 Esc 隧道优先处理，这里作为兜底。</summary>
+    public bool CanGoBack =>
+        IsCloseGameConfirmVisible
+        || IsMsCancelConfirmVisible
+        || IsLoginDialogVisible
+        || IsSkinPickerVisible
+        || IsRenameProfileVisible
+        || IsProfilesDeleteConfirmVisible;
+
+    /// <summary>全局 Esc「上一步」：关闭当前打开的弹窗；正版登录进行中先弹取消确认而不是直接打断。</summary>
+    public void GoBack()
+    {
+        if (IsCloseGameConfirmVisible)
+        {
+            IsCloseGameConfirmVisible = false;
+            return;
+        }
+
+        if (IsMsCancelConfirmVisible)
+        {
+            IsMsCancelConfirmVisible = false;
+            return;
+        }
+
+        if (IsRenameProfileVisible)
+        {
+            IsRenameProfileVisible = false;
+            RenameProfileError = "";
+            return;
+        }
+
+        if (IsProfilesDeleteConfirmVisible)
+        {
+            IsProfilesDeleteConfirmVisible = false;
+            return;
+        }
+
+        if (IsSkinPickerVisible)
+        {
+            IsSkinPickerVisible = false;
+            return;
+        }
+
+        if (IsLoginDialogVisible)
+        {
+            if (IsMsLoginBusy)
+            {
+                // 设备码轮询进行中：与右上角关闭按钮一致，先弹取消确认防止误触打断
+                IsMsCancelConfirmVisible = true;
+                return;
+            }
+
+            IsLoginDialogVisible = false;
+        }
     }
 
     /// <summary>失败页的「重新启动」：清掉失败状态后重新走完整启动流程。</summary>

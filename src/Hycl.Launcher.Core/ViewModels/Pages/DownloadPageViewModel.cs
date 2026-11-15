@@ -15,7 +15,7 @@ namespace Hycl.Launcher.Core.ViewModels.Pages;
 /// 下载页 ViewModel：左侧分区导航 + 安装向导 + 底部安装条。
 /// 界面结构来自 Hycl (2)，网络与安装动作全部调用 Core 的加载器安装门面。
 /// </summary>
-public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
+public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle, IBackNavigable
 {
     private readonly LauncherServices _services;
     private readonly Action<string>? _toast;
@@ -352,6 +352,60 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
 
     [RelayCommand]
     private void SelectSection(NavItemViewModel? item) => SelectedSection = item;
+
+    /// <summary>
+    /// 下载页内部存在上一层（从深到浅）：社区资源分区的保存/前置弹窗 → 资源详情页 →
+    /// 任意分区（社区资源 / 收藏夹 / 安装包加载器）→ 安装向导的加载器子页 / 加载器卡片步。
+    /// </summary>
+    public bool CanGoBack =>
+        (ActiveCompSection is { IsSaveDialogVisible: true } or { IsDependencyDialogVisible: true })
+        || ActiveCompSection?.SelectedProject is not null
+        || SelectedSection?.Section is not null
+        || Wizard.IsLoaderPage
+        || Wizard.IsStep2;
+
+    /// <summary>全局 Esc「上一步」：按上面 CanGoBack 的层级从深到浅逐层返回，一次退一层。</summary>
+    public void GoBack()
+    {
+        if (ActiveCompSection is { } section)
+        {
+            if (section.IsSaveDialogVisible || section.IsDependencyDialogVisible)
+            {
+                section.DismissDialogs();
+                return;
+            }
+
+            if (section.SelectedProject is not null)
+            {
+                section.SelectedProject = null;
+                return;
+            }
+        }
+
+        if (SelectedSection?.Section is not null)
+        {
+            GoToInstallSection();
+            return;
+        }
+
+        if (Wizard.IsLoaderPage)
+        {
+            Wizard.BackToLoaderCardsCommand.Execute(null);
+            return;
+        }
+
+        if (Wizard.IsStep2)
+        {
+            Wizard.BackToMcListCommand.Execute(null);
+        }
+    }
+
+    private void GoToInstallSection()
+    {
+        var installNav = Groups.SelectMany(group => group.Items)
+            .FirstOrDefault(item => item.Section is null);
+        SelectedSection = installNav;
+    }
 
     [RelayCommand]
     private async Task RefreshAsync()

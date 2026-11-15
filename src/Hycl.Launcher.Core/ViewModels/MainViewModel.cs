@@ -275,6 +275,36 @@ public partial class MainViewModel : ObservableObject
         SyncFloatingDownloadState();
     }
 
+    /// <summary>
+    /// 全局「上一步」（Esc）的统一入口，按层级依次尝试：
+    /// 1. 独立下载进度页 → 返回进入前的页面；
+    /// 2. 当前页内部有上一层（<see cref="IBackNavigable"/>：下载页的资源分区回安装根视图、工具页的插件功能页回工具首页）→ 返回上一层；
+    /// 3. 当前不在启动页 → 回到启动页（首页）。
+    /// 返回是否消费了本次返回；启动页上的弹窗 / 启动中页面各自的 Esc 处理优先于此入口。
+    /// </summary>
+    public bool TryNavigateBack()
+    {
+        if (IsDownloadProgressOpen)
+        {
+            CloseDownloadProgress();
+            return true;
+        }
+
+        if (CurrentPage is IBackNavigable back && back.CanGoBack)
+        {
+            back.GoBack();
+            return true;
+        }
+
+        if (SelectedTabIndex != 0)
+        {
+            SelectedTabIndex = 0;
+            return true;
+        }
+
+        return false;
+    }
+
     /// <summary>同步悬浮按钮相关的派生属性与启动页按钮间距。</summary>
     private void SyncFloatingDownloadState()
     {
