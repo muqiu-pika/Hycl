@@ -329,6 +329,7 @@ public partial class SettingsPageViewModel : ObservableObject
     private ToggleRowViewModel? _hideSplashTextsRow;
     private ComboRowViewModel? _languageRow;
     private ToggleRowViewModel? _closeAfterLaunchRow;
+    private ToggleRowViewModel? _minimizeAfterLaunchRow;
     private ToggleRowViewModel? _showOutputRow;
     private ToggleRowViewModel? _animationsRow;
 
@@ -788,6 +789,7 @@ public partial class SettingsPageViewModel : ObservableObject
             new SettingCardViewModel("杂项",
             [
                 _closeAfterLaunchRow = new ToggleRowViewModel("启动后关闭启动器", config.CloseLauncherAfterLaunch),
+                _minimizeAfterLaunchRow = new ToggleRowViewModel("启动后最小化启动器", config.MinimizeLauncherAfterLaunch),
                 _showOutputRow = new ToggleRowViewModel("显示游戏输出", config.ShowGameOutput),
                 new TextLineRowViewModel("启动器进程退出后，游戏仍会继续运行。")
             ]),
@@ -798,6 +800,7 @@ public partial class SettingsPageViewModel : ObservableObject
             new SettingCardViewModel("Hyplay Craft Launcher",
             [
                 new InfoRowViewModel("当前版本", LaunchService.LauncherVersion),
+                new InfoRowViewModel("作者", "@muqiu-pika · @GYT0106"),
                 new InfoRowViewModel("开源协议", "Apache-2.0"),
                 new TextLineRowViewModel("部分设计参考 PCL-CE，感谢 @龙腾猫跃 以及其他开发者。")
             ]),
@@ -1396,6 +1399,11 @@ public partial class SettingsPageViewModel : ObservableObject
         if (_closeAfterLaunchRow is not null)
         {
             config.CloseLauncherAfterLaunch = _closeAfterLaunchRow.IsOn;
+        }
+
+        if (_minimizeAfterLaunchRow is not null)
+        {
+            config.MinimizeLauncherAfterLaunch = _minimizeAfterLaunchRow.IsOn;
         }
 
         if (_showOutputRow is not null)

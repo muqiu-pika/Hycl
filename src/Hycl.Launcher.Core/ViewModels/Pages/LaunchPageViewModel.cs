@@ -1846,6 +1846,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
             _toast?.Invoke($"已启动 {instance.Name}（PID {session.Id}）");
 
             // 启动器可见性（对应 PCL-CE LaunchArgumentVisible）：0 立即关闭 / 4 最小化 / 其余保持
+            // 优先级：关闭（开关 / 可见性=0）> 最小化开关 > 可见性下拉
             var wantsClose = config.LauncherVisibility == 0 || config.CloseLauncherAfterLaunch;
             if (wantsClose && localSkinServer is null)
             {
@@ -1856,6 +1857,10 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle
                 // 离线皮肤服务依附启动器进程存活：游戏取完皮肤前不能退出，改为最小化
                 LauncherVisibilityChanged?.Invoke(this, 4);
                 _toast?.Invoke("离线皮肤生效中，启动器改为最小化而不是退出");
+            }
+            else if (config.MinimizeLauncherAfterLaunch)
+            {
+                LauncherVisibilityChanged?.Invoke(this, 4);
             }
             else
             {

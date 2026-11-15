@@ -116,6 +116,9 @@ public sealed class LauncherConfig
 
     public bool CloseLauncherAfterLaunch { get; set; }
 
+    /// <summary>启动游戏后最小化启动器；与「启动后关闭启动器」同时开启时关闭优先。</summary>
+    public bool MinimizeLauncherAfterLaunch { get; set; }
+
     public bool ShowGameOutput { get; set; } = true;
 
     public bool EnableAnimations { get; set; } = true;
