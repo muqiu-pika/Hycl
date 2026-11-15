@@ -1477,7 +1477,7 @@
         </Grid>
 
         <!-- 删除确认 -->
-        <Panel Grid.ColumnSpan="2"
+        <Panel Grid.ColumnSpan="3"
                IsVisible="{Binding IsConfirmingDelete}"
                Background="{DynamicResource DialogScrimBrush}"
                ZIndex="3">
@@ -1505,7 +1505,7 @@
         </Panel>
 
         <!-- 复制 / 重命名 / 导入整合包 -->
-        <Panel Grid.ColumnSpan="2"
+        <Panel Grid.ColumnSpan="3"
                IsVisible="{Binding IsNameDialogVisible}"
                Background="{DynamicResource DialogScrimBrush}"
                ZIndex="3">

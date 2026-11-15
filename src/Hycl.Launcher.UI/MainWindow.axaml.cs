@@ -8,6 +8,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Transformation;
+using Avalonia.Platform.Storage;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Hycl.Launcher.Core.Services;
@@ -231,6 +232,11 @@ public partial class MainWindow : Window
         {
             Dispatcher.UIThread.Post(CreateInitialPage, DispatcherPriority.Background);
         }
+
+        // 拖拽整合包进窗口（主页 / 版本列表）松手：先询问是否安装，确认后拉起导入流程
+        DragDrop.SetAllowDrop(this, true);
+        AddHandler(DragDrop.DragOverEvent, OnModpackDragOver);
+        AddHandler(DragDrop.DropEvent, OnModpackDrop);
     }
 
     /// <summary>
@@ -252,9 +258,75 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>立即收起启动层并恢复标题栏/内容区透明度（用于关闭启动动画的场景）。</summary>
-    private void StopStartupAnimation()
+    /// <summary>拖入的是不是整合包候选文件（与导入文件选择器一致的扩展名集合）。</summary>
+    private static bool IsModpackCandidate(string path)
+        => System.IO.Path.GetExtension(path) is ".zip" or ".mrpack" or ".rar";
+
+    /// <summary>从拖拽数据里取第一个整合包候选文件路径；不是文件或扩展名不符时返回 null。</summary>
+    private static string? GetFirstModpackPath(IDataTransfer data)
     {
+        if (!data.Contains(DataFormat.File))
+        {
+            return null;
+        }
+
+        var files = data.TryGetFiles();
+        if (files is null)
+        {
+            return null;
+        }
+
+        foreach (var item in files)
+        {
+            var path = item.TryGetLocalPath();
+            if (!string.IsNullOrWhiteSpace(path) && IsModpackCandidate(path))
+            {
+                return path;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>拖拽悬停：主页 / 版本列表且有整合包候选文件时显示可放置（复制）光标。</summary>
+    private void OnModpackDragOver(object? sender, DragEventArgs e)
+    {
+        if (DataContext is MainViewModel vm
+            && !vm.IsDownloadProgressOpen
+            && vm.SelectedTabIndex is 0 or 2
+            && GetFirstModpackPath(e.DataTransfer) is not null)
+        {
+            e.DragEffects = DragDropEffects.Copy;
+            return;
+        }
+
+        e.DragEffects = DragDropEffects.None;
+    }
+
+    /// <summary>松手：切到版本页并打开导入确认弹窗（先询问是否安装）。</summary>
+    private async void OnModpackDrop(object? sender, DragEventArgs e)
+    {
+        if (DataContext is not MainViewModel vm
+            || vm.IsDownloadProgressOpen
+            || vm.SelectedTabIndex is not (0 or 2)
+            || GetFirstModpackPath(e.DataTransfer) is not { } path)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        try
+        {
+            await vm.RequestModpackImportAsync(path);
+        }
+        catch (Exception ex)
+        {
+            vm.ShowToast($"拖拽导入整合包失败：{ex.Message}");
+        }
+    }
+
+    /// <summary>立即收起启动层并恢复标题栏/内容区透明度（用于关闭启动动画的场景）。</summary>
+    private void StopStartupAnimation()    {
         _startupTimer?.Stop();
         _startupTimer = null;
         _startupFinished = true;

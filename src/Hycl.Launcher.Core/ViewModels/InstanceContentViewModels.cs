@@ -1659,7 +1659,7 @@ public sealed partial class InstanceExportViewModel : ObservableObject
     ];
 
     [ObservableProperty]
-    private string _selectedFormatOption = "Modrinth（.mrpack）";
+    private string _selectedFormatOption = "MultiMC / Prism（.zip）";
 
     [ObservableProperty]
     private string _exportName = "";

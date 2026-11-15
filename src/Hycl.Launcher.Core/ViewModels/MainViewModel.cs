@@ -276,6 +276,20 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
+    /// 拖拽整合包进窗口（主页 / 版本列表）：切到版本页并打开导入确认弹窗（先询问是否安装）。
+    /// 非整合包压缩包由 BeginImportAsync 内部识别并给出可读错误。
+    /// </summary>
+    public async Task RequestModpackImportAsync(string path)
+    {
+        if (SelectedTabIndex != 2)
+        {
+            SelectedTabIndex = 2;
+        }
+
+        await Instances.BeginImportAsync(path).ConfigureAwait(true);
+    }
+
+    /// <summary>
     /// 全局「上一步」（Esc）的统一入口，按层级依次尝试：
     /// 1. 独立下载进度页 → 返回进入前的页面；
     /// 2. 当前页内部有上一层（<see cref="IBackNavigable"/>：下载页的资源分区回安装根视图、工具页的插件功能页回工具首页）→ 返回上一层；

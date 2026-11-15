@@ -1683,7 +1683,11 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
     }
 
     /// <summary>先识别格式，再走命名对话框；不支持的格式当场说明原因，不进入命名步骤。</summary>
-    private async Task BeginImportAsync(string path)
+    /// <summary>
+    /// 进入整合包导入确认流程：识别压缩包、预填实例名并打开确认弹窗（「先询问是否安装」）。
+    /// 导入按钮（经文件选择器）与窗口拖拽整合包共用此入口。
+    /// </summary>
+    public async Task BeginImportAsync(string path)
     {
         ModpackInspection inspection;
         try
