@@ -391,6 +391,8 @@
                             </Grid>
                         </Button>
                         <Button Classes="side-item" Classes.active="{Binding IsModsSection}"
+                                IsVisible="{Binding SupportsMods}"
+                                ToolTip.Tip="仅安装过模组加载器（Forge/Fabric/NeoForge/Quilt/LiteLoader）的实例可管理模组"
                                 Command="{Binding SelectInstanceSectionCommand}" CommandParameter="mods">
                             <Grid ColumnDefinitions="Auto,*">
                                 <c:HyclIcon Kind="forge" Width="17" Height="17" Margin="0,0,9,0" VerticalAlignment="Center" />
@@ -405,6 +407,8 @@
                             </Grid>
                         </Button>
                         <Button Classes="side-item" Classes.active="{Binding IsShaderPacksSection}"
+                                IsVisible="{Binding SupportsShaderPacks}"
+                                ToolTip.Tip="只有装了 OptiFine（本体或 Mod）或 Iris 的实例才能加载光影"
                                 Command="{Binding SelectInstanceSectionCommand}" CommandParameter="shaderpacks">
                             <Grid ColumnDefinitions="Auto,*">
                                 <c:HyclIcon Kind="gold-block" Width="17" Height="17" Margin="0,0,9,0" VerticalAlignment="Center" />
@@ -412,6 +416,8 @@
                             </Grid>
                         </Button>
                         <Button Classes="side-item" Classes.active="{Binding IsDataPacksSection}"
+                                IsVisible="{Binding SupportsDataPacks}"
+                                ToolTip.Tip="数据包从 1.13 起支持"
                                 Command="{Binding SelectInstanceSectionCommand}" CommandParameter="datapacks">
                             <Grid ColumnDefinitions="Auto,*">
                                 <c:HyclIcon Kind="bookmark" Width="17" Height="17" Margin="0,0,9,0" VerticalAlignment="Center" />

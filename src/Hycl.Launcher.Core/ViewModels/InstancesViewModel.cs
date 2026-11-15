@@ -360,6 +360,25 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
 
     public bool IsServersSection => _sectionKey == "servers";
 
+    /// <summary>
+    /// 当前实例是否具备模组加载能力（对应 PCL-CE 的 McInstance.Modable）：
+    /// 只有 Forge/NeoForge/Cleanroom/Fabric/Quilt/Legacy Fabric/LiteLoader 这类真正的加载器才算，
+    /// 原版与「只装了 OptiFine」的实例都不显示「模组」分区。
+    /// </summary>
+    [ObservableProperty]
+    private bool _supportsMods;
+
+    /// <summary>
+    /// 当前实例是否能加载光影：OptiFine 本体，或 mods 里装了 OptiFine / Iris（含 Fabric 的 Iris）。
+    /// 都不满足时不显示「光影包」分区（光影没有渲染补丁装了也没用）。
+    /// </summary>
+    [ObservableProperty]
+    private bool _supportsShaderPacks;
+
+    /// <summary>数据包是 1.13 才有的功能，更早的版本不显示「数据包」分区。</summary>
+    [ObservableProperty]
+    private bool _supportsDataPacks;
+
     public InstanceFilesViewModel Files { get; }
 
     public InstanceExportViewModel Export { get; }
@@ -376,6 +395,14 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
     [RelayCommand]
     private void SelectInstanceSection(string key)
     {
+        // 能力不足的分区在界面上是隐藏的；这里再拦一次，避免键盘/脚本误触进入
+        if ((key == "mods" && !SupportsMods)
+            || (key == "shaderpacks" && !SupportsShaderPacks)
+            || (key == "datapacks" && !SupportsDataPacks))
+        {
+            return;
+        }
+
         if (_sectionKey == key)
         {
             return;
@@ -467,6 +494,74 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         OnPropertyChanged(nameof(IsSchematicsSection));
         OnPropertyChanged(nameof(IsFilesSection));
         OnPropertyChanged(nameof(IsServersSection));
+    }
+
+    /// <summary>
+    /// 刷新当前实例的「可管理能力」：决定模组 / 光影 / 数据包分区是否出现。
+    /// 与原版实例不能装的东西，分区直接不显示（PCL-CE 对非 Modable 实例隐藏「模组」页同理）。
+    /// </summary>
+    private void RefreshInstanceCapabilities()
+    {
+        var instance = SelectedInstance;
+        if (instance is null)
+        {
+            SupportsMods = false;
+            SupportsShaderPacks = false;
+            SupportsDataPacks = false;
+            return;
+        }
+
+        var loader = instance.Loader?.Trim() ?? "";
+        SupportsMods = IsModLoader(loader);
+        SupportsShaderPacks = IsOptiFineLoader(loader) || HasShaderSupportMod();
+        SupportsDataPacks = LoaderCompat.IsVersionAtLeast(instance.GameVersion, "1.13");
+
+        // 当前停留的分区被能力判定隐藏时，退回概览，避免停在一个「本不该存在」的页面上
+        if ((_sectionKey == "mods" && !SupportsMods)
+            || (_sectionKey == "shaderpacks" && !SupportsShaderPacks)
+            || (_sectionKey == "datapacks" && !SupportsDataPacks))
+        {
+            _sectionKey = "overview";
+            NotifySection();
+        }
+    }
+
+    /// <summary>真正的模组加载器（原版 / 仅 OptiFine 不算）。</summary>
+    private static bool IsModLoader(string loader) => loader switch
+    {
+        "Forge" or "NeoForge" or "Cleanroom" or "Fabric" or "Quilt"
+            or "Legacy Fabric" or "LiteLoader" => true,
+        _ => false
+    };
+
+    private static bool IsOptiFineLoader(string loader)
+        => loader.Equals("OptiFine", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// mods 目录里是否存在能提供光影能力的 Mod（OptiFine / Iris）。
+    /// 只看文件名（含 .disabled），避免为了判断一个分区去解压读元数据。
+    /// </summary>
+    private bool HasShaderSupportMod()
+    {
+        var modsDirectory = ModsDirectory;
+        if (string.IsNullOrWhiteSpace(modsDirectory) || !Directory.Exists(modsDirectory))
+        {
+            return false;
+        }
+
+        try
+        {
+            return Directory
+                .EnumerateFiles(modsDirectory, "*.jar*", SearchOption.TopDirectoryOnly)
+                .Select(Path.GetFileName)
+                .Any(name => name is not null
+                             && (name.Contains("optifine", StringComparison.OrdinalIgnoreCase)
+                                 || name.Contains("iris", StringComparison.OrdinalIgnoreCase)));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     /// <summary>按当前分区准备内容 VM：只给当前分区扫描目录，避免每次选中实例都全量扫描。</summary>
@@ -699,6 +794,10 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
             {
                 _ = ApplySearchAsync();
             }
+
+            // 列表刷新后实例的加载器信息可能变了（刚装完 Forge/Iris 等）：同步分区可见性
+            RefreshInstanceCapabilities();
+            RefreshSectionContent();
         }
         catch (Exception ex)
         {
@@ -1958,6 +2057,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         NotifySelection();
         StatusMessage = "";
         _ = ReloadSavesAsync();
+        RefreshInstanceCapabilities();
         RefreshSectionContent();
     }
 
@@ -1967,6 +2067,8 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         {
             NotifyDirectories();
             _ = ReloadSavesAsync();
+            // 版本隔离切换会改变 mods 所在目录：光影能力（OptiFine/Iris Mod）需重新判定
+            RefreshInstanceCapabilities();
             RefreshSectionContent();
         }
     }
