@@ -174,23 +174,21 @@ public sealed class LoaderInstallService
             }
         }
 
-        // 附属 LiteLoader：叠加在主链实例之上（原版 / OptiFine / Forge），继承链指向主链实例
+        // 附属 LiteLoader：合并进主实例（原版 / OptiFine / Forge），不再多建一层继承实例，
+        // 否则版本隔离下 mods 目录会换成新实例的，主加载器已装的 Mod 全部失效
         if (plan.LiteLoader is not null && kind != "liteloader")
         {
-            var liteLoaderName = InstanceNameValidator.GetAvailableName(
-                plan.GameDirectory, $"{installedName}-LiteLoader");
-            _logger.Info($"附属 LiteLoader {plan.LiteLoader.FileName ?? "LiteLoader"}：叠加在 {installedName} 之上");
-            installedName = await _installer.InstallLiteLoaderAsync(
+            _logger.Info($"附属 LiteLoader {plan.LiteLoader.FileName ?? "LiteLoader"}：合并进 {installedName}");
+            await _installer.InstallLiteLoaderOverlayAsync(
                     plan.GameDirectory,
                     plan.GameVersion,
-                    liteLoaderName,
+                    installedName,
                     plan.LiteLoader,
                     plan.Policy,
                     plan.Threads,
                     progress,
                     cancellationToken,
-                    plan.DownloadAssets,
-                    inheritVersion: installedName)
+                    plan.DownloadAssets)
                 .ConfigureAwait(false);
         }
 
@@ -295,6 +293,17 @@ public sealed class LoaderInstallService
         if (selected?.Payload is not ForgelikeEntry entry)
         {
             throw new DownloadException($"{plan.Kind} 在 {plan.GameVersion} 下没有可用版本");
+        }
+
+        // OptiFine 对 Forge 版本有精确要求（RequiredForgeVersion）：装错版本会直接崩在启动阶段，
+        // 这里提前拦住并说明原因，而不是装完才发现起不来
+        if (plan.OptiFine is not null
+            && kind == "forge"
+            && entry is ForgeEntry forgeEntry
+            && !LoaderCompat.IsOptiFineSuitableForForge(plan.OptiFine, forgeEntry))
+        {
+            throw new DownloadException(
+                $"OptiFine {plan.OptiFine.NameVersion} 与 Forge {forgeEntry.VersionName} 不适配，请改用匹配的 Forge 版本");
         }
 
         return await _installer.InstallForgelikeAsync(

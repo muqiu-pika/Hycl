@@ -182,20 +182,6 @@ public partial class LoaderCardViewModel : ObservableObject
     /// <summary>版本列表是否已成功加载过（用于区分"加载中"与"可下载"）。</summary>
     public bool IsLoaded => _loaded;
 
-    /// <summary>
-    /// 让卡片下一次进入时重新构建版本列表（不影响其它卡）。
-    /// 用于「已选 OptiFine 变化 → Forge 列表需要按适配版本重新过滤」这类场景。
-    /// </summary>
-    public void InvalidateItems()
-    {
-        Items.Clear();
-        _loaded = false;
-        IsEmpty = false;
-        IsFailed = false;
-        ErrorText = "";
-        MarkLoading();
-    }
-
     /// <summary>直接设置状态字文本与颜色。</summary>
     public void SetStatus(string text, bool dark)
     {
@@ -1306,14 +1292,8 @@ public partial class InstallWizardViewModel : ObservableObject
             return;
         }
 
-        // OptiFine 与已选 Forge 不适配时清除 Forge（对应 PCL-CE OptiFine_Selected）
-        if (item.Payload is OptiFineEntry optiFine
-            && _selectedLoaderItem?.Payload is LoaderChoice { Payload: ForgeEntry forge }
-            && !LoaderCompat.IsOptiFineSuitableForForge(optiFine, forge))
-        {
-            ClearCardSelection(LoaderCards.FirstOrDefault(c => c.Kind == "forge"));
-            _toast?.Invoke($"已取消 Forge：与 OptiFine {optiFine.NameVersion} 不适配");
-        }
+        // OptiFine 与已选 Forge 不适配时，由 RefreshForgeForOptiFine 重建列表后统一取消并提示，
+        // 这里不再提前 ClearCardSelection（否则会先弹一次、重建后再弹一次）
 
         foreach (var card in CompanionCards)
         {
@@ -1339,7 +1319,7 @@ public partial class InstallWizardViewModel : ObservableObject
         }
 
         // 选完 OptiFine 后：Forge 列表需要按适配版本重过滤，OptiFabric 卡是否出现也要重算
-        RefreshForgeCardForOptiFine();
+        RefreshForgeForOptiFine();
         RefreshCompanionAvailability();
         NotifySelectionSummary();
         _toast?.Invoke($"已选择附属：{item.Title}");
@@ -1351,30 +1331,52 @@ public partial class InstallWizardViewModel : ObservableObject
            || (entry.Payload is ForgeEntry forge && LoaderCompat.IsOptiFineSuitableForForge(optiFine, forge));
 
     /// <summary>
-    /// 已选 OptiFine 变化后刷新 Forge 卡：当前 Forge 选择不再适配则取消，
-    /// 版本列表已加载过则作废重建（下次进入按 OptiFine 过滤）。
+    /// 已选 OptiFine 变化后重建 Forge 版本列表：
+    /// 尽可能保留原来选中的 Forge 版本（新列表里仍在就重新选中），
+    /// 适配不了才取消并明确提示，而不是默默把选中状态清掉。
     /// </summary>
-    private void RefreshForgeCardForOptiFine()
+    private void RefreshForgeForOptiFine()
     {
         var forgeCard = LoaderCards.FirstOrDefault(card => card.Kind == "forge");
-        if (forgeCard is null)
+        if (forgeCard is null || !forgeCard.IsLoaded)
         {
             return;
         }
 
-        if (_selectedLoaderItem?.Payload is LoaderChoice { Payload: ForgeEntry forgeEntry }
-            && _selectedOptiFineItem?.Payload is OptiFineEntry optiFine
-            && !LoaderCompat.IsOptiFineSuitableForForge(optiFine, forgeEntry))
+        _ = ReloadForgeCardAsync(forgeCard, _selectedLoaderItem);
+    }
+
+    private async Task ReloadForgeCardAsync(LoaderCardViewModel forgeCard, VersionItemViewModel? previousForge)
+    {
+        var previousTitle = previousForge?.Payload is LoaderChoice { Payload: ForgeEntry } ? previousForge.Title : null;
+        forgeCard.PrepareReload();
+        await forgeCard.EnsureLoadedAsync().ConfigureAwait(true);
+
+        if (previousTitle is not null)
         {
-            ClearCardSelection(forgeCard);
-            _toast?.Invoke($"已取消 Forge：当前版本与 OptiFine {optiFine.NameVersion} 不适配");
+            var match = forgeCard.Items.FirstOrDefault(item => item.Title.Equals(previousTitle, StringComparison.Ordinal));
+            if (match is not null)
+            {
+                match.IsSelected = true;
+                forgeCard.HasSelection = true;
+                forgeCard.SelectedTitle = match.Title;
+                _selectedLoaderItem = match;
+                SelectedLoaderName = match.Title;
+            }
+            else
+            {
+                // 该 Forge 版本与当前 OptiFine 不适配：取消并说明原因
+                _selectedLoaderItem = null;
+                _selectedLoaderCardTitle = "";
+                SelectedLoaderName = "原版";
+                forgeCard.ResetSelection();
+                _toast?.Invoke($"Forge {previousTitle} 与当前 OptiFine 不适配，已取消选择，请重新选择 Forge 版本");
+            }
+
+            NotifySelectionSummary();
         }
 
-        if (forgeCard.IsLoaded)
-        {
-            forgeCard.InvalidateItems();
-            RefreshCardStatus(forgeCard);
-        }
+        RefreshCardStatus(forgeCard);
     }
 
     [RelayCommand]
@@ -1401,7 +1403,7 @@ public partial class InstallWizardViewModel : ObservableObject
         // OptiFine 变动会反过来影响 Forge 列表的过滤结果（取消后应恢复全量 Forge 版本）
         if (clearedOptiFine)
         {
-            RefreshForgeCardForOptiFine();
+            RefreshForgeForOptiFine();
         }
 
         NotifyCompanionHints();

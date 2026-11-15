@@ -119,6 +119,76 @@ public partial class VersionInstaller
     }
 
     /// <summary>
+    /// 把 LiteLoader 叠加到已装好的实例上（PCL-CE 的合并安装思路，而不是再建一个继承实例）：
+    /// 先在临时实例里生成 LiteLoader 的版本 JSON，再把它合并进主实例 JSON 并删掉临时实例。
+    /// 这样版本隔离下 mods 目录仍是同一个，Forge 的 Mod 不会因为多出一层实例而丢失。
+    /// </summary>
+    public async Task<string> InstallLiteLoaderOverlayAsync(
+        string gameDirectory,
+        string gameVersion,
+        string baseInstance,
+        LiteLoaderEntry entry,
+        DownloadPolicy policy,
+        int threads,
+        IProgress<InstallProgress>? progress = null,
+        CancellationToken cancellationToken = default,
+        bool downloadAssets = true)
+    {
+        var reporter = new ProgressReporter(progress);
+        var tempName = InstanceNameValidator.GetAvailableName(gameDirectory, $"{baseInstance}-liteloader");
+        var tempId = await InstallLiteLoaderAsync(
+                gameDirectory,
+                gameVersion,
+                tempName,
+                entry,
+                policy,
+                threads,
+                progress,
+                cancellationToken,
+                downloadAssets,
+                inheritVersion: baseInstance)
+            .ConfigureAwait(false);
+
+        var versionsDirectory = Path.Combine(gameDirectory, "versions");
+        var baseJsonPath = Path.Combine(versionsDirectory, baseInstance, baseInstance + ".json");
+        var tempJsonPath = Path.Combine(versionsDirectory, tempId, tempId + ".json");
+        var merged = false;
+        try
+        {
+            reporter.Stage("合并 LiteLoader 配置");
+            var baseJson = JsonNode.Parse(await File.ReadAllTextAsync(baseJsonPath, cancellationToken).ConfigureAwait(false))
+                               as JsonObject
+                           ?? throw new DownloadException($"主实例版本 JSON 解析失败：{baseInstance}");
+            var liteJson = JsonNode.Parse(await File.ReadAllTextAsync(tempJsonPath, cancellationToken).ConfigureAwait(false))
+                               as JsonObject
+                           ?? throw new DownloadException("LiteLoader 版本 JSON 解析失败");
+            liteJson.Remove("inheritsFrom");
+            liteJson.Remove("id");
+            liteJson.Remove("jar");
+            liteJson.Remove("time");
+            liteJson.Remove("releaseTime");
+            liteJson.Remove("_comment_");
+            VersionJsonMerger.MergeInto(baseJson, liteJson);
+            baseJson["id"] = baseInstance;
+            var temporary = baseJsonPath + ".tmp";
+            await File.WriteAllTextAsync(temporary, baseJson.ToJsonString(JsonOptions), cancellationToken)
+                .ConfigureAwait(false);
+            File.Move(temporary, baseJsonPath, true);
+            merged = true;
+            _logger.Info($"LiteLoader 已合并进实例 {baseInstance}");
+            return baseInstance;
+        }
+        finally
+        {
+            // 合并成功才清理临时实例；失败保留它便于排查
+            if (merged)
+            {
+                TryDeleteDirectory(Path.Combine(versionsDirectory, tempId), tempId);
+            }
+        }
+    }
+
+    /// <summary>
     /// 安装 LabyMod（对应 PCL-CE McDownloadLabyModLoader）：
     /// 每版本 manifest json 直接作为版本 json（含 LabyMod 自己的 libraries），复制原版 jar 后下载依赖。
     /// </summary>

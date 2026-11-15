@@ -156,6 +156,21 @@ public sealed class VersionResolver
 
         merged.MainClass ??= "net.minecraft.client.main.Main";
         merged.Type ??= "release";
+
+        // 旧版（≤1.12.2）用 minecraftArguments 字符串，新版用 arguments.game 数组。
+        // 一旦继承链里有一层带上了 arguments.game（例如 LiteLoader / OptiFine 追加 --tweakClass），
+        // 启动器只会读 arguments.game，父链的 minecraftArguments 会被整体丢掉，
+        // 表现为「加载器装好了但游戏起不来（缺 --username/--gameDir 等）」。
+        // 这里把旧式参数按顺序前置进 arguments.game，保证两套参数共存。
+        if (!string.IsNullOrWhiteSpace(merged.MinecraftArguments) && merged.Arguments.Game.Count > 0)
+        {
+            var legacy = ArgumentTokenizer.Split(merged.MinecraftArguments)
+                .Select(token => new ArgumentEntry { Values = [token] })
+                .ToList();
+            merged.Arguments.Game.InsertRange(0, legacy);
+            merged.MinecraftArguments = null;
+        }
+
         return merged;
     }
 
