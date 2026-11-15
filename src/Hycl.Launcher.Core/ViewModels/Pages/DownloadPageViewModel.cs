@@ -18,6 +18,7 @@ namespace Hycl.Launcher.Core.ViewModels.Pages;
 public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
 {
     private readonly LauncherServices _services;
+    private readonly Action<string>? _toast;
     private bool _skipAutoSearch;
 
     /// <summary>构造期选中默认分区时为 true：此时不触发版本列表拉取（改为进入页面时按需加载）。</summary>
@@ -32,6 +33,7 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
     public DownloadPageViewModel(LauncherServices services, Action<string>? toast)
     {
         _services = services;
+        _toast = toast;
         Favorites = new FavoritesStore(
             Path.Combine(services.Paths.DataDirectory, "favorites.json"),
             services.Logger);
@@ -384,8 +386,16 @@ public partial class DownloadPageViewModel : ObservableObject, IPageLifecycle
     [RelayCommand]
     private async Task ActivateSectionItemAsync(VersionItemViewModel? item)
     {
-        if (item?.Payload is not VersionSummary summary || Install.IsInstalling || ActiveSection is null)
+        if (item?.Payload is not VersionSummary summary || ActiveSection is null)
         {
+            return;
+        }
+
+        // 安装任务串行：正在装的时候点别的版本要给出反馈，而不是静默无响应
+        //（之前在装 Forge 时点 OptiFine 完全没反应，看着就像"选不了其他加载器"）
+        if (Install.IsInstalling)
+        {
+            _toast?.Invoke($"正在安装 {Install.InstallingName}，完成后再选择其它加载器");
             return;
         }
 

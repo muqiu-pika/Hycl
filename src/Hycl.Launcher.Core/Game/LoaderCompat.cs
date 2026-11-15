@@ -36,7 +36,7 @@ public static class LoaderCompat
     /// </summary>
     public static bool IsOptiFineCompatibleWith(string? mainKind, string minecraftVersion)
     {
-        return mainKind?.ToLowerInvariant() switch
+        return Normalize(mainKind) switch
         {
             null or "" or "vanilla" => true,
             // NeoForge / LabyMod / Cleanroom 与 OptiFine 完全互斥
@@ -70,16 +70,45 @@ public static class LoaderCompat
 
     /// <summary>
     /// 主加载器是否与 LiteLoader 兼容（对应 PCL-CE LoadLiteLoaderGetError）：
-    /// 仅 NeoForge / LegacyFabric / LabyMod / Cleanroom 互斥。
+    /// LiteLoader 走 launchwrapper，只能挂在原版或 Forge 主链上；
+    /// NeoForge / LegacyFabric / LabyMod / Cleanroom 均互斥（PCL-CE 同）。
+    /// Fabric/Quilt 虽然 PCL-CE 不拦，但两者主类完全不同、装上也加载不了 LiteLoader，
+    /// 这里按「能正确运行」的口径直接判为不兼容。
     /// </summary>
     public static bool IsLiteLoaderCompatibleWith(string? mainKind)
     {
-        return mainKind?.ToLowerInvariant() switch
+        return Normalize(mainKind) switch
         {
-            "neoforge" or "legacyfabric" or "labymod" or "cleanroom" => false,
-            _ => true
+            null or "" or "vanilla" or "forge" => true,
+            _ => false
         };
     }
+
+    /// <summary>是否为单选的模组加载器（主加载器之间互斥）。</summary>
+    public static bool IsMainLoaderKind(string? kind)
+        => Normalize(kind) is "forge" or "neoforge" or "cleanroom" or "fabric" or "quilt" or "legacyfabric" or "labymod";
+
+    /// <summary>OptiFine 是否以 Mod 形式叠加在主加载器上（Forge/Fabric 系有模组容器）。</summary>
+    public static bool IsOptiFineAsMod(string? mainKind)
+        => Normalize(mainKind) is "forge" or "fabric" or "legacyfabric" or "quilt";
+
+    /// <summary>主加载器中文名（提示文案用）。</summary>
+    public static string DisplayName(string? kind) => Normalize(kind) switch
+    {
+        "forge" => "Forge",
+        "neoforge" => "NeoForge",
+        "cleanroom" => "Cleanroom",
+        "fabric" => "Fabric",
+        "quilt" => "Quilt",
+        "legacyfabric" => "Legacy Fabric",
+        "labymod" => "LabyMod",
+        "optifine" => "OptiFine",
+        "liteloader" => "LiteLoader",
+        _ => "原版"
+    };
+
+    private static string? Normalize(string? kind)
+        => string.IsNullOrWhiteSpace(kind) ? null : kind.Trim().ToLowerInvariant();
 
     /// <summary>
     /// OptiFine 是否适配某个 Forge 版本（移植自 PCL-CE IsOptiFineSuitForForge，

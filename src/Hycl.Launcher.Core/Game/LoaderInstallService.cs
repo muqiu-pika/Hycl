@@ -72,15 +72,36 @@ public sealed class LoaderInstallService
         _logger = logger;
     }
 
-    /// <summary>执行安装计划；返回实际安装的实例名。</summary>
+    /// <summary>
+    /// 执行安装计划；返回实际安装的实例名。
+    /// 组合顺序对齐 PCL-CE：原版 → 主加载器（Forge/Fabric…）→ OptiFine（Forge/Fabric 系作为 Mod）→ LiteLoader。
+    /// 只选了附属（OptiFine / LiteLoader）而没选主加载器时，把附属提升为主安装，
+    /// 避免出现「勾了 OptiFine 却只装了原版」这种静默丢选项的问题。
+    /// </summary>
     public async Task<string> InstallAsync(
         LoaderInstallPlan plan,
         IProgress<InstallProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
         plan = await ResolveMissingEntriesAsync(plan, cancellationToken).ConfigureAwait(false);
-        Validate(plan);
         var kind = plan.Kind.ToLowerInvariant();
+
+        // 原版 + 只选了附属：附属就是主安装（OptiFine 实例 / LiteLoader 实例）
+        if (kind == VanillaKind)
+        {
+            if (plan.OptiFine is not null)
+            {
+                kind = "optifine";
+            }
+            else if (plan.LiteLoader is not null)
+            {
+                kind = "liteloader";
+            }
+        }
+
+        plan = plan with { Kind = kind };
+        Validate(plan);
+
         var installedName = kind switch
         {
             VanillaKind => await InstallVanillaAsync(plan, progress, cancellationToken).ConfigureAwait(false),
@@ -127,12 +148,49 @@ public sealed class LoaderInstallService
             _ => throw new ArgumentException($"未知的加载器种类：{plan.Kind}", nameof(plan))
         };
 
-        // 附属 OptiFine（与 Forge 共存时装进 mods）
-        if (plan.OptiFine is not null && kind is "forge")
+        // 附属 OptiFine（Forge/Fabric 系有模组容器：安装器 jar 直接进 mods，PCL-CE OptiFineAsMod 同款）
+        if (plan.OptiFine is not null && kind != "optifine")
         {
-            _logger.Info($"附属 OptiFine {plan.OptiFine.NameVersion}：以 Mod 形式装入 mods");
-            await _installer
-                .InstallOptiFineAsModAsync(ToOptiFineRequest(plan), progress, cancellationToken)
+            if (LoaderCompat.IsOptiFineAsMod(kind))
+            {
+                _logger.Info($"附属 OptiFine {plan.OptiFine.NameVersion}：以 Mod 形式装入 {installedName} 的 mods");
+                await _installer
+                    .InstallOptiFineAsModAsync(
+                        ToOptiFineRequest(plan) with { TargetName = installedName },
+                        progress,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                // 其余主链（理论上已被 Validate 拦住，这里保底按独立版本叠加）
+                _logger.Warn($"OptiFine 与 {kind} 组合未定义，按独立版本安装");
+                installedName = await _installer
+                    .InstallOptiFineAsync(
+                        ToOptiFineRequest(plan) with { TargetName = $"{installedName}-OptiFine" },
+                        progress,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+
+        // 附属 LiteLoader：叠加在主链实例之上（原版 / OptiFine / Forge），继承链指向主链实例
+        if (plan.LiteLoader is not null && kind != "liteloader")
+        {
+            var liteLoaderName = InstanceNameValidator.GetAvailableName(
+                plan.GameDirectory, $"{installedName}-LiteLoader");
+            _logger.Info($"附属 LiteLoader {plan.LiteLoader.FileName ?? "LiteLoader"}：叠加在 {installedName} 之上");
+            installedName = await _installer.InstallLiteLoaderAsync(
+                    plan.GameDirectory,
+                    plan.GameVersion,
+                    liteLoaderName,
+                    plan.LiteLoader,
+                    plan.Policy,
+                    plan.Threads,
+                    progress,
+                    cancellationToken,
+                    plan.DownloadAssets,
+                    inheritVersion: installedName)
                 .ConfigureAwait(false);
         }
 
@@ -176,12 +234,19 @@ public sealed class LoaderInstallService
         var kind = plan.Kind.ToLowerInvariant();
         if (plan.OptiFine is not null && !LoaderCompat.IsOptiFineCompatibleWith(kind, plan.GameVersion))
         {
-            throw new InvalidOperationException($"{plan.Kind} 与 OptiFine 不兼容，请分开安装");
+            throw new InvalidOperationException(
+                $"{LoaderCompat.DisplayName(kind)} 与 OptiFine 不兼容，请分开安装");
         }
 
-        if (plan.LiteLoader is not null && kind is not VanillaKind and not "forge")
+        if (plan.LiteLoader is not null)
         {
-            throw new InvalidOperationException("LiteLoader 仅可与原版或 Forge 搭配");
+            // OptiFine 作为主链时等价于原版链路，LiteLoader 可以继续叠在上面
+            var baseKind = kind == "optifine" ? VanillaKind : kind;
+            if (!LoaderCompat.IsLiteLoaderCompatibleWith(baseKind))
+            {
+                throw new InvalidOperationException(
+                    $"{LoaderCompat.DisplayName(kind)} 与 LiteLoader 不兼容（LiteLoader 只支持原版 / Forge 主链）");
+            }
         }
     }
 

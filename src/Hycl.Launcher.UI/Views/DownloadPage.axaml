@@ -256,10 +256,12 @@
                                                      Text="{Binding Wizard.TargetName, Mode=TwoWay}" />
                                             <TextBlock Grid.Column="3"
                                                        FontSize="12.5"
+                                                       MaxWidth="260"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       ToolTip.Tip="{Binding Wizard.SelectionSummary}"
                                                        VerticalAlignment="Center"
-                                                       Foreground="{DynamicResource Gray2Brush}">
-                                                <Run Text="{Binding Wizard.SelectedLoaderName}" />
-                                            </TextBlock>
+                                                       Foreground="{DynamicResource Gray2Brush}"
+                                                       Text="{Binding Wizard.SelectionSummary}" />
                                         </Grid>
                                         <TextBlock FontSize="12.5"
                                                    Foreground="{DynamicResource ErrorBrush}"

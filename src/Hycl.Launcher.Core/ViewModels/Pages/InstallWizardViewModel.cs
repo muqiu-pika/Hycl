@@ -182,6 +182,20 @@ public partial class LoaderCardViewModel : ObservableObject
     /// <summary>版本列表是否已成功加载过（用于区分"加载中"与"可下载"）。</summary>
     public bool IsLoaded => _loaded;
 
+    /// <summary>
+    /// 让卡片下一次进入时重新构建版本列表（不影响其它卡）。
+    /// 用于「已选 OptiFine 变化 → Forge 列表需要按适配版本重新过滤」这类场景。
+    /// </summary>
+    public void InvalidateItems()
+    {
+        Items.Clear();
+        _loaded = false;
+        IsEmpty = false;
+        IsFailed = false;
+        ErrorText = "";
+        MarkLoading();
+    }
+
     /// <summary>直接设置状态字文本与颜色。</summary>
     public void SetStatus(string text, bool dark)
     {
@@ -378,6 +392,49 @@ public partial class InstallWizardViewModel : ObservableObject
     [ObservableProperty]
     private string _selectedLoaderName = "原版";
 
+    /// <summary>当前组合摘要（如「Forge 47.2.0 + OptiFine HD_U_J1 + LiteLoader 1.12.2」）。</summary>
+    public string SelectionSummary
+    {
+        get
+        {
+            var parts = new List<string>();
+            if (_selectedLoaderItem?.Payload is LoaderChoice choice)
+            {
+                parts.Add($"{LoaderCompat.DisplayName(choice.Kind)} {choice.DisplayName}");
+            }
+
+            if (_selectedOptiFineItem is not null)
+            {
+                parts.Add($"OptiFine {_selectedOptiFineItem.Title}");
+            }
+
+            if (_selectedLiteLoaderItem is not null)
+            {
+                parts.Add($"LiteLoader {_selectedLiteLoaderItem.Title}");
+            }
+
+            if (_fabricApiCard?.HasSelection == true)
+            {
+                parts.Add("Fabric API");
+            }
+
+            if (_legacyFabricApiCard?.HasSelection == true)
+            {
+                parts.Add("Legacy Fabric API");
+            }
+
+            if (_optiFabricCard?.HasSelection == true)
+            {
+                parts.Add("OptiFabric");
+            }
+
+            return parts.Count == 0 ? "原版" : string.Join(" + ", parts);
+        }
+    }
+
+    private void NotifySelectionSummary() => OnPropertyChanged(nameof(SelectionSummary));
+
+
     [ObservableProperty]
     private bool _isLoaderLoading;
 
@@ -397,6 +454,9 @@ public partial class InstallWizardViewModel : ObservableObject
     private (int VersionList, int File) _cachedSource = (-1, -1);
 
     private VersionItemViewModel? _selectedLoaderItem;
+
+    /// <summary>上一次自动写入实例名的建议值：名字仍是它时才跟随加载器/版本变化自动更新。</summary>
+    private string _lastSuggestedTargetName = "";
 
     /// <summary>已选主加载器的名称（如 Forge），供冲突状态字使用（SelectedLoaderName 是所选版本号）。</summary>
     private string _selectedLoaderCardTitle = "";
@@ -673,11 +733,13 @@ public partial class InstallWizardViewModel : ObservableObject
         _selectedMc = summary;
         SelectedMcId = summary.Id;
         TargetName = SuggestAvailableName(summary.Id);
+        _lastSuggestedTargetName = TargetName;
         SelectedLoaderName = "原版";
         _selectedLoaderItem = null;
         _selectedLoaderCardTitle = "";
         _selectedOptiFineItem = null;
         _selectedLiteLoaderItem = null;
+        NotifySelectionSummary();
         ActiveLoaderCard = null;
         IsLoaderLoading = true;
         LoaderError = "";
@@ -827,7 +889,13 @@ public partial class InstallWizardViewModel : ObservableObject
         var token = _loaderSessionToken;
 
         // 主加载器（对应 PCL-CE 下载页安装包分区）；卡片随版本重建，构建时固定 MC 版本
-        void AddLoader(string kind, string title, string iconKey, string description, Func<DownloadPolicy, Task<IReadOnlyList<LoaderVersionEntry>>> loader)
+        void AddLoader(
+            string kind,
+            string title,
+            string iconKey,
+            string description,
+            Func<DownloadPolicy, Task<IReadOnlyList<LoaderVersionEntry>>> loader,
+            Func<LoaderVersionEntry, bool>? filter = null)
         {
             var mcId = SelectedMcId;
             var card = new LoaderCardViewModel(
@@ -839,6 +907,7 @@ public partial class InstallWizardViewModel : ObservableObject
                 async () => (await GetOrLoadLoaderEntriesAsync(
                         mcId, kind, () => loader(DownloadPolicy.FromConfig(_services.Config)))
                     .ConfigureAwait(true))
+                    .Where(entry => filter is null || filter(entry))
                     .Select(entry => new VersionItemViewModel(
                         entry.VersionName,
                         BuildLoaderEntryInfo(entry),
@@ -853,7 +922,11 @@ public partial class InstallWizardViewModel : ObservableObject
         AddLoader(
             "forge", "Forge", "forge",
             "经典模组加载器",
-            policy => _services.LoaderProviders.Forge.GetVersionsForAsync(SelectedMcId, policy, token));
+            policy => _services.LoaderProviders.Forge.GetVersionsForAsync(SelectedMcId, policy, token),
+            // 已选 OptiFine 时，Forge 只列出与该 OptiFine 适配的版本（PCL-CE LoadForgeGetError 同款过滤）：
+            // 否则用户随手选一个 Forge 版本就会把已选 OptiFine 顶掉，看着像"选了 Forge 就选不了别的加载器"
+            entry => IsForgeEntrySuitableForSelectedOptiFine(entry));
+
         AddLoader(
             "neoforge", "NeoForge", "neoforge",
             "新一代 Forge 分支",
@@ -1076,7 +1149,14 @@ public partial class InstallWizardViewModel : ObservableObject
         SelectedLoaderName = item.Title;
         var choice = item.Payload as LoaderChoice;
         var kind = choice?.Kind ?? "";
-        TargetName = SuggestAvailableName($"{SelectedMcId}-{kind}");
+        // 只在实例名还是自动建议值时才跟着改，避免把用户手改的名字冲掉
+        var suggested = SuggestAvailableName($"{SelectedMcId}-{kind}");
+        if (TargetName.Length == 0 || TargetName == _lastSuggestedTargetName)
+        {
+            TargetName = suggested;
+        }
+
+        _lastSuggestedTargetName = suggested;
 
         // 已选 OptiFine 与新选的 Forge 不适配时清除 OptiFine（对应 PCL-CE Forge_Selected）
         if (choice?.Payload is ForgeEntry forge
@@ -1090,6 +1170,7 @@ public partial class InstallWizardViewModel : ObservableObject
         ActiveLoaderCard = null;
         RefreshCompanionAvailability();
         RefreshCardStatuses();
+        NotifySelectionSummary();
     }
 
     [RelayCommand]
@@ -1106,11 +1187,18 @@ public partial class InstallWizardViewModel : ObservableObject
             _selectedLoaderItem = null;
             _selectedLoaderCardTitle = "";
             SelectedLoaderName = "原版";
-            TargetName = SuggestAvailableName(SelectedMcId);
+            var suggested = SuggestAvailableName(SelectedMcId);
+            if (TargetName.Length == 0 || TargetName == _lastSuggestedTargetName)
+            {
+                TargetName = suggested;
+            }
+
+            _lastSuggestedTargetName = suggested;
         }
 
         RefreshCompanionAvailability();
         RefreshCardStatuses();
+        NotifySelectionSummary();
     }
 
     /// <summary>
@@ -1239,11 +1327,54 @@ public partial class InstallWizardViewModel : ObservableObject
             }
         }
 
-        _selectedOptiFineItem = item.Payload is OptiFineEntry ? item : null;
-        _selectedLiteLoaderItem = item.Payload is LiteLoaderEntry ? item : null;
-        // 选完 OptiFine 后重新评估 OptiFabric 卡是否需要出现并自动勾选
+        // OptiFine 与 LiteLoader 是两个独立附属位（PCL-CE：Forge + OptiFine + LiteLoader 可共存），
+        // 只更新对应那一个，不要互相清空——之前这里把另一个附属置 null，导致"选了 A 就把 B 的选中弄丢了"
+        if (item.Payload is OptiFineEntry)
+        {
+            _selectedOptiFineItem = item;
+        }
+        else if (item.Payload is LiteLoaderEntry)
+        {
+            _selectedLiteLoaderItem = item;
+        }
+
+        // 选完 OptiFine 后：Forge 列表需要按适配版本重过滤，OptiFabric 卡是否出现也要重算
+        RefreshForgeCardForOptiFine();
         RefreshCompanionAvailability();
+        NotifySelectionSummary();
         _toast?.Invoke($"已选择附属：{item.Title}");
+    }
+
+    /// <summary>Forge 版本是否与当前已选 OptiFine 适配；未选 OptiFine 时全部通过。</summary>
+    private bool IsForgeEntrySuitableForSelectedOptiFine(LoaderVersionEntry entry)
+        => _selectedOptiFineItem?.Payload is not OptiFineEntry optiFine
+           || (entry.Payload is ForgeEntry forge && LoaderCompat.IsOptiFineSuitableForForge(optiFine, forge));
+
+    /// <summary>
+    /// 已选 OptiFine 变化后刷新 Forge 卡：当前 Forge 选择不再适配则取消，
+    /// 版本列表已加载过则作废重建（下次进入按 OptiFine 过滤）。
+    /// </summary>
+    private void RefreshForgeCardForOptiFine()
+    {
+        var forgeCard = LoaderCards.FirstOrDefault(card => card.Kind == "forge");
+        if (forgeCard is null)
+        {
+            return;
+        }
+
+        if (_selectedLoaderItem?.Payload is LoaderChoice { Payload: ForgeEntry forgeEntry }
+            && _selectedOptiFineItem?.Payload is OptiFineEntry optiFine
+            && !LoaderCompat.IsOptiFineSuitableForForge(optiFine, forgeEntry))
+        {
+            ClearCardSelection(forgeCard);
+            _toast?.Invoke($"已取消 Forge：当前版本与 OptiFine {optiFine.NameVersion} 不适配");
+        }
+
+        if (forgeCard.IsLoaded)
+        {
+            forgeCard.InvalidateItems();
+            RefreshCardStatus(forgeCard);
+        }
     }
 
     [RelayCommand]
@@ -1255,9 +1386,11 @@ public partial class InstallWizardViewModel : ObservableObject
         }
 
         card.ResetSelection();
+        var clearedOptiFine = false;
         if (_selectedOptiFineItem is not null && card.Items.Contains(_selectedOptiFineItem))
         {
             _selectedOptiFineItem = null;
+            clearedOptiFine = true;
         }
 
         if (_selectedLiteLoaderItem is not null && card.Items.Contains(_selectedLiteLoaderItem))
@@ -1265,7 +1398,14 @@ public partial class InstallWizardViewModel : ObservableObject
             _selectedLiteLoaderItem = null;
         }
 
+        // OptiFine 变动会反过来影响 Forge 列表的过滤结果（取消后应恢复全量 Forge 版本）
+        if (clearedOptiFine)
+        {
+            RefreshForgeCardForOptiFine();
+        }
+
         NotifyCompanionHints();
+        NotifySelectionSummary();
     }
 
     /// <summary>附属选择页里的「取消选择」：清空该卡选择并返回向导上一步。</summary>
@@ -1326,6 +1466,7 @@ public partial class InstallWizardViewModel : ObservableObject
         }
 
         NotifyCompanionHints();
+        NotifySelectionSummary();
     }
 
     /// <summary>Fabric/Legacy Fabric 缺少对应 API、Fabric 缺少 OptiFabric 时的提示（对应 PCL-CE ShowHint*）。</summary>
@@ -1396,6 +1537,22 @@ public partial class InstallWizardViewModel : ObservableObject
         var choice = _selectedLoaderItem?.Payload as LoaderChoice;
         var kind = choice?.Kind?.ToLowerInvariant() ?? "vanilla";
         var targetName = string.IsNullOrWhiteSpace(TargetName) ? SelectedMcId : TargetName.Trim();
+        var optiFine = _selectedOptiFineItem?.Payload as OptiFineEntry;
+        var liteLoader = _selectedLiteLoaderItem?.Payload as LiteLoaderEntry;
+
+        // 组合合法性兜底：UI 已经按矩阵禁用卡片，这里再拦一次，避免拼出装不出来的组合
+        if (optiFine is not null && !LoaderCompat.IsOptiFineCompatibleWith(kind, SelectedMcId))
+        {
+            _toast?.Invoke($"{LoaderCompat.DisplayName(kind)} 与 OptiFine 不兼容，无法同时安装");
+            return;
+        }
+
+        if (liteLoader is not null
+            && !LoaderCompat.IsLiteLoaderCompatibleWith(kind == "vanilla" ? null : kind))
+        {
+            _toast?.Invoke($"{LoaderCompat.DisplayName(kind)} 与 LiteLoader 不兼容");
+            return;
+        }
 
         // 非法名称仍阻断安装；同名实例已存在时自动追加序号（26.3 → 26.3-1 → 26.3-2 …），绝不覆盖旧实例。
         TargetNameError = "";
@@ -1445,15 +1602,15 @@ public partial class InstallWizardViewModel : ObservableObject
                             && !loaderVersion.Contains("自动", StringComparison.Ordinal)
                 ? loaderVersion
                 : null,
-            OptiFine = _selectedOptiFineItem?.Payload as OptiFineEntry,
-            LiteLoader = _selectedLiteLoaderItem?.Payload as LiteLoaderEntry,
+            OptiFine = optiFine,
+            LiteLoader = liteLoader,
             CompanionModSlugs = companionModSlugs,
             Policy = DownloadPolicy.FromConfig(_services.Config),
             VersionIsolation = _services.Config.IsInstanceIsolated(effectiveName),
             Threads = _services.Config.DownloadThreads,
             JavaPath = _services.Config.JavaPath
         };
-        var displayName = $"{effectiveName} · {SelectedLoaderName}";
+        var displayName = $"{effectiveName} · {SelectionSummary}";
         _toast?.Invoke($"开始安装 {displayName}…");
         await _install.RunPlanAsync(plan, displayName).ConfigureAwait(true);
     }

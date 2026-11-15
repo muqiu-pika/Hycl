@@ -22,11 +22,15 @@ public partial class VersionInstaller
         int threads,
         IProgress<InstallProgress>? progress = null,
         CancellationToken cancellationToken = default,
-        bool downloadAssets = true)
+        bool downloadAssets = true,
+        string? inheritVersion = null)
     {
         var reporter = new ProgressReporter(progress);
         var id = targetName ?? $"{gameVersion}-LiteLoader";
-        _logger.Info($"开始安装 LiteLoader（{gameVersion} → {id}）");
+        // 叠加在其它加载器（Forge / OptiFine）之上时，继承链要指向那个实例而不是原版，
+        // 否则装出来的实例会丢掉主加载器的库与主类（启动后直接崩在 launchwrapper）
+        var inherit = string.IsNullOrWhiteSpace(inheritVersion) ? gameVersion : inheritVersion;
+        _logger.Info($"开始安装 LiteLoader（{inherit} → {id}）");
 
         // 1) 确保原版就绪
         reporter.Stage("检查原版");
@@ -75,7 +79,7 @@ public partial class VersionInstaller
             ["libraries"] = libraries,
             ["mainClass"] = "net.minecraft.launchwrapper.Launch",
             ["minimumLauncherVersion"] = 18,
-            ["inheritsFrom"] = gameVersion,
+            ["inheritsFrom"] = inherit,
             ["jar"] = gameVersion
         };
 
