@@ -13,6 +13,8 @@ namespace Hycl.Launcher.UI.Controls;
 /// 带磁盘缓存的网络图片控件（对应 PCL-CE 的 MyImage）：
 /// 同一 URL 并发请求共享一次下载；缓存命中秒显（14 天有效期）；
 /// 下载期间显示空白（由外层 Border 的灰底承担占位），失败回退过期缓存。
+/// 只有成功解码为位图的数据才会写入磁盘缓存（避免把 CDN 的报错页/JSON 缓存下来后
+/// 每次进页都反复解码失败）；被替换的旧位图立即释放，防止整页图标逐次切换时堆积。
 /// </summary>
 public class HyclImage : Image
 {
@@ -42,6 +44,9 @@ public class HyclImage : Image
         set => SetValue(UrlProperty, value);
     }
 
+    /// <summary>解码宽度上限：显示 64px 的图标不必解码 512px 原图（HMCL 的降采样解码经验）。</summary>
+    private const int DecodeWidth = 128;
+
     /// <summary>加载结束（true=已显示网络图片；false=地址为空或加载失败），供图标回退逻辑使用。</summary>
     public event EventHandler<bool>? LoadCompleted;
 
@@ -58,7 +63,7 @@ public class HyclImage : Image
     {
         if (Url is null)
         {
-            Source = null;
+            DisposeSource();
             LoadCompleted?.Invoke(this, false);
             return;
         }
@@ -69,7 +74,7 @@ public class HyclImage : Image
 
     private async Task LoadAsync(string url)
     {
-        Source = null;
+        DisposeSource();
         try
         {
             var bytes = await Downloads.GetOrAdd(url, DownloadAndCacheAsync).ConfigureAwait(true);
@@ -83,13 +88,17 @@ public class HyclImage : Image
                 return;
             }
 
-            using var stream = new MemoryStream(bytes);
-            Source = new Bitmap(stream);
+            // 降采样解码：源图 512px 也只解出 128px 位图，几十个卡片的内存差一个数量级
+            var bitmap = Bitmap.DecodeToWidth(new MemoryStream(bytes), DecodeWidth);
+            DisposeSource();
+            Source = bitmap;
             LoadCompleted?.Invoke(this, true);
         }
         catch (Exception)
         {
-            // 保持占位空白
+            // 解码失败说明缓存/响应不是有效图片：清掉对应的磁盘缓存文件，
+            // 避免同一坏数据在 TTL 内每次进页都重复解码失败。
+            TryDeleteCache(url);
             if (Url == url)
             {
                 LoadCompleted?.Invoke(this, false);
@@ -116,6 +125,12 @@ public class HyclImage : Image
             Directory.CreateDirectory(CacheRoot);
             var data = await Http.GetByteArrayAsync(url).ConfigureAwait(true);
 
+            // 只有确认为有效位图才落盘：CDN 的报错页 / JSON / 截断响应不进缓存
+            if (!TryValidateBitmap(data))
+            {
+                return null;
+            }
+
             // 先写临时文件再原子改名，避免并发写坏缓存
             var temp = $"{path}.{Guid.NewGuid():N}.tmp";
             await File.WriteAllBytesAsync(temp, data).ConfigureAwait(true);
@@ -138,6 +153,76 @@ public class HyclImage : Image
         finally
         {
             Downloads.TryRemove(url, out _);
+        }
+    }
+
+    /// <summary>快速校验字节流是 PNG/JPEG/GIF/WebP 等可解码图片（只看文件头，不做完整解码）。</summary>
+    private static bool TryValidateBitmap(byte[] data)
+    {
+        if (data.Length < 12)
+        {
+            return false;
+        }
+
+        // PNG
+        if (data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47)
+        {
+            return true;
+        }
+
+        // JPEG
+        if (data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF)
+        {
+            return true;
+        }
+
+        // GIF
+        if (data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46)
+        {
+            return true;
+        }
+
+        // WebP（RIFF....WEBP）
+        if (data[0] == 0x52 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x46
+            && data[8] == 0x57 && data[9] == 0x45 && data[10] == 0x42 && data[11] == 0x50)
+        {
+            return true;
+        }
+
+        // BMP
+        if (data[0] == 0x42 && data[1] == 0x4D)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>删除 URL 对应的磁盘缓存文件（解码失败时清理坏数据）。</summary>
+    private static void TryDeleteCache(string url)
+    {
+        if (!url.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        try
+        {
+            File.Delete(GetCachePath(url));
+        }
+        catch (Exception)
+        {
+            // 文件不存在/被占用等：忽略
+        }
+    }
+
+    /// <summary>释放当前 Source 位图（每次替换/清空前调用，避免旧位图堆积）。</summary>
+    private void DisposeSource()
+    {
+        if (Source is Bitmap bitmap)
+        {
+            Source = null;
+            bitmap.Dispose();
         }
     }
 

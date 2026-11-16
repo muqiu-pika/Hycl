@@ -161,9 +161,14 @@ public sealed partial class DetailChipViewModel : ObservableObject
 /// <summary>
 /// 详情页的文件分组（对应 PCL-CE 的「NeoForge 26.3」「Fabric 26.3」折叠组）：
 /// 标题 + 可展开的文件行，默认折叠、点标题展开。
+/// 对应 PCL-CE/HMCL 的分页截断思路：热门项目单个分组可达上千文件（CurseForge pageSize=10000），
+/// 列表默认只渲染前 <see cref="InitialFileCount"/> 条，点「显示全部」再放开，避免一次构建上千卡片。
 /// </summary>
 public sealed partial class CompFileGroupViewModel : ObservableObject
 {
+    /// <summary>默认渲染的文件行数上限。</summary>
+    public const int InitialFileCount = 30;
+
     public CompFileGroupViewModel(string header, IReadOnlyList<CompFileItemViewModel> files)
     {
         Header = header;
@@ -176,11 +181,32 @@ public sealed partial class CompFileGroupViewModel : ObservableObject
 
     public string CountText => $"{Files.Count} 个文件";
 
+    /// <summary>列表实际绑定的文件行：未点开全部时只取前 <see cref="InitialFileCount"/> 条。</summary>
+    public IReadOnlyList<CompFileItemViewModel> VisibleFiles
+        => ShowAllFiles || Files.Count <= InitialFileCount
+            ? Files
+            : Files.Take(InitialFileCount).ToList();
+
+    /// <summary>是否还有未渲染的文件行（决定是否显示「显示全部」按钮）。</summary>
+    public bool HasHiddenFiles => !ShowAllFiles && Files.Count > InitialFileCount;
+
+    /// <summary>分组是否展开（点标题切换）。</summary>
     [ObservableProperty]
     private bool _isExpanded;
 
+    /// <summary>是否已放开完整列表（点「显示全部」后为 true）。</summary>
+    [ObservableProperty]
+    private bool _showAllFiles;
+
+    partial void OnShowAllFilesChanged(bool value)
+        => OnPropertyChanged(nameof(VisibleFiles));
+
     [RelayCommand]
     private void Toggle() => IsExpanded = !IsExpanded;
+
+    /// <summary>点「显示全部 N 个文件」：放开当前分组的完整列表。</summary>
+    [RelayCommand]
+    private void RevealAllFiles() => ShowAllFiles = true;
 }
 
 /// <summary>前置弹窗中的一行（项目、来源、版本或未解析原因）。</summary>

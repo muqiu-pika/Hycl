@@ -176,27 +176,35 @@ public class McProgressRing : Control
         {
             UpdateAnimation();
         }
+        else if (change.Property == IsVisibleProperty)
+        {
+            // 隐藏停表后重新进入页面时恢复动画
+            UpdateAnimation();
+        }
     }
 
     private void UpdateAnimation()
     {
         if (IsIndeterminate && VisualRoot is not null)
         {
-            if (_animationTimer is not null)
+            if (_animationTimer is null)
             {
-                return;
+                _animationTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+                _animationTimer.Tick += (_, _) =>
+                {
+                    // 所在页面被隐藏（切页后仍留在 PageHost 缓存里）时直接停表：隐藏期间连 Tick
+                    // 都不需要，重新可见（OnPropertyChanged 恢复）后再启动
+                    if (!IsEffectivelyVisible)
+                    {
+                        _animationTimer?.Stop();
+                        return;
+                    }
+
+                    _sweepAngle = (_sweepAngle + 4d) % 360d;
+                    InvalidateVisual();
+                };
             }
 
-            _animationTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
-            _animationTimer.Tick += (_, _) =>
-            {
-                _sweepAngle = (_sweepAngle + 4d) % 360d;
-                // 所在页面被隐藏（切页后仍留在 PageHost 缓存里）时跳过重绘，计时器保留以便恢复
-                if (IsEffectivelyVisible)
-                {
-                    InvalidateVisual();
-                }
-            };
             _animationTimer.Start();
             return;
         }

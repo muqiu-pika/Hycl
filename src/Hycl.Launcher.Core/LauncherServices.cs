@@ -136,6 +136,7 @@ public sealed class LauncherServices
         _ = Task.Run(() =>
         {
             StaleTempCleaner.Run(gameDirectory, logger);
+            CacheSweeper.Run(paths.CacheDirectory, logger);
             PerfTrace.Mark("stale_clean_done");
         });
 

@@ -1109,7 +1109,7 @@
                                                         </Grid>
                                                     </Button>
 
-                                                    <ItemsControl Margin="0,2,0,2" ItemsSource="{Binding Files}" IsVisible="{Binding IsExpanded}">
+                                                    <ItemsControl Margin="0,2,0,0" ItemsSource="{Binding VisibleFiles}" IsVisible="{Binding IsExpanded}">
                                                         <ItemsControl.ItemTemplate>
                                                             <DataTemplate x:DataType="vm:CompFileItemViewModel">
                                                                 <Button Classes="ver-row"
@@ -1158,6 +1158,18 @@
                                                             </DataTemplate>
                                                         </ItemsControl.ItemTemplate>
                                                     </ItemsControl>
+
+                                                    <!-- 单组文件过多时只渲染前 30 条（防上千文件卡死详情页），点此放开 -->
+                                                    <Button Margin="4,0,4,2"
+                                                            HorizontalAlignment="Stretch"
+                                                            HorizontalContentAlignment="Center"
+                                                            Classes="ver-row"
+                                                            Command="{Binding RevealAllFilesCommand}"
+                                                            IsVisible="{Binding HasHiddenFiles}">
+                                                        <TextBlock Text="显示全部文件"
+                                                                   FontSize="11"
+                                                                   Foreground="{DynamicResource PrimaryBrush}" />
+                                                    </Button>
                                                 </StackPanel>
                                             </Border>
                                         </DataTemplate>

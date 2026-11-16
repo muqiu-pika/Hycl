@@ -1,11 +1,13 @@
+using System.Runtime.InteropServices;
 using Hycl.Launcher.Core.Platform;
 
 namespace Hycl.Launcher.Core.Services;
 
 /// <summary>
 /// 跨平台的可恢复删除（对应 PCL-CE 默认回收站删除）：
-/// Windows 送系统回收站；macOS / Linux 无统一 shell 回收站接口，
-/// 移入游戏根目录下 .hycl-trash/ 兜底，用户可自行恢复或清空。
+/// Windows 用 SHFileOperation(FOF_ALLOWUNDO) 送系统回收站（此前走 Microsoft.VisualBasic.FileIO，
+/// 为此要打包 1.19MB 的 Microsoft.VisualBasic.Core，改 P/Invoke 后该程序集可整体剔除）；
+/// macOS / Linux 无统一 shell 回收站接口，移入游戏根目录下 .hycl-trash/ 兜底，用户可自行恢复或清空。
 /// </summary>
 public static class RecycleBin
 {
@@ -21,12 +23,14 @@ public static class RecycleBin
         {
             try
             {
-                Microsoft.VisualBasic.FileIO.FileSystem.DeleteDirectory(
-                    directory,
-                    Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
-                    Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
-                logger.Info($"已删除到回收站：{displayName}");
-                return true;
+                if (SendToRecycleBin(directory))
+                {
+                    logger.Info($"已删除到回收站：{displayName}");
+                    return true;
+                }
+
+                logger.Error($"删除到回收站失败：{displayName}");
+                return false;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or OperationCanceledException)
             {
@@ -64,12 +68,14 @@ public static class RecycleBin
         {
             try
             {
-                Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(
-                    file,
-                    Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
-                    Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
-                logger.Info($"已删除到回收站：{displayName}");
-                return true;
+                if (SendToRecycleBin(file))
+                {
+                    logger.Info($"已删除到回收站：{displayName}");
+                    return true;
+                }
+
+                logger.Error($"删除到回收站失败：{displayName}");
+                return false;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or OperationCanceledException)
             {
@@ -96,4 +102,43 @@ public static class RecycleBin
     }
 
     public const string RecycleBinFolderName = ".hycl-trash";
+
+    // FOF_ALLOWUNDO：走回收站可恢复；FOF_NOCONFIRMATION | FOF_SILENT：无确认弹窗；
+    // FOF_NOERRORUI：错误改为返回值 false，由调用方记日志。
+    private const int FO_DELETE = 3;
+    private const ushort FOF_ALLOWUNDO = 0x40;
+    private const ushort FOF_NOCONFIRMATION = 0x10;
+    private const ushort FOF_SILENT = 0x4;
+    private const ushort FOF_NOERRORUI = 0x400;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct SHFILEOPSTRUCT
+    {
+        public IntPtr hwnd;
+        public uint wFunc;
+        public string pFrom;
+        public string pTo;
+        public ushort fFlags;
+        public bool fAnyOperationsAborted;
+        public IntPtr hNameMappings;
+        public string lpszProgressTitle;
+    }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern int SHFileOperation(ref SHFILEOPSTRUCT lpFileOp);
+
+    /// <summary>把单个路径送入系统回收站；SHFileOperation 返回 0 且未被用户中止才算成功。</summary>
+    private static bool SendToRecycleBin(string path)
+    {
+        // pFrom 必须以双空字符结尾（String 编组不会自动补第二个 \0）
+        var op = new SHFILEOPSTRUCT
+        {
+            hwnd = IntPtr.Zero,
+            wFunc = FO_DELETE,
+            pFrom = path + '\0',
+            pTo = "\0",
+            fFlags = (ushort)(FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI),
+        };
+        return SHFileOperation(ref op) == 0 && !op.fAnyOperationsAborted;
+    }
 }

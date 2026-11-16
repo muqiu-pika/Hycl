@@ -43,7 +43,12 @@ public class McSkin : Control
 
     // 键为「路径 + 修改时间 + 大小」/「内置皮肤名」；文件被重新下载（换皮肤）后键会变化，
     // 避免继续命中旧的位图。加载失败不写缓存，下次属性变化时可以重试。
-    private static readonly Dictionary<string, Bitmap> BitmapCache = new();
+    // 弱引用缓存：没有控件引用的位图（换皮肤后的旧贴图、离线名切换等）可被 GC 释放，
+    // 避免键随文件重下载无限增长导致的常驻内存泄漏；正在使用的位图仍保持强引用不重复解码。
+    private static readonly Dictionary<string, WeakReference<Bitmap>> BitmapCache = new();
+
+    /// <summary>弱缓存条目数上限：超过后清理失效条目（保留仍被控件引用的位图）。</summary>
+    private const int BitmapCachePruneThreshold = 128;
 
     // 头像（头顶面）：8x8 纹理，两种皮肤格式位置相同
     private const int HeadX = 8, HeadY = 8;
@@ -297,7 +302,7 @@ public class McSkin : Control
     /// <summary>按逻辑名加载内置皮肤（Assets/skins/{key}.png），失败返回 null。</summary>
     internal static Bitmap? LoadAssetBitmap(string skinKey)
     {
-        if (BitmapCache.TryGetValue(skinKey, out var cached))
+        if (GetCachedBitmap(skinKey) is { } cached)
         {
             return cached;
         }
@@ -306,7 +311,7 @@ public class McSkin : Control
         {
             using var stream = AssetLoader.Open(new Uri($"avares://Hycl.Launcher.UI/Assets/skins/{skinKey}.png"));
             var bitmap = new Bitmap(stream);
-            BitmapCache[skinKey] = bitmap;
+            BitmapCache[skinKey] = new WeakReference<Bitmap>(bitmap);
             return bitmap;
         }
         catch (Exception)
@@ -333,18 +338,58 @@ public class McSkin : Control
             }
 
             var cacheKey = $"{path}|{info.LastWriteTimeUtc.Ticks}|{info.Length}";
-            if (BitmapCache.TryGetValue(cacheKey, out var cachedPath))
+            if (GetCachedBitmap(cacheKey) is { } cachedPath)
             {
                 return cachedPath;
             }
 
             var bitmap = new Bitmap(path);
-            BitmapCache[cacheKey] = bitmap;
+            BitmapCache[cacheKey] = new WeakReference<Bitmap>(bitmap);
+            if (BitmapCache.Count > BitmapCachePruneThreshold)
+            {
+                PruneDeadCacheEntries();
+            }
+
             return bitmap;
         }
         catch (Exception)
         {
             return null;
+        }
+    }
+
+    /// <summary>取缓存位图；条目已被 GC 回收时顺手移除并返回 null。</summary>
+    private static Bitmap? GetCachedBitmap(string cacheKey)
+    {
+        if (!BitmapCache.TryGetValue(cacheKey, out var weak))
+        {
+            return null;
+        }
+
+        if (weak.TryGetTarget(out var bitmap))
+        {
+            return bitmap;
+        }
+
+        BitmapCache.Remove(cacheKey);
+        return null;
+    }
+
+    /// <summary>清理所有已被 GC 回收的条目；仍被控件引用的位图保留。</summary>
+    private static void PruneDeadCacheEntries()
+    {
+        var dead = new List<string>();
+        foreach (var (key, weak) in BitmapCache)
+        {
+            if (!weak.TryGetTarget(out _))
+            {
+                dead.Add(key);
+            }
+        }
+
+        foreach (var key in dead)
+        {
+            BitmapCache.Remove(key);
         }
     }
 }

@@ -247,12 +247,28 @@ public class McSkin3D : Control
         }
     }
 
-    /// <summary>窗口内任意位置的指针移动都映射到头部朝向，超出控件范围时自然收敛到最大角度。</summary>
+    /// <summary>窗口内任意位置的指针移动都映射到头部朝向，超出控件范围时自然收敛到最大角度。
+    /// 页面被切走后仍挂在 PageHost 缓存里（IsVisible=false 但未 Detach）：不可见时跳过，
+    /// 避免隐藏的 3D 人偶在每次鼠标移动时仍以 66fps 缓动 + 整个控件无效化。</summary>
     private void OnTopLevelPointerMoved(object? sender, PointerEventArgs e)
-        => UpdateHeadTarget(e.GetPosition(this));
+    {
+        if (!IsEffectivelyVisible)
+        {
+            return;
+        }
+
+        UpdateHeadTarget(e.GetPosition(this));
+    }
 
     private void OnTopLevelPointerExited(object? sender, PointerEventArgs e)
-        => ResetHeadTarget();
+    {
+        if (!IsEffectivelyVisible)
+        {
+            return;
+        }
+
+        ResetHeadTarget();
+    }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
@@ -421,6 +437,14 @@ public class McSkin3D : Control
 
     private void Tick()
     {
+        // 页面切走后控件只是 IsVisible=false：直接停表，不逐帧无效化（对应 McProgressRing 的做法）
+        if (!IsEffectivelyVisible)
+        {
+            _timer.Stop();
+            _lastTick = 0;
+            return;
+        }
+
         SanitizeOrientations();
 
         var dt = _lastTick == 0

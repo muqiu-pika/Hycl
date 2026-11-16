@@ -20,9 +20,12 @@ public static class CompApiCache
     // 文件列表内存层：详情页来回切换时直接复用反序列化结果。磁盘命中虽然免了网络，
     // 但 CurseForge 的文件列表（pageSize=10000）落盘可达数 MB，若每次点击都在
     // 调用线程（UI 线程）同步读盘 + 反序列化，详情页打开会明显卡顿。
+    // 容量必须小：单条列表可达上万 CompFile（含 GameVersions/ModLoaders 子集合），
+    // 48 条最坏可到数百 MB 托管堆；8 条足够覆盖「来回看几个项目」的使用节奏，
+    // 淘汰改为逐条移除最旧条目（整体 Clear 会造成 GC 尖峰）。
     private static readonly ConcurrentDictionary<string, (DateTimeOffset CachedAt, IReadOnlyList<CompFile> Files)> FileMemoryCache = new();
 
-    private const int FileMemoryCacheCapacity = 48;
+    private const int FileMemoryCacheCapacity = 8;
 
     private static string CacheDirectory(string cacheDirectory) => Path.Combine(cacheDirectory, "comp-api");
 
@@ -84,7 +87,15 @@ public static class CompApiCache
 
         if (FileMemoryCache.Count >= FileMemoryCacheCapacity)
         {
-            FileMemoryCache.Clear();
+            // 逐条淘汰最旧条目，避免整体 Clear 一次性丢弃全部大列表造成 GC 尖峰
+            foreach (var oldest in FileMemoryCache
+                         .OrderBy(pair => pair.Value.CachedAt)
+                         .Take(FileMemoryCache.Count - FileMemoryCacheCapacity + 1)
+                         .Select(pair => pair.Key)
+                         .ToList())
+            {
+                FileMemoryCache.TryRemove(oldest, out _);
+            }
         }
 
         FileMemoryCache[key] = (DateTimeOffset.UtcNow, files);
