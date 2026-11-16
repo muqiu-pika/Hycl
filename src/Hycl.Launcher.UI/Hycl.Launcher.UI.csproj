@@ -87,13 +87,20 @@
     <ItemGroup>
       <!-- 全平台：.pdb 与托管 dump / 原生调试组件（启动器崩溃分析走文本日志，
            LaunchFailureAnalyzer 不依赖 mscordaccore/mscordbi/createdump/DiaSymReader）；
-           原生库不参与单文件压缩，这部分是 1:1 的体积净收益。 -->
+           原生库不参与单文件压缩，这部分是 1:1 的体积净收益。
+           注意：SDK 已对 mscordaccore*/mscordbi/createdump 标记 ExcludeFromSingleFile
+           （单文件 bundler 默认就不收，实测 linux-x64 剔除前后单文件哈希一致），
+           这里的匹配主要用于非单文件发布的目录卫生，lib 前缀（libmscordaccore.so 等）
+           一并覆盖以保证口径一致。 -->
       <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
                              Condition="'%(ResolvedFileToPublish.Extension)' == '.pdb'
                                   or '%(ResolvedFileToPublish.FileName)' == 'mscordaccore'
                                   or $([System.String]::new('%(ResolvedFileToPublish.FileName)').StartsWith('mscordaccore_'))
+                                  or $([System.String]::new('%(ResolvedFileToPublish.FileName)').StartsWith('libmscordaccore'))
                                   or '%(ResolvedFileToPublish.FileName)' == 'mscordbi'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'libmscordbi'
                                   or '%(ResolvedFileToPublish.FileName)' == 'createdump'
+                                  or '%(ResolvedFileToPublish.FileName)' == 'libcreatedump'
                                   or $([System.String]::new('%(ResolvedFileToPublish.FileName)').StartsWith('Microsoft.DiaSymReader.Native'))
                                   or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.DesignerSupport'
                                   or '%(ResolvedFileToPublish.FileName)' == 'Avalonia.Remote.Protocol'" />

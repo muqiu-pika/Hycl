@@ -210,6 +210,18 @@
                                                         </DataTemplate>
                                                     </ItemsControl.ItemTemplate>
                                                 </ItemsControl>
+
+                                                <!-- 展开后超过单组限量（50 条）时显示「显示全部」 -->
+                                                <Button Margin="4,2,4,2"
+                                                        HorizontalAlignment="Stretch"
+                                                        HorizontalContentAlignment="Center"
+                                                        Classes="ver-row"
+                                                        Command="{Binding RevealAllItemsCommand}"
+                                                        IsVisible="{Binding HasHiddenItems}">
+                                                    <TextBlock Text="{Binding RevealAllText}"
+                                                               FontSize="11"
+                                                               Foreground="{DynamicResource PrimaryBrush}" />
+                                                </Button>
                                             </StackPanel>
                                         </Border>
                                     </DataTemplate>
@@ -1315,6 +1327,18 @@
                                                         </DataTemplate>
                                                     </ItemsControl.ItemTemplate>
                                                 </ItemsControl>
+
+                                                <!-- 展开后超过单组限量（50 条）时显示「显示全部」 -->
+                                                <Button Margin="4,2,4,2"
+                                                        HorizontalAlignment="Stretch"
+                                                        HorizontalContentAlignment="Center"
+                                                        Classes="ver-row"
+                                                        Command="{Binding RevealAllItemsCommand}"
+                                                        IsVisible="{Binding HasHiddenItems}">
+                                                    <TextBlock Text="{Binding RevealAllText}"
+                                                               FontSize="11"
+                                                               Foreground="{DynamicResource PrimaryBrush}" />
+                                                </Button>
                                             </StackPanel>
                                         </Border>
                                     </DataTemplate>

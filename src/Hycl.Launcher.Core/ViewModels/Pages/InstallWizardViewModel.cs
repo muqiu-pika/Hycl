@@ -13,6 +13,10 @@ namespace Hycl.Launcher.Core.ViewModels.Pages;
 /// <summary>下载页的版本分组（对应 Hycl (2) 的可折叠版本组）。</summary>
 public partial class VersionGroupViewModel : ObservableObject
 {
+    /// <summary>展开后默认渲染的条目上限：正式版/快照版组可达数百条
+    /// （版本清单全量 1116 条），一次性实例化会拖慢下载页。</summary>
+    public const int InitialItemCount = 50;
+
     public VersionGroupViewModel(string title, IReadOnlyList<VersionItemViewModel> items, bool isExpanded = false)
     {
         Title = title;
@@ -24,12 +28,33 @@ public partial class VersionGroupViewModel : ObservableObject
 
     public IReadOnlyList<VersionItemViewModel> Items { get; }
 
-    /// <summary>折叠时不渲染条目，避免一次性创建大量控件。</summary>
-    public IReadOnlyList<VersionItemViewModel> VisibleItems => IsExpanded ? Items : [];
+    /// <summary>
+    /// 折叠时不渲染条目；展开后限量渲染前 <see cref="InitialItemCount"/> 条，
+    /// 点「显示全部」再放开（对齐 CompFileGroupViewModel 的 30 条上限策略）。
+    /// </summary>
+    public IReadOnlyList<VersionItemViewModel> VisibleItems
+        => !IsExpanded
+            ? []
+            : ShowAllItems || Items.Count <= InitialItemCount
+                ? Items
+                : Items.Take(InitialItemCount).ToList();
+
+    /// <summary>展开且未放开完整列表时显示「显示全部」入口。</summary>
+    public bool HasHiddenItems => IsExpanded && !ShowAllItems && Items.Count > InitialItemCount;
+
+    /// <summary>「显示全部」按钮文案（含组内总数）。</summary>
+    public string RevealAllText => $"显示全部 {Items.Count} 个条目";
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(VisibleItems))]
+    [NotifyPropertyChangedFor(nameof(HasHiddenItems))]
+    [NotifyPropertyChangedFor(nameof(RevealAllText))]
     private bool _isExpanded;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(VisibleItems))]
+    [NotifyPropertyChangedFor(nameof(HasHiddenItems))]
+    private bool _showAllItems;
 
     [ObservableProperty]
     private string _childErrorText = "";
@@ -38,6 +63,10 @@ public partial class VersionGroupViewModel : ObservableObject
 
     [RelayCommand]
     private void Toggle() => IsExpanded = !IsExpanded;
+
+    /// <summary>点「显示全部 N 个条目」：放开当前分组的完整列表。</summary>
+    [RelayCommand]
+    private void RevealAllItems() => ShowAllItems = true;
 }
 
 /// <summary>版本列表或加载器列表中的单个条目。</summary>

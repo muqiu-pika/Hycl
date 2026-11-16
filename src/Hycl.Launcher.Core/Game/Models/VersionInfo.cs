@@ -25,6 +25,17 @@ public sealed class VersionInfo
     [JsonPropertyName("hyclGameVersion")]
     public string? HyclGameVersion { get; set; }
 
+    /// <summary>
+    /// PCL-CE 合并格式写入的真实 MC 版本。旧版其它启动器（或旧版 Hycl）导入的
+    /// 自包含合并 JSON 没有继承链也没有 hyclGameVersion，读不到它游戏版本就丢了。
+    /// </summary>
+    [JsonPropertyName("clientVersion")]
+    public string? ClientVersion { get; set; }
+
+    /// <summary>MultiMC（mmc-pack 导出）格式的版本补丁：id=game 的补丁携带真实 MC 版本。</summary>
+    [JsonPropertyName("patches")]
+    public List<MultiMcPatch>? MultiMcPatches { get; set; }
+
     [JsonPropertyName("mainClass")]
     public string? MainClass { get; set; }
 
@@ -146,6 +157,16 @@ public sealed class LibraryInfo
 
     [JsonPropertyName("rules")]
     public RuleInfo[]? Rules { get; set; }
+}
+
+/// <summary>MultiMC（mmc-pack 导出）格式的版本补丁行：id=game 的补丁携带真实 MC 版本。</summary>
+public sealed class MultiMcPatch
+{
+    [JsonPropertyName("id")]
+    public string? Id { get; set; }
+
+    [JsonPropertyName("version")]
+    public string? Version { get; set; }
 }
 
 public sealed class LibraryDownloads

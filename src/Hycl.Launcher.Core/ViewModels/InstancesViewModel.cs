@@ -82,6 +82,8 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
             OnPropertyChanged(nameof(HasInstances));
             OnPropertyChanged(nameof(IsEmpty));
             OnPropertyChanged(nameof(InstanceCountText));
+            RebuildVisibleInstances();
+            NotifyInstancesPagerState();
         };
         Folders.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasFolders));
         Saves.CollectionChanged += (_, _) =>
@@ -100,9 +102,11 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         Files.DownloadRequested = type =>
         {
             // 版本号必须规整成纯 MC 版本（实例 id 可能是 1.20.1-fabric 这类带加载器名的合并版本），
-            // 加载器单独通过 loaderLabel 传给下载页的「加载器」筛选，不混进版本号
+            // 加载器单独通过 loaderLabel 传给下载页的「加载器」筛选，不混进版本号。
+            // 规整失败（旧导入实例的版本字段是整合包名）传空 → 下载页回退「全部版本」，
+            // 绝不把包名当 MC 版本传下去污染筛选。
             var rawVersion = SelectedGameVersion;
-            var cleanVersion = MinecraftVersionGuesser.Normalize(rawVersion) ?? rawVersion;
+            var cleanVersion = MinecraftVersionGuesser.Normalize(rawVersion) ?? "";
             DownloadResourceRequested?.Invoke(
                 type,
                 cleanVersion,
@@ -122,6 +126,77 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
     public Action<CompResourceType, string, string, string>? DownloadResourceRequested { get; set; }
 
     public ObservableCollection<MinecraftInstance> Instances { get; } = new();
+
+    /// <summary>实例列表每页渲染条数：外层 ScrollViewer&gt;StackPanel 使 ListBox 虚拟化失效，
+    /// 跨文件夹搜索会聚合所有文件夹实例，全量实例化会拖慢版本页（对齐存档 50/页）。</summary>
+    public const int InstancesPageSize = 50;
+
+    /// <summary>当前页渲染的实例子集（XAML 绑定此集合；Instances 保留过滤后全集供计数与选中）。</summary>
+    public ObservableCollection<MinecraftInstance> VisibleInstances { get; } = new();
+
+    /// <summary>实例列表当前页码（1 起始）。</summary>
+    private int _instancesPage = 1;
+
+    public int InstancesTotalPages => Math.Max(1, (int)Math.Ceiling(Instances.Count / (double)InstancesPageSize));
+
+    public bool InstancesPagerVisible => Instances.Count > InstancesPageSize;
+
+    public bool CanGoPrevInstancesPage => _instancesPage > 1;
+
+    public bool CanGoNextInstancesPage => _instancesPage < InstancesTotalPages;
+
+    public string InstancesPageText => $"第 {_instancesPage} / {InstancesTotalPages} 页";
+
+    private void RebuildVisibleInstances()
+    {
+        if (_instancesPage > InstancesTotalPages)
+        {
+            _instancesPage = InstancesTotalPages;
+        }
+
+        VisibleInstances.Clear();
+        var start = (_instancesPage - 1) * InstancesPageSize;
+        var count = Math.Min(InstancesPageSize, Instances.Count - start);
+        for (var i = start; i < start + count; i++)
+        {
+            VisibleInstances.Add(Instances[i]);
+        }
+    }
+
+    private void NotifyInstancesPagerState()
+    {
+        OnPropertyChanged(nameof(InstancesTotalPages));
+        OnPropertyChanged(nameof(InstancesPageText));
+        OnPropertyChanged(nameof(CanGoPrevInstancesPage));
+        OnPropertyChanged(nameof(CanGoNextInstancesPage));
+        OnPropertyChanged(nameof(InstancesPagerVisible));
+    }
+
+    [RelayCommand]
+    private void GoPrevInstancesPage()
+    {
+        if (!CanGoPrevInstancesPage)
+        {
+            return;
+        }
+
+        _instancesPage--;
+        RebuildVisibleInstances();
+        NotifyInstancesPagerState();
+    }
+
+    [RelayCommand]
+    private void GoNextInstancesPage()
+    {
+        if (!CanGoNextInstancesPage)
+        {
+            return;
+        }
+
+        _instancesPage++;
+        RebuildVisibleInstances();
+        NotifyInstancesPagerState();
+    }
 
     /// <summary>「文件夹列表」：已添加的游戏文件夹，点击切换当前游戏目录。</summary>
     public ObservableCollection<InstanceFolderItem> Folders { get; } = new();
@@ -1037,6 +1112,8 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
     {
         var query = SearchText.Trim();
         var crossFolder = IsCrossFolderSearch && query.Length > 0;
+        // 过滤集合变化（搜索/切换文件夹/刷新）一律回第一页
+        _instancesPage = 1;
         IEnumerable<MinecraftInstance> source = crossFolder ? _crossFolderInstances : _activeInstances;
         if (query.Length > 0)
         {

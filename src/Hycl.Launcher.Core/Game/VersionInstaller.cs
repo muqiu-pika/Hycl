@@ -393,6 +393,8 @@ public sealed partial class VersionInstaller
 
             reporter.Stage("安装完成");
             _logger.Info($"版本 {displayName} 安装完成");
+            // 资源索引 JSON（数千条对象图）与版本/加载器 profile 的反序列化大缓冲都落 LOH
+            GcReclaimer.RequestSettle("版本安装", _logger);
         }
         catch (Exception ex) when (ex is OperationCanceledException or DownloadException or IOException or HttpRequestException)
         {

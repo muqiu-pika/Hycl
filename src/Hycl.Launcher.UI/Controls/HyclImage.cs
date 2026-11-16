@@ -51,8 +51,20 @@ public class HyclImage : Image
         set => SetValue(UrlProperty, value);
     }
 
-    /// <summary>解码宽度上限：显示 64px 的图标不必解码 512px 原图（HMCL 的降采样解码经验）。</summary>
-    private const int DecodeWidth = 128;
+    public static readonly StyledProperty<int> DecodeWidthProperty =
+        AvaloniaProperty.Register<HyclImage, int>(nameof(DecodeWidth), DefaultDecodeWidth);
+
+    /// <summary>
+    /// 解码宽度上限：显示 64px 的图标不必解码 512px 原图（HMCL 的降采样解码经验）。
+    /// 默认 128；大尺寸用途（如窗口背景）应在 XAML 里显式调高，否则必然糊。
+    /// </summary>
+    public const int DefaultDecodeWidth = 128;
+
+    public int DecodeWidth
+    {
+        get => GetValue(DecodeWidthProperty);
+        set => SetValue(DecodeWidthProperty, value);
+    }
 
     /// <summary>加载结束（true=已显示网络图片；false=地址为空或加载失败），供图标回退逻辑使用。</summary>
     public event EventHandler<bool>? LoadCompleted;
@@ -108,7 +120,8 @@ public class HyclImage : Image
                 return;
             }
 
-            // 降采样解码：源图 512px 也只解出 128px 位图，几十个卡片的内存差一个数量级
+            // 降采样解码：源图 512px 也只解出 128px 位图，几十个卡片的内存差一个数量级；
+            // 大尺寸用途（背景图等）通过 DecodeWidth 属性调高
             var bitmap = Bitmap.DecodeToWidth(new MemoryStream(bytes), DecodeWidth);
             DisposeSource();
             Source = bitmap;

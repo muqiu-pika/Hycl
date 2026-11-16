@@ -242,6 +242,8 @@ public sealed class ModpackExportService(
             File.Move(temporary, outputPath, true);
             Report(progress, "导出完成", candidates.Count, candidates.Count, 100);
             logger.Info($"整合包导出完成：{outputPath}（{FormatName(options.Format)}，清单 {matches.Count} 项，overrides {overrides.Count} 项）");
+            // 批量反查响应 JSON（数百命中×完整文件元数据）落 LOH，导出收尾后回收
+            GcReclaimer.RequestSettle("整合包导出", logger);
 
             var warnings = new List<string>();
             if (lookupWarning is not null)

@@ -1184,10 +1184,14 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
                 return;
             }
 
-            // ① 缓存复用：路径/大小/修改时间/SHA-1 一致且 24h 内检查过的文件，直接回填结果
+            // ① 缓存复用：路径/大小/修改时间/SHA-1 一致且 24h 内检查过的文件，直接回填结果。
+            // 先按路径建索引再匹配：foreach 内 FirstOrDefault 线性扫描是 O(n²)
+            // （500 mod × 500 条 = 25 万次 4 字段比对）。
             var cacheKey = ContentInsightCache.MakeKey(_directory, _resourceType?.ToString() ?? "local");
             var cachedSnapshot = ContentInsightCache.Load(_services.Paths.CacheDirectory, cacheKey);
-            var cachedEntries = cachedSnapshot.Entries;
+            var cachedByPath = cachedSnapshot.Entries
+                .GroupBy(entry => entry.Path, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
             var working = new Dictionary<string, LookupWorking>(StringComparer.OrdinalIgnoreCase);
             var reusedCount = 0;
             foreach (var (item, hash) in hashed)
@@ -1195,9 +1199,11 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
                 // 未变动的文件一律复用缓存（含未识别到社区的「本地」条目）：
                 // 只要文件指纹一致，就说明不是新加/改动的资源，没必要再发一次反查请求。
                 // 需要强制重查时走「重新检测」（清缓存）或等 TTL 过期。
-                var cached = cachedEntries.FirstOrDefault(entry =>
-                    ContentInsightCache.MatchesFile(entry, item.Path, item.File.Size, item.File.Modified.Ticks, hash.Sha1)
-                    && ContentInsightCache.IsFresh(entry));
+                var cached = cachedByPath.TryGetValue(item.Path, out var samePath)
+                             && ContentInsightCache.MatchesFile(samePath, item.Path, item.File.Size, item.File.Modified.Ticks, hash.Sha1)
+                             && ContentInsightCache.IsFresh(samePath)
+                    ? samePath
+                    : null;
                 if (cached is null)
                 {
                     continue;

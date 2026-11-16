@@ -450,6 +450,8 @@ public sealed class CompInstallService
 
             reporter.Stage("安装完成");
             _logger.Info($"整合包安装完成：{instanceName}（{definition.FormatName}，MC {definition.GameVersion}）");
+            // 链路覆盖原版/加载器安装的资产索引与 install_profile 大缓冲（LOH 尖峰）
+            GcReclaimer.RequestSettle("整合包安装", _logger);
             return instanceName;
         }
         catch

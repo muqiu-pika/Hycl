@@ -29,9 +29,11 @@
                 Background="{DynamicResource AppBackdropBrush}">
             <Grid RowDefinitions="48,*">
                 <!-- 个性化背景图片层：贴在最底层，所有页面卡片浮在其上；
-                     不透明度由设置页控制，未设置时隐藏 -->
+                     不透明度由设置页控制，未设置时隐藏。
+                     背景铺满 ~900×570 窗口：DecodeWidth 必须高于默认 128，否则必然糊。 -->
                 <c:HyclImage Grid.RowSpan="2"
                              Stretch="UniformToFill"
+                             DecodeWidth="1024"
                              IsVisible="{Binding HasBackgroundImage}"
                              Opacity="{Binding BackgroundImageOpacity}"
                              Url="{Binding BackgroundImage}" />

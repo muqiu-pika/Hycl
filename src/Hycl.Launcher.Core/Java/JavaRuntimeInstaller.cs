@@ -203,6 +203,8 @@ public sealed class JavaRuntimeInstaller
         }
 
         _logger.Info($"[Java] 已自动安装 {name} {version} → {finalDirectory}");
+        // all.json（~2.5MB）+ 运行时 manifest 的 JsonDocument DOM 是一次性最大 LOH 尖峰
+        GcReclaimer.RequestSettle("Java 运行时安装", _logger);
         return new JavaRuntimeInstallOutcome(finalDirectory, null);
     }
 

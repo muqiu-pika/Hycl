@@ -537,7 +537,69 @@ public sealed class InstanceManager
             gameVersion = parent.Id;
         }
 
+        // 旧版导入的自包含合并 JSON：无继承链、也无 hyclGameVersion 标记（该标记是
+        // 后期版本才引入的），此时 id 是整合包名而非 MC 版本——从兼容字段与库坐标推导。
+        // 推导失败才回退 id（原版实例 id 即 MC 版本，回退仍是正确的）。
+        if (string.IsNullOrWhiteSpace(info.InheritsFrom))
+        {
+            var derived = DeriveLegacyGameVersion(info);
+            if (!string.IsNullOrWhiteSpace(derived))
+            {
+                return derived;
+            }
+        }
+
         return gameVersion;
+    }
+
+    /// <summary>
+    /// 从旧版导入的自包含版本 JSON 结构线索推导真实 MC 版本：
+    /// ① PCL-CE 合并格式的 <c>clientVersion</c>；
+    /// ② MultiMC（mmc-pack）格式的 <c>patches</c> 里 id=game 的补丁；
+    /// ③ libraries 坐标 <c>com.mojang:minecraft:&lt;版本&gt;</c> 与
+    ///    <c>net.minecraftforge:forge:&lt;MC 版本&gt;-&lt;构建号&gt;</c>。
+    /// </summary>
+    private static string? DeriveLegacyGameVersion(VersionInfo info)
+    {
+        if (!string.IsNullOrWhiteSpace(info.ClientVersion))
+        {
+            return info.ClientVersion.Trim();
+        }
+
+        var gamePatch = info.MultiMcPatches?.FirstOrDefault(
+            patch => patch.Id?.Equals("game", StringComparison.OrdinalIgnoreCase) == true);
+        if (!string.IsNullOrWhiteSpace(gamePatch?.Version))
+        {
+            return gamePatch.Version.Trim();
+        }
+
+        foreach (var library in info.Libraries)
+        {
+            var name = library.Name;
+            if (name.StartsWith("com.mojang:minecraft:", StringComparison.Ordinal))
+            {
+                var candidate = name["com.mojang:minecraft:".Length..].Trim();
+                if (candidate.Length > 0)
+                {
+                    return candidate;
+                }
+            }
+
+            if (name.StartsWith("net.minecraftforge:forge:", StringComparison.Ordinal)
+                || name.StartsWith("net.minecraftforge:fmlcore:", StringComparison.Ordinal)
+                || name.StartsWith("net.neoforged:neoforge:", StringComparison.Ordinal))
+            {
+                // 坐标形如 group:artifact:<MC 版本>-<构建号>，取第一段
+                var versionPart = name.Split(':')[^1];
+                var separator = versionPart.IndexOf('-');
+                if (separator > 0 && char.IsDigit(versionPart[0]))
+                {
+                    return versionPart[..separator];
+                }
+            }
+        }
+
+        return null;
     }
 
     /// <summary>

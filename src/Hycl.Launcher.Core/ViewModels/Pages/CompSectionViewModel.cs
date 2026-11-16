@@ -94,6 +94,21 @@ public sealed partial class CompFileItemViewModel : ObservableObject
             })
             .ToList();
         LoaderText = loaders.Count > 0 ? string.Join(" / ", loaders) : "—";
+
+        // 构造期预计算：万级文件列表放开「显示全部」后，getter 每次绑定刷新都会
+        // 对整组 GameVersions 重跑 Select/Distinct/OrderBy——一次算好存只读字段
+        var versions = file.GameVersions
+            .Select(CompLocalization.GameVersionName)
+            .Where(name => name.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(name => name, CompLocalization.VersionComparer)
+            .ToList();
+        // 多版本时优先展示版本号最大的一个，按 最大 ~ 最小 表示覆盖范围
+        GameVersionText = versions.Count == 0
+            ? ""
+            : versions.Count == 1
+                ? versions[0]
+                : $"{versions[0]} ~ {versions[^1]}";
     }
 
     private readonly CompSectionViewModel _owner;
@@ -113,25 +128,8 @@ public sealed partial class CompFileItemViewModel : ObservableObject
     /// <summary>文件声明的加载器（Forge / NeoForge / Fabric / Quilt…），无约束时为 “—”。</summary>
     public string LoaderText { get; }
 
-    public string GameVersionText
-    {
-        get
-        {
-            var versions = File.GameVersions
-                .Select(CompLocalization.GameVersionName)
-                .Where(name => name.Length > 0)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderByDescending(name => name, CompLocalization.VersionComparer)
-                .ToList();
-            if (versions.Count == 0)
-            {
-                return "";
-            }
-
-            // 多版本时优先展示版本号最大的一个，按 最大 ~ 最小 表示覆盖范围
-            return versions.Count == 1 ? versions[0] : $"{versions[0]} ~ {versions[^1]}";
-        }
-    }
+    /// <summary>覆盖的 MC 版本范围（构造期预计算）。</summary>
+    public string GameVersionText { get; }
 
     [ObservableProperty]
     private bool _isInstalling;
@@ -527,12 +525,12 @@ public partial class CompSectionViewModel : ObservableObject
     /// <summary>加载器胶囊仅在模组且至少两个加载器时展示。</summary>
     public bool HasDetailLoaderFilter => DetailLoaderChips.Count >= 2;
 
-    /// <summary>当前筛选下可安装文件数（同一文件出现在多个加载器分组时只算一次）。</summary>
-    public int DetailFileCount => DetailGroups
-        .SelectMany(group => group.Files)
-        .Select(item => item.File.Id)
-        .Distinct(StringComparer.Ordinal)
-        .Count();
+    /// <summary>当前筛选下可安装文件数（同一文件出现在多个加载器分组时只算一次）。
+    /// 缓存字段：DetailGroups 每次重建时算一次——计算属性每次绑定刷新都对全部分组
+    /// SelectMany+Distinct，万级文件时是反复的 O(n) 重算。</summary>
+    public int DetailFileCount => _detailFileCount;
+
+    private int _detailFileCount;
 
     public string DetailFileCountText => DetailFileCount == 0 ? "" : $"共 {DetailFileCount} 个文件";
 
@@ -742,6 +740,11 @@ public partial class CompSectionViewModel : ObservableObject
                 ? "该项目没有可安装的文件"
                 : "当前筛选条件下没有可安装的文件"
             : "";
+        _detailFileCount = DetailGroups
+            .SelectMany(group => group.Files)
+            .Select(item => item.File.Id)
+            .Distinct(StringComparer.Ordinal)
+            .Count();
         NotifyDetailState();
         // pageSize=10000 的文件列表 + 逐文件 VM 的大缓冲落 LOH：分组渲染后延迟全收集
         GcReclaimer.RequestSettle($"{Title}详情", _services.Logger);
@@ -948,6 +951,7 @@ public partial class CompSectionViewModel : ObservableObject
         DetailGroups.Clear();
         _detailVersionScope = AllDetailVersions;
         _detailLoaderScope = AllDetailLoaders;
+        _detailFileCount = 0;
         DetailEmptyText = "";
 
         OnPropertyChanged(nameof(HasDetailVersionFilter));
