@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Hycl.Launcher.Core.Game;
 using Hycl.Launcher.Core.Game.Comp;
+using Hycl.Launcher.Core.Services;
 
 namespace Hycl.Launcher.Core.ViewModels;
 
@@ -124,6 +125,15 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
     public const string SortByFileName = "文件名";
     public const string SortBySize = "大小";
 
+    /// <summary>
+    /// 每页渲染条数（对齐 PCL-CE / HMCL 的资源列表分页 40~50 条）：
+    /// 本列表在实例详情页的大 ScrollViewer 内，无法依赖 ListBox 的 UI 虚拟化，
+    /// 一次渲染几百张重卡片（图标+按钮）会让 UI 线程停摆数秒、内存数倍暴涨——
+    /// 用客户端分页把实例化数量限制在单页（Items 仍保留过滤后全集，
+    /// 全选/已选计数/批量更新语义不受分页影响）。
+    /// </summary>
+    public const int PageSize = 50;
+
     private readonly LauncherServices _services;
     private readonly List<LocalContentItemViewModel> _allItems = [];
     private string _gameDirectory = "";
@@ -156,6 +166,22 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
     public Action? InstancePickRequested { get; set; }
 
     public ObservableCollection<LocalContentItemViewModel> Items { get; } = new();
+
+    /// <summary>当前页渲染的子集（XAML 绑定此集合；翻页/过滤时整体替换内容）。</summary>
+    public ObservableCollection<LocalContentItemViewModel> VisibleItems { get; } = new();
+
+    /// <summary>当前页码（1 起始；过滤集合变化时钳制到合法范围）。</summary>
+    private int _currentPage = 1;
+
+    public int TotalPages => Math.Max(1, (int)Math.Ceiling(Items.Count / (double)PageSize));
+
+    public bool PagerVisible => Items.Count > PageSize;
+
+    public bool CanGoPrevPage => _currentPage > 1;
+
+    public bool CanGoNextPage => _currentPage < TotalPages;
+
+    public string CurrentPageText => $"第 {_currentPage} / {TotalPages} 页";
 
     public ObservableCollection<ModRelationLine> Relations { get; } = new();
 
@@ -305,6 +331,7 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
         UpdateCheckText = "";
         IsCheckingUpdates = false;
         IsShowingUpdates = false;
+        _currentPage = 1;
         SearchText = "";
         SelectedSort = SortByName;
         SortDescending = false;
@@ -314,6 +341,7 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
         DetachItems();
         _allItems.Clear();
         Items.Clear();
+        VisibleItems.Clear();
         NotifyListState();
         OnPropertyChanged(nameof(Directory));
         OnPropertyChanged(nameof(ShowDownloadEntry));
@@ -336,6 +364,7 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
             DetachItems();
             _allItems.Clear();
             Items.Clear();
+            VisibleItems.Clear();
             NotifyListState();
             return;
         }
@@ -411,6 +440,9 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
             if (generation == _loadGeneration)
             {
                 IsLoading = false;
+                // 列表渲染与后续检测会产生大量 LOH 碎片（图标字节/JSON 缓冲），
+                // 落定后延迟做一次全收集，避免任务管理器内存长期停在峰值
+                GcReclaimer.RequestSettle($"{SectionTitle}加载", _services.Logger);
             }
         }
     }
@@ -582,6 +614,7 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
                 cacheKey,
                 snapshot with { Entries = entries, SavedAtTicks = DateTime.UtcNow.Ticks });
             UpdateCheckText = $"已加载本地缓存：{_allItems.Count(item => !item.IsDirectory)} 项（已补齐图标，未重新检测）";
+            GcReclaimer.RequestSettle($"{SectionTitle}图标补齐", _services.Logger);
         }
         catch (OperationCanceledException)
         {
@@ -647,7 +680,62 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
             Items.Add(item);
         }
 
+        // 过滤集合变小后页码可能越界：钳制而不是强制回第一页（更新检测逐项回填时
+        // 会反复触发 ApplyFilter，保持用户所在页不被打断；搜索/排序变化才显式回首页）
+        if (_currentPage > TotalPages)
+        {
+            _currentPage = TotalPages;
+        }
+
+        RebuildVisibleItems();
         NotifyListState();
+    }
+
+    /// <summary>把当前页的条目同步进 VisibleItems（整体替换，只实例化单页卡片）。</summary>
+    private void RebuildVisibleItems()
+    {
+        VisibleItems.Clear();
+        var start = (_currentPage - 1) * PageSize;
+        var count = Math.Min(PageSize, Items.Count - start);
+        for (var i = start; i < start + count; i++)
+        {
+            VisibleItems.Add(Items[i]);
+        }
+    }
+
+    private void NotifyPagerState()
+    {
+        OnPropertyChanged(nameof(TotalPages));
+        OnPropertyChanged(nameof(CurrentPageText));
+        OnPropertyChanged(nameof(CanGoPrevPage));
+        OnPropertyChanged(nameof(CanGoNextPage));
+        OnPropertyChanged(nameof(PagerVisible));
+    }
+
+    [RelayCommand]
+    private void GoPrevPage()
+    {
+        if (!CanGoPrevPage)
+        {
+            return;
+        }
+
+        _currentPage--;
+        RebuildVisibleItems();
+        NotifyPagerState();
+    }
+
+    [RelayCommand]
+    private void GoNextPage()
+    {
+        if (!CanGoNextPage)
+        {
+            return;
+        }
+
+        _currentPage++;
+        RebuildVisibleItems();
+        NotifyPagerState();
     }
 
     private IEnumerable<LocalContentItemViewModel> SortItems(IEnumerable<LocalContentItemViewModel> items)
@@ -689,19 +777,33 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
         OnPropertyChanged(nameof(ShowUpdateFilter));
         OnPropertyChanged(nameof(ShowDownloadEntry));
         OnPropertyChanged(nameof(ShowModRelations));
+        NotifyPagerState();
     }
 
-    partial void OnSearchTextChanged(string value) => ApplyFilter();
+    partial void OnSearchTextChanged(string value)
+    {
+        _currentPage = 1;
+        ApplyFilter();
+    }
 
-    partial void OnSelectedSortChanged(string value) => ApplyFilter();
+    partial void OnSelectedSortChanged(string value)
+    {
+        _currentPage = 1;
+        ApplyFilter();
+    }
 
     partial void OnSortDescendingChanged(bool value)
     {
         OnPropertyChanged(nameof(SortDirectionText));
+        _currentPage = 1;
         ApplyFilter();
     }
 
-    partial void OnIsShowingUpdatesChanged(bool value) => ApplyFilter();
+    partial void OnIsShowingUpdatesChanged(bool value)
+    {
+        _currentPage = 1;
+        ApplyFilter();
+    }
 
     /// <summary>
     /// 重新检测：清除本分区的洞察缓存后重扫（对齐 PCL-CE 的手动刷新=删除 LocalComp.json），
@@ -1392,6 +1494,8 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
             }
 
             cts.Dispose();
+            // 指纹反查/图标响应的大缓冲都在 LOH：检测结束后延迟全收集
+            GcReclaimer.RequestSettle($"{SectionTitle}更新检测", _services.Logger);
         }
     }
 

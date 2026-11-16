@@ -1185,7 +1185,9 @@
                                            TextWrapping="Wrap"
                                            Text="{Binding Files.UpdateCheckText}" />
 
-                                <ItemsControl IsVisible="{Binding Files.HasItems}" ItemsSource="{Binding Files.Items}">
+                                <!-- 绑定 VisibleItems（每页 50 条）：本列表处于详情页大 ScrollViewer 内，
+                                     无法依赖 UI 虚拟化，几百项重卡片全量实例化会卡死 UI 并让内存暴涨 -->
+                                <ItemsControl IsVisible="{Binding Files.HasItems}" ItemsSource="{Binding Files.VisibleItems}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="vm:LocalContentItemViewModel">
                                             <Grid ColumnDefinitions="Auto,Auto,*,Auto" Margin="0,5,0,5">
@@ -1281,6 +1283,32 @@
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
+
+                                <!-- 分页条：超过单页容量才显示（对齐 PCL-CE / HMCL 的资源列表分页） -->
+                                <StackPanel Orientation="Horizontal"
+                                            Spacing="10"
+                                            Margin="0,10,0,0"
+                                            HorizontalAlignment="Center"
+                                            IsVisible="{Binding Files.PagerVisible}">
+                                    <Button Classes="mc-btn"
+                                            MinHeight="0"
+                                            Padding="10,3"
+                                            FontSize="11.5"
+                                            Content="上一页"
+                                            IsEnabled="{Binding Files.CanGoPrevPage}"
+                                            Command="{Binding Files.GoPrevPageCommand}" />
+                                    <TextBlock VerticalAlignment="Center"
+                                               FontSize="11.5"
+                                               Foreground="{DynamicResource Gray2Brush}"
+                                               Text="{Binding Files.CurrentPageText}" />
+                                    <Button Classes="mc-btn"
+                                            MinHeight="0"
+                                            Padding="10,3"
+                                            FontSize="11.5"
+                                            Content="下一页"
+                                            IsEnabled="{Binding Files.CanGoNextPage}"
+                                            Command="{Binding Files.GoNextPageCommand}" />
+                                </StackPanel>
 
                                 <!-- 模组关系面板 -->
                                 <Border IsVisible="{Binding Files.IsRelationsDialogVisible}"

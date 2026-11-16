@@ -30,6 +30,13 @@ public class HyclImage : Image
     /// <summary>下载去重：同一 URL 的并发请求复用同一任务（对应 PCL-CE DownloadTasks）。</summary>
     private static readonly ConcurrentDictionary<string, Task<byte[]?>> Downloads = new();
 
+    /// <summary>
+    /// 网络下载并发上限：模组列表一次会触发几十个图标请求，不限并发时
+    /// CDN 的多 MB 原图字节流同时涌入，全部落在 LOH（>85KB），内存峰值失控。
+    /// 限 4 个既避免瞬时大缓冲爆发，也照顾加载观感（磁盘缓存命中的不走这里）。
+    /// </summary>
+    private static readonly SemaphoreSlim DownloadGate = new(4, 4);
+
     private static readonly string CacheRoot = Path.Combine(Path.GetTempPath(), "Hycl", "Cache", "Images");
 
     private static readonly TimeSpan CacheTtl = TimeSpan.FromDays(14);
@@ -144,7 +151,16 @@ public class HyclImage : Image
             }
 
             Directory.CreateDirectory(CacheRoot);
-            var data = await Http.GetByteArrayAsync(url).ConfigureAwait(true);
+            await DownloadGate.WaitAsync().ConfigureAwait(true);
+            byte[] data;
+            try
+            {
+                data = await Http.GetByteArrayAsync(url).ConfigureAwait(true);
+            }
+            finally
+            {
+                DownloadGate.Release();
+            }
 
             // 只有确认为有效位图才落盘：CDN 的报错页 / JSON / 截断响应不进缓存
             if (!TryValidateBitmap(data))
