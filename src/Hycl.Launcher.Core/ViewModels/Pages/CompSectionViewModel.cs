@@ -743,6 +743,8 @@ public partial class CompSectionViewModel : ObservableObject
                 : "当前筛选条件下没有可安装的文件"
             : "";
         NotifyDetailState();
+        // pageSize=10000 的文件列表 + 逐文件 VM 的大缓冲落 LOH：分组渲染后延迟全收集
+        GcReclaimer.RequestSettle($"{Title}详情", _services.Logger);
     }
 
     /// <summary>后台重算分组并回 UI：项目切换/胶囊连点时按代数丢弃过期结果。</summary>
@@ -1322,6 +1324,9 @@ public partial class CompSectionViewModel : ObservableObject
         {
             SelectedProject = null;
         }
+
+        // 搜索结果卡片与图标大缓冲都落 LOH：渲染完成后延迟全收集
+        GcReclaimer.RequestSettle($"{Title}搜索", _services.Logger);
     }
 
     [RelayCommand]

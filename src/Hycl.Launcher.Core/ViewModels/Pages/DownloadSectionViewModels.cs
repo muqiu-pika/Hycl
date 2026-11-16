@@ -5,6 +5,7 @@ using Hycl.Launcher.Core.Download;
 using Hycl.Launcher.Core.Game;
 using Hycl.Launcher.Core.Game.Comp;
 using Hycl.Launcher.Core.Game.Models;
+using Hycl.Launcher.Core.Services;
 
 namespace Hycl.Launcher.Core.ViewModels.Pages;
 
@@ -78,6 +79,8 @@ public partial class LoaderSectionViewModel : ObservableObject
             }
 
             _loaded = true;
+            // 版本清单解析产生数百个条目 VM 与大 JSON 缓冲：渲染后延迟全收集
+            GcReclaimer.RequestSettle($"{Title}版本列表", logger: null);
         }
         catch (OperationCanceledException) when (cts.Token.IsCancellationRequested)
         {

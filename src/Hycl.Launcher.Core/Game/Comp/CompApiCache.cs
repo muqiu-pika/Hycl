@@ -20,12 +20,17 @@ public static class CompApiCache
     // 文件列表内存层：详情页来回切换时直接复用反序列化结果。磁盘命中虽然免了网络，
     // 但 CurseForge 的文件列表（pageSize=10000）落盘可达数 MB，若每次点击都在
     // 调用线程（UI 线程）同步读盘 + 反序列化，详情页打开会明显卡顿。
-    // 容量必须小：单条列表可达上万 CompFile（含 GameVersions/ModLoaders 子集合），
-    // 48 条最坏可到数百 MB 托管堆；8 条足够覆盖「来回看几个项目」的使用节奏，
-    // 淘汰改为逐条移除最旧条目（整体 Clear 会造成 GC 尖峰）。
+    // 容量按「CompFile 总数」预算而非条数：单条列表可达上万 CompFile（含
+    // GameVersions/ModLoaders 子集合，每个约 KB 级），按条数封顶时 8 条热门项目
+    // 最坏可到 ~160MB 常驻；按总文件数预算（预算 2 万 ≈ 数十 MB 上限）后，
+    // 少数热门大项目与多个小项目都能共存。淘汰逐条移除最旧条目（整体 Clear 会造成 GC 尖峰）。
     private static readonly ConcurrentDictionary<string, (DateTimeOffset CachedAt, IReadOnlyList<CompFile> Files)> FileMemoryCache = new();
 
-    private const int FileMemoryCacheCapacity = 8;
+    /// <summary>内存层允许驻留的 CompFile 总数预算（约 2 万个 ≈ 数十 MB 上限）。</summary>
+    private const int FileMemoryBudget = 20_000;
+
+    private static int FileMemoryCacheCount
+        => FileMemoryCache.Aggregate(0, (sum, pair) => sum + pair.Value.Files.Count);
 
     private static string CacheDirectory(string cacheDirectory) => Path.Combine(cacheDirectory, "comp-api");
 
@@ -85,16 +90,19 @@ public static class CompApiCache
             _ = Task.Run(() => Save(cacheDirectory, $"files2-{key}", files), CancellationToken.None);
         }
 
-        if (FileMemoryCache.Count >= FileMemoryCacheCapacity)
+        if (FileMemoryCacheCount + files.Count > FileMemoryBudget)
         {
-            // 逐条淘汰最旧条目，避免整体 Clear 一次性丢弃全部大列表造成 GC 尖峰
+            // 逐条淘汰最旧条目直到预算内，避免整体 Clear 一次性丢弃全部大列表造成 GC 尖峰
             foreach (var oldest in FileMemoryCache
                          .OrderBy(pair => pair.Value.CachedAt)
-                         .Take(FileMemoryCache.Count - FileMemoryCacheCapacity + 1)
-                         .Select(pair => pair.Key)
                          .ToList())
             {
-                FileMemoryCache.TryRemove(oldest, out _);
+                if (FileMemoryCacheCount + files.Count <= FileMemoryBudget)
+                {
+                    break;
+                }
+
+                FileMemoryCache.TryRemove(oldest.Key, out _);
             }
         }
 

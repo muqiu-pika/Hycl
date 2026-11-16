@@ -88,6 +88,8 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         {
             OnPropertyChanged(nameof(HasSaves));
             OnPropertyChanged(nameof(SavesTitleText));
+            RebuildVisibleSaves();
+            NotifySavesPagerState();
         };
         ModpackFileOptions.CollectionChanged += (_, _) =>
         {
@@ -312,6 +314,76 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
 
     /// <summary>当前实例存档目录下的存档（随选中实例、隔离开关与独立存档目录变化重载）。</summary>
     public ObservableCollection<LocalSaveInfo> Saves { get; } = new();
+
+    /// <summary>存档列表每页渲染条数（对齐 PCL-CE/HMCL 分页；存档行虽轻，重度玩家数百存档仍会拖慢实例页）。</summary>
+    public const int SavesPageSize = 50;
+
+    /// <summary>当前页渲染的存档子集（XAML 绑定此集合；Saves 保留全集用于计数与批量语义）。</summary>
+    public ObservableCollection<LocalSaveInfo> VisibleSaves { get; } = new();
+
+    /// <summary>存档当前页码（1 起始）。</summary>
+    private int _savesPage = 1;
+
+    public int SavesTotalPages => Math.Max(1, (int)Math.Ceiling(Saves.Count / (double)SavesPageSize));
+
+    public bool SavesPagerVisible => Saves.Count > SavesPageSize;
+
+    public bool CanGoPrevSavesPage => _savesPage > 1;
+
+    public bool CanGoNextSavesPage => _savesPage < SavesTotalPages;
+
+    public string SavesPageText => $"第 {_savesPage} / {SavesTotalPages} 页";
+
+    private void RebuildVisibleSaves()
+    {
+        if (_savesPage > SavesTotalPages)
+        {
+            _savesPage = SavesTotalPages;
+        }
+
+        VisibleSaves.Clear();
+        var start = (_savesPage - 1) * SavesPageSize;
+        var count = Math.Min(SavesPageSize, Saves.Count - start);
+        for (var i = start; i < start + count; i++)
+        {
+            VisibleSaves.Add(Saves[i]);
+        }
+    }
+
+    private void NotifySavesPagerState()
+    {
+        OnPropertyChanged(nameof(SavesTotalPages));
+        OnPropertyChanged(nameof(SavesPageText));
+        OnPropertyChanged(nameof(CanGoPrevSavesPage));
+        OnPropertyChanged(nameof(CanGoNextSavesPage));
+        OnPropertyChanged(nameof(SavesPagerVisible));
+    }
+
+    [RelayCommand]
+    private void GoPrevSavesPage()
+    {
+        if (!CanGoPrevSavesPage)
+        {
+            return;
+        }
+
+        _savesPage--;
+        RebuildVisibleSaves();
+        NotifySavesPagerState();
+    }
+
+    [RelayCommand]
+    private void GoNextSavesPage()
+    {
+        if (!CanGoNextSavesPage)
+        {
+            return;
+        }
+
+        _savesPage++;
+        RebuildVisibleSaves();
+        NotifySavesPagerState();
+    }
 
     public bool HasSaves => Saves.Count > 0;
 
@@ -1494,6 +1566,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         var directory = SavesDirectory;
         if (SelectedInstance is null || string.IsNullOrWhiteSpace(directory))
         {
+            _savesPage = 1;
             Saves.Clear();
             IsLoadingSaves = false;
             return;
@@ -1509,6 +1582,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
                 return;
             }
 
+            _savesPage = 1;
             Saves.Clear();
             foreach (var save in list)
             {
@@ -1523,6 +1597,7 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         {
             if (generation == _savesGeneration)
             {
+                _savesPage = 1;
                 Saves.Clear();
                 StatusMessage = $"读取存档目录失败：{ex.Message}";
             }
