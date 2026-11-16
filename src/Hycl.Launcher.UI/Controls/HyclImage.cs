@@ -88,6 +88,19 @@ public class HyclImage : Image
                 return;
             }
 
+            // 解码前再校验一次完整性：截断/损坏的文件可能有合法文件头但解码时
+            // Skia 内部空引用（NullReferenceException）甚至崩掉渲染线程——坏数据直接拒绝
+            if (!TryValidateBitmap(bytes))
+            {
+                TryDeleteCache(url);
+                if (Url == url)
+                {
+                    LoadCompleted?.Invoke(this, false);
+                }
+
+                return;
+            }
+
             // 降采样解码：源图 512px 也只解出 128px 位图，几十个卡片的内存差一个数量级
             var bitmap = Bitmap.DecodeToWidth(new MemoryStream(bytes), DecodeWidth);
             DisposeSource();
@@ -110,16 +123,24 @@ public class HyclImage : Image
     {
         try
         {
-            // 本地路径直接读取（占位资源等场景）
+            // 本地路径直接读取（占位资源等场景）；无效图片同样拒绝，走统一的失败路径
             if (!url.StartsWith("http", StringComparison.OrdinalIgnoreCase))
             {
-                return await File.ReadAllBytesAsync(url).ConfigureAwait(true);
+                var local = await File.ReadAllBytesAsync(url).ConfigureAwait(true);
+                return TryValidateBitmap(local) ? local : null;
             }
 
             var path = GetCachePath(url);
             if (File.Exists(path) && DateTimeOffset.UtcNow - File.GetLastWriteTimeUtc(path) < CacheTtl)
             {
-                return await File.ReadAllBytesAsync(path).ConfigureAwait(true);
+                var cached = await File.ReadAllBytesAsync(path).ConfigureAwait(true);
+                if (TryValidateBitmap(cached))
+                {
+                    return cached;
+                }
+
+                // 缓存内容损坏（历史坏数据/写坏）：删除后落到在线重下
+                TryDeleteCache(url);
             }
 
             Directory.CreateDirectory(CacheRoot);
