@@ -24,6 +24,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- DATAS（Dynamic Adaptation To Application Sizes）：启动器空闲托管堆很小（实测 ~32MB，
+         其中 LOH 20MB），默认 GC 的提交内存放不下也不收。DATAS 让 GC 随堆规模动态调整段
+         预算与收集范围，空闲提交内存显著下降、任务管理器「内存」列更接近 PCL-CE。
+         代价是 GC 吞吐略降——启动器常驻前台、无服务器负载，这个代价可接受。
+         注意：插件宿主无法裁剪，托管堆本身已尽力收敛，这是运行时层仅剩的低风险杠杆。 -->
+    <RuntimeHostConfigurationOption Include="System.GC.DATAS" Value="true" Trim="false" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.1.4" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.4" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.4" />
