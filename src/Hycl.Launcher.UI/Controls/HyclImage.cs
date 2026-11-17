@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media.Imaging;
+using Avalonia.VisualTree;
 
 namespace Hycl.Launcher.UI.Controls;
 
@@ -78,6 +79,17 @@ public class HyclImage : Image
         }
     }
 
+    /// <summary>
+    /// 从视觉树移除时释放位图。Avalonia 的 Image 不拥有 Source，列表分页/翻页时
+    /// 旧控件被丢弃，若不显式释放，每页几十张 128px 位图会一直挂在托管堆上——
+    /// 模组管理页反复翻页内存持续上涨的主因就在这里。
+    /// </summary>
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnDetachedFromVisualTree(e);
+        DisposeSource();
+    }
+
     private void OnUrlChanged()
     {
         if (Url is null)
@@ -97,8 +109,10 @@ public class HyclImage : Image
         try
         {
             var bytes = await Downloads.GetOrAdd(url, DownloadAndCacheAsync).ConfigureAwait(true);
-            if (bytes is null || Url != url)
+            if (bytes is null || Url != url || !this.IsAttachedToVisualTree())
             {
+                // 已离开视觉树（翻页/切分区）时不再把位图挂回 Source：
+                // 此时不会再有 Detach 事件来释放它，挂上去就等于永久泄漏。
                 if (Url == url)
                 {
                     LoadCompleted?.Invoke(this, false);

@@ -953,6 +953,9 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
     {
         var refreshStart = PerfTrace.Now;
         IsRefreshing = true;
+        // 在第一个 await 之前就清掉挂起标记：本方法末尾会重建分区内容，
+        // 若让随后的 Activate() 也重建一次，等于进一次页面扫两遍目录。
+        _contentSuspended = false;
         try
         {
             if (EnsureFolders())
@@ -1691,7 +1694,11 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         }
     }
 
-    /// <summary>离开版本页：取消正在进行的存档扫描（切页即取消）。</summary>
+    /// <summary>
+    /// 离开版本页：取消正在进行的存档扫描与资源列表加载，并释放本页的重内容。
+    /// 之前只取消存档扫描，模组/资源包的完整列表仍整份驻留，切到别的页签也不释放——
+    /// 这是版本页离开后内存居高不下的直接来源。
+    /// </summary>
     public void Deactivate()
     {
         _savesCts?.Cancel();
@@ -1699,14 +1706,37 @@ public sealed partial class InstancesViewModel : ObservableObject, IPageLifecycl
         _savesCts = null;
         _savesGeneration++;
         IsLoadingSaves = false;
+        Saves.Clear();
+        VisibleSaves.Clear();
+        Files.Suspend();
+        _contentSuspended = true;
+        GcReclaimer.RequestSettle("版本页离开", _services.Logger);
     }
 
+    /// <summary>离开页面时是否已释放内容（用于进入时决定要不要重建）。</summary>
+    private bool _contentSuspended;
+
+    /// <summary>
+    /// 重新进入版本页：存档按需重扫；资源列表按当前分区重建（文件扫描本身很轻，
+    /// 元数据与洞察结果都有磁盘/进程内缓存，不会重复解压 jar 或联网）。
+    /// 未经过 Deactivate 的首次进入不重建——RefreshAsync 已经把分区内容准备好，
+    /// 重复 Configure 会白跑一次目录扫描。
+    /// </summary>
     public void Activate()
     {
-        if (SelectedInstance is not null)
+        if (SelectedInstance is null)
         {
-            _ = ReloadSavesAsync();
+            return;
         }
+
+        _ = ReloadSavesAsync();
+        if (!_contentSuspended)
+        {
+            return;
+        }
+
+        _contentSuspended = false;
+        RefreshSectionContent();
     }
 
     private void OpenDirectory(string? directory)

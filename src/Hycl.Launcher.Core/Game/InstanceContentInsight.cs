@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
@@ -25,9 +26,69 @@ public static class LocalContentMetadataReader
         @"\[\[dependencies\.[^\]]+\]\](?<body>.*?)(?=\[\[|\z)",
         RegexOptions.Singleline | RegexOptions.IgnoreCase);
 
+    /// <summary>
+    /// 进程内元数据缓存（键为文件全路径）：模组页每次进入、切换分区、启停单个模组
+    /// 都会重新扫描整个目录，而读取 fabric.mod.json / mods.toml 要逐个解压 jar——
+    /// 数百个模组时就是数百次 ZipArchive.OpenRead，既卡 UI 又让解压缓冲反复冲刷 LOH。
+    /// HMCL 的 LocalAddonFile / PCL-CE 的 LocalComp 都是同一思路：解析结果按文件指纹
+    /// 缓存，文件没变就不再进 zip。上限按条数封顶，避免遍历超大整合包时无界增长。
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, (long Size, long MTimeTicks, LocalContentMetadata Metadata)>
+        Cache = new(StringComparer.OrdinalIgnoreCase);
+
+    private const int CacheLimit = 4096;
+
     public static LocalContentMetadata Read(string path, bool isDirectory)
     {
         var fallbackName = EffectiveName(path);
+
+        // 目录型资源（资源包/光影解压形态）没有便宜的指纹，直接读：数量少，开销可忽略
+        if (isDirectory)
+        {
+            return ReadCore(path, fallbackName, isDirectory: true);
+        }
+
+        long size;
+        long mtimeTicks;
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists)
+            {
+                return new LocalContentMetadata(fallbackName, "", "", "", [], [], []);
+            }
+
+            size = info.Length;
+            mtimeTicks = info.LastWriteTimeUtc.Ticks;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return new LocalContentMetadata(fallbackName, "", "", "", [], [], []);
+        }
+
+        if (Cache.TryGetValue(path, out var cached)
+            && cached.Size == size
+            && cached.MTimeTicks == mtimeTicks)
+        {
+            return cached.Metadata;
+        }
+
+        var metadata = ReadCore(path, fallbackName, isDirectory: false);
+        if (Cache.Count >= CacheLimit)
+        {
+            // 满了直接清空：元数据重建成本远低于维护一套 LRU，且清空瞬间的重复解析只发生一次
+            Cache.Clear();
+        }
+
+        Cache[path] = (size, mtimeTicks, metadata);
+        return metadata;
+    }
+
+    /// <summary>清空元数据缓存（「重新检测」时强制重新解压读取）。</summary>
+    public static void ClearCache() => Cache.Clear();
+
+    private static LocalContentMetadata ReadCore(string path, string fallbackName, bool isDirectory)
+    {
         try
         {
             var result = isDirectory ? ReadDirectory(path, fallbackName) : ReadArchive(path, fallbackName);

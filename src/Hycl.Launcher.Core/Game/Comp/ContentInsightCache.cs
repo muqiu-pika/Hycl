@@ -69,11 +69,26 @@ public static class ContentInsightCache
 
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.General);
 
+    /// <summary>
+    /// 缓存是否「足够新」——用于判断可不可以完全跳过联网。
+    /// 与逐条 FreshTtl 分开：单个文件的 24 小时语义用于「这条结果还能不能复用」，
+    /// 而整份快照放宽到 <see cref="StaleTtl"/> 才会主动重查。
+    /// 之前两者都是 24 小时，于是每天第一次进模组页必然把几百个模组同时塞进
+    /// 联网反查（Modrinth + CurseForge 四路响应并行落 LOH），内存与带宽都在那一刻冲顶；
+    /// 文件集签名一致时本来就没有任何理由天天重查。需要立刻刷新时用「重新检测」。
+    /// </summary>
+    private static readonly TimeSpan StaleTtl = TimeSpan.FromDays(7);
+
     public static bool IsFresh(ContentInsightEntry entry)
         => DateTime.UtcNow.Ticks - entry.CheckedAtTicks < FreshTtl.Ticks;
 
     public static bool IsFresh(ContentInsightSnapshot snapshot)
         => snapshot.SavedAtTicks > 0 && DateTime.UtcNow.Ticks - snapshot.SavedAtTicks < FreshTtl.Ticks;
+
+    /// <summary>快照是否已经足够旧，值得主动重查一轮（默认 7 天）。</summary>
+    public static bool IsStale(ContentInsightSnapshot snapshot)
+        => snapshot.SavedAtTicks <= 0
+           || DateTime.UtcNow.Ticks - snapshot.SavedAtTicks > StaleTtl.Ticks;
 
     /// <summary>文件未变动（路径/大小/修改时间/SHA-1 一致）时才复用缓存。</summary>
     public static bool MatchesFile(ContentInsightEntry entry, string path, long size, long mtimeTicks, string sha1)

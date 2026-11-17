@@ -16,14 +16,30 @@ public static class ModpackHash
 
     private const uint Multiplier = 0x5bd1e995;
 
-    public static async Task<ModpackFileHashes> ComputeAsync(
+    /// <summary>
+    /// 只算更新检测需要的两个值（SHA-1 + CurseForge 指纹），单趟读盘。
+    /// SHA-512 仅导出整合包时才需要，日常刷新模组列表白算一遍纯属浪费 IO 与 LOH 缓冲，
+    /// 这里显式跳过（<see cref="ModpackFileHashes.Sha512"/> 留空）。
+    /// </summary>
+    public static Task<ModpackFileHashes> ComputeLookupAsync(
         string path,
         CancellationToken cancellationToken = default)
+        => ComputeCoreAsync(path, includeSha512: false, cancellationToken);
+
+    public static Task<ModpackFileHashes> ComputeAsync(
+        string path,
+        CancellationToken cancellationToken = default)
+        => ComputeCoreAsync(path, includeSha512: true, cancellationToken);
+
+    private static async Task<ModpackFileHashes> ComputeCoreAsync(
+        string path,
+        bool includeSha512,
+        CancellationToken cancellationToken)
     {
         using var sha1 = IncrementalHash.CreateHash(HashAlgorithmName.SHA1);
-        using var sha512 = IncrementalHash.CreateHash(HashAlgorithmName.SHA512);
+        using var sha512 = includeSha512 ? IncrementalHash.CreateHash(HashAlgorithmName.SHA512) : null;
 
-        // 第一遍：同时计算 SHA-1 / SHA-512，并统计过滤空白后的长度（指纹的种子需要这个长度）
+        // 第一遍：同时计算 SHA-1 /（可选）SHA-512，并统计过滤空白后的长度（指纹的种子需要这个长度）
         long filteredLength = 0;
         await using (var stream = OpenRead(path))
         {
@@ -38,7 +54,7 @@ public static class ModpackHash
                 }
 
                 sha1.AppendData(buffer, 0, read);
-                sha512.AppendData(buffer, 0, read);
+                sha512?.AppendData(buffer, 0, read);
                 for (var index = 0; index < read; index++)
                 {
                     if (!IsWhitespace(buffer[index]))
@@ -104,7 +120,7 @@ public static class ModpackHash
 
         return new ModpackFileHashes(
             Convert.ToHexString(sha1.GetHashAndReset()).ToLowerInvariant(),
-            Convert.ToHexString(sha512.GetHashAndReset()).ToLowerInvariant(),
+            sha512 is null ? "" : Convert.ToHexString(sha512.GetHashAndReset()).ToLowerInvariant(),
             murmur,
             new FileInfo(path).Length);
     }

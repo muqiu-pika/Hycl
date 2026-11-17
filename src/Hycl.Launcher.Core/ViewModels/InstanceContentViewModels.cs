@@ -355,6 +355,32 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
     [RelayCommand]
     private Task Refresh() => LoadAsync();
 
+    /// <summary>
+    /// 离开版本页时释放本列表的重内容（模组卡片、关系行、图标位图引用）：
+    /// 之前切到别的标签页只是取消请求，几百个 LocalContentItemViewModel
+    /// （每个都带合并搜索串与元数据）仍整份留在内存里，构成版本页的常驻大头。
+    /// 再次进入时 RefreshAsync 会重建，元数据与洞察都有缓存，代价很小。
+    /// </summary>
+    public void Suspend()
+    {
+        CancelUpdateCheck();
+        _loadGeneration++;
+        // 内容已清空，下次进入必须重新扫目录（让 Activate 之后的 RefreshSectionContent 生效）
+        _directory = "";
+        IsLoading = false;
+        IsCheckingUpdates = false;
+        IsUpdating = false;
+        DetachItems();
+        _allItems.Clear();
+        Items.Clear();
+        VisibleItems.Clear();
+        Relations.Clear();
+        IsRelationsDialogVisible = false;
+        StatusMessage = "";
+        UpdateCheckText = "";
+        NotifyListState();
+    }
+
     private async Task LoadAsync()
     {
         var generation = ++_loadGeneration;
@@ -416,9 +442,14 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
                     UpdateListState();
                 }
 
-                // ② 再比对文件集：一致且未过期说明没有变化，无需任何请求；
-                //    否则后台逐文件比对（只请求新增/变动的），完成后更新缓存。
-                if (IsSnapshotCurrent(cached) && ContentInsightCache.IsFresh(cached))
+                // ② 再比对文件集签名（只看路径/大小/修改时间，不读文件内容）：
+                //    完全一致就说明没有任何资源被动过，直接沿用上次结果收工——
+                //    既不算 SHA-1、也不发请求。之前这里还要求 24 小时内检查过，
+                //    于是每天第一次进模组页都必然重算全部模组的哈希并把几百个
+                //    文件同时塞进 pending 联网反查，内存与磁盘 IO 都在那一刻冲顶。
+                //    时效性由「重新检测」按钮与文件变更共同保证（PCL-CE / HMCL 同款语义）。
+                //    只有快照明显过期（7 天）才主动重查，避免搬用一份多年不更新的数据。
+                if (IsSnapshotCurrent(cached) && !ContentInsightCache.IsStale(cached))
                 {
                     var missingIcons = CountMissingIcons(items);
                     UpdateCheckText = $"已加载本地缓存：{shown} 项"
@@ -440,6 +471,7 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
             if (generation == _loadGeneration)
             {
                 IsLoading = false;
+                PerfTrace.MarkMemory($"{SectionTitle}加载完成:{_allItems.Count}项");
                 // 列表渲染与后续检测会产生大量 LOH 碎片（图标字节/JSON 缓冲），
                 // 落定后延迟做一次全收集，避免任务管理器内存长期停在峰值
                 GcReclaimer.RequestSettle($"{SectionTitle}加载", _services.Logger);
@@ -673,7 +705,18 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
             filtered = filtered.Where(item => item.Matches(query));
         }
 
-        var sorted = SortItems(filtered);
+        var sorted = SortItems(filtered).ToList();
+
+        // 内容没变就整段跳过：更新检测会逐项回填 IsUpdateAvailable，每次都给 Items 做
+        // Clear + 重填的话，Avalonia 会把整页 50 个卡片模板全部销毁重建——每张卡片还带
+        // 两个 HyclImage（重新解码位图）。这正是「检测期间模组页内存越刷越高」的原因。
+        if (Items.SequenceEqual(sorted))
+        {
+            RebuildVisibleItems();
+            NotifyListState();
+            return;
+        }
+
         Items.Clear();
         foreach (var item in sorted)
         {
@@ -691,15 +734,30 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
         NotifyListState();
     }
 
-    /// <summary>把当前页的条目同步进 VisibleItems（整体替换，只实例化单页卡片）。</summary>
+    /// <summary>
+    /// 把当前页的条目同步进 VisibleItems（只实例化单页卡片）。
+    /// 对已经是目标内容的集合不做任何增删：ObservableCollection 的 Clear 会让
+    /// ItemsControl 立刻销毁全部卡片，随后再逐项重建，形成一次无谓的整页重建。
+    /// </summary>
     private void RebuildVisibleItems()
     {
-        VisibleItems.Clear();
         var start = (_currentPage - 1) * PageSize;
-        var count = Math.Min(PageSize, Items.Count - start);
+        var count = Math.Max(0, Math.Min(PageSize, Items.Count - start));
+        var desired = new List<LocalContentItemViewModel>(count);
         for (var i = start; i < start + count; i++)
         {
-            VisibleItems.Add(Items[i]);
+            desired.Add(Items[i]);
+        }
+
+        if (VisibleItems.SequenceEqual(desired))
+        {
+            return;
+        }
+
+        VisibleItems.Clear();
+        foreach (var item in desired)
+        {
+            VisibleItems.Add(item);
         }
     }
 
@@ -821,6 +879,9 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
         {
             var cacheKey = ContentInsightCache.MakeKey(_directory, _resourceType?.ToString() ?? "local");
             ContentInsightCache.Clear(_services.Paths.CacheDirectory, cacheKey);
+            // 一并丢弃进程内元数据缓存：否则「重新检测」仍会命中上次解压得到的名称/依赖，
+            // 用户看不到任何变化
+            LocalContentMetadataReader.ClearCache();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -1160,6 +1221,11 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
         UpdateCheckText = "正在比对本地缓存…";
         try
         {
+            // 指纹落盘缓存：路径 + 大小 + 修改时间没变就不再读文件内容。
+            // 洞察缓存 TTL 只有 24 小时，过期后原本要把整个 mods 目录完整重读两遍
+            // （SHA-1 + murmur2 各一趟），几百 MB 的整合包进一次页面就是几百 MB 磁盘 IO。
+            var hashCache = ModpackHashCache.Load(_services.Paths.CacheDirectory, _directory);
+            var hashCacheUpdates = new Dictionary<string, (long, long, string, uint)>(StringComparer.OrdinalIgnoreCase);
             var hashed = await Task.Run(async () =>
             {
                 var list = new List<(LocalContentItemViewModel Item, ModpackFileHashes Hash)>();
@@ -1168,7 +1234,24 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
                     token.ThrowIfCancellationRequested();
                     try
                     {
-                        list.Add((item, await ModpackHash.ComputeAsync(item.Path, token).ConfigureAwait(false)));
+                        var key = ModpackHashCache.MakeKey(_directory, item.Path);
+                        if (hashCache.TryGetValue(key, out var cachedHash))
+                        {
+                            var info = new FileInfo(item.Path);
+                            if (info.Exists
+                                && info.Length == item.File.Size
+                                && info.LastWriteTimeUtc.Ticks == item.File.Modified.ToUniversalTime().Ticks)
+                            {
+                                list.Add((item, new ModpackFileHashes(cachedHash.Sha1, "", cachedHash.Murmur2, item.File.Size)));
+                                hashCacheUpdates[key] = (item.File.Size, info.LastWriteTimeUtc.Ticks, cachedHash.Sha1, cachedHash.Murmur2);
+                                continue;
+                            }
+                        }
+
+                        // 列表刷新只需 SHA-1 + 指纹（不导出整合包，SHA-512 是白算的额外一趟读盘）
+                        var hash = await ModpackHash.ComputeLookupAsync(item.Path, token).ConfigureAwait(false);
+                        list.Add((item, hash));
+                        hashCacheUpdates[key] = (hash.Size, item.File.Modified.ToUniversalTime().Ticks, hash.Sha1, hash.Murmur2);
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                     {
@@ -1178,6 +1261,15 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
 
                 return list;
             }, token).ConfigureAwait(true);
+
+            if (hashCacheUpdates.Count > 0)
+            {
+                // 落盘放到后台：几百条 JSON 序列化不应占着 UI 线程
+                var cacheDir = _services.Paths.CacheDirectory;
+                var dir = _directory;
+                var payload = hashCacheUpdates;
+                _ = Task.Run(() => ModpackHashCache.Save(cacheDir, dir, payload));
+            }
             token.ThrowIfCancellationRequested();
             if (generation != _loadGeneration)
             {
@@ -1199,9 +1291,13 @@ public sealed partial class InstanceFilesViewModel : ObservableObject
                 // 未变动的文件一律复用缓存（含未识别到社区的「本地」条目）：
                 // 只要文件指纹一致，就说明不是新加/改动的资源，没必要再发一次反查请求。
                 // 需要强制重查时走「重新检测」（清缓存）或等 TTL 过期。
+                // 只认文件指纹，不再看 24 小时 TTL：文件一个字节都没变时，
+                // 社区项目与最新版本不可能因此改变，再发一轮请求纯属浪费内存与带宽
+                // （TTL 到期时几百个模组同时进入 pending，Modrinth/CurseForge 的
+                // 全部响应同时压在 LOH 上，正是进模组页内存飙高的元凶）。
+                // 需要主动刷新时走「重新检测」按钮，与 PCL-CE / HMCL 的按需刷新一致。
                 var cached = cachedByPath.TryGetValue(item.Path, out var samePath)
                              && ContentInsightCache.MatchesFile(samePath, item.Path, item.File.Size, item.File.Modified.Ticks, hash.Sha1)
-                             && ContentInsightCache.IsFresh(samePath)
                     ? samePath
                     : null;
                 if (cached is null)
