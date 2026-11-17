@@ -1805,7 +1805,8 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle, IBa
                     ShowLaunchFailure(LaunchFailureAnalyzer.Analyze(
                         result.ExitCode,
                         SnapshotLaunchLog(),
-                        result.Message), "启动失败");
+                        result.Message,
+                        config.EffectiveGameDirectory), "启动失败");
                 }
                 else
                 {
@@ -2433,7 +2434,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle, IBa
                     // 崩溃 = 游戏进程非零退出（此时窗口已出现过）：进入失败页展示结论 + 可滚动日志，
                     // 并指向最新一份 crash-report（PCL-CE 的崩溃后体验）。
                     var failure = LaunchFailureAnalyzer
-                        .Analyze(exitCode, SnapshotLaunchLog(), null)
+                        .Analyze(exitCode, SnapshotLaunchLog(), null, gameDirectory)
                         with { CrashedInGame = true, CrashReportPath = crashReportPath };
                     AppendLaunchLog($"[崩溃] 游戏进程异常退出，退出码 {exitCode}");
                     CrashReportName = crashReportPath is null ? null : Path.GetFileName(crashReportPath);

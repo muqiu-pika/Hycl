@@ -389,6 +389,26 @@ public sealed class LaunchService
             ApplyGameSettingsOnce(options, gameDirectory, gameSettings, resolved.ClientJarPath);
         }
 
+        // options.txt 语言/字体按版本自动修正（对应 PCL-CE McLaunchLanguage：旧版大写区域码、
+        // 1.0 以下 none、中文等非拉丁语言强制 Unicode 字体；版本隔离时修正实例目录内的 options.txt）
+        var optionsPath = Path.Combine(
+            string.IsNullOrWhiteSpace(options.InstanceDirectory)
+                ? gameDirectory
+                : Path.GetFullPath(options.InstanceDirectory),
+            "options.txt");
+        OptionsLanguageFixer.Apply(
+            optionsPath,
+            OptionsLanguageFixer.ParseReleaseTime(resolved.Info.ReleaseTime),
+            "zh_cn",
+            _logger);
+
+        // 合并 launcher_profiles.json（对应 PCL-CE McLaunchPrerun 的 profiles 合并）：
+        // 正版/离线档案写入游戏根目录，损坏时备份重建；离线账号的 uuid 与游戏参数一致
+        var profileUuid = string.IsNullOrWhiteSpace(options.PlayerUuid)
+            ? OfflineUuid.Create(options.PlayerName)
+            : options.PlayerUuid;
+        LauncherProfilesMerge.EnsureProfile(gameDirectory, profileUuid, options.PlayerName, options.AccessToken, _logger);
+
         var environment = RuleEnvironment.Current(options.WindowType == 3);
         var assetsDirectory = Path.Combine(gameDirectory, "assets");
         var librariesDirectory = Path.Combine(gameDirectory, "libraries");
@@ -411,7 +431,7 @@ public sealed class LaunchService
             await RunPreLaunchCommandAsync(options, placeholders, gameDirectory, cancellationToken).ConfigureAwait(false);
         }
 
-        var jvmArguments = BuildJvmArguments(options, resolved.Info, java.MajorVersion, environment, placeholders, resolved.NativesDirectory, classPath);
+        var jvmArguments = BuildJvmArguments(options, resolved.Info, java.MajorVersion, java.Is64Bit, environment, placeholders, resolved.NativesDirectory, classPath);
         var gameArguments = BuildGameArguments(options, resolved.Info, environment, placeholders);
 
         var mainClass = resolved.Info.MainClass ?? "net.minecraft.client.main.Main";
@@ -634,12 +654,20 @@ public sealed class LaunchService
         LaunchOptions options,
         VersionInfo info,
         int javaMajorVersion,
+        bool is64BitJvm,
         RuleEnvironment environment,
         IReadOnlyDictionary<string, string> placeholders,
         string nativesDirectory,
         string classPath)
     {
-        var memory = Math.Max(512, options.MemoryMegabytes);
+        // 内存：手动档 > 0 时按设置；否则按「可用物理内存 + 模组数量加权」自动分配
+        // （对应 PCL-CE PageSetupLaunch.GetRam 的三档加权语义；参考 HMCL 默认堆策略）
+        var memory = options.MemoryMegabytes > 0
+            ? Math.Max(512, options.MemoryMegabytes)
+            : ResolveAutoMemoryMegabytes(
+                CountModFiles(placeholders["game_directory"]),
+                GetAvailablePhysicalMemoryMegabytes(),
+                is64BitJvm);
         var arguments = new List<string>
         {
             $"-Xmx{memory}M",
@@ -648,6 +676,25 @@ public sealed class LaunchService
             "-Dminecraft.launcher.brand=Hycl",
             $"-Dminecraft.launcher.version={LauncherVersion}"
         };
+
+        // 新生代固定为堆的 15%（对应 PCL-CE ArgumentsJvm 的 -Xmn 策略；堆 ≥2G 才有意义，
+        // 小堆交给默认自适应）。用户可用 ExtraJvmArguments 覆盖。
+        if (memory >= 2048)
+        {
+            arguments.Add($"-Xmn{memory * 15 / 100}M");
+        }
+
+        // Log4Shell 加固：无条件开启 formatMsgNoLookups（对 1.12 及以下带 log4j2 的版本有实际意义），
+        // 对无 log4j2 的版本是多余但无害的 JVM 属性（对应 PCL-CE ArgumentsJvm.cs:26-27 与 HMCL DefaultLauncher）
+        arguments.Add("-Dlog4j2.formatMsgNoLookups=true");
+
+        // Java 19+ 的 stdout/stderr 编码属性与 file.encoding 分离：日志泵按 UTF-8 读取，
+        // 必须让游戏输出编码与之一致，否则中文 Windows 上 GBK 输出会乱码并破坏崩溃关键字匹配
+        if (javaMajorVersion >= 19)
+        {
+            arguments.Add("-Dstdout.encoding=UTF-8");
+            arguments.Add("-Dstderr.encoding=UTF-8");
+        }
 
         // macOS 上 LWJGL 2（1.12.2 及更早）必须把 JVM 主线程交给 Cocoa，
         // 否则启动时直接报 "Please use -XstartOnFirstThread"；LWJGL 3（1.13+）用 GLFW，不需要。
@@ -757,7 +804,180 @@ public sealed class LaunchService
             arguments.Add(classPath);
         }
 
+        DeduplicateJvmArguments(arguments);
         return arguments;
+    }
+
+    /// <summary>
+    /// JVM 参数去重（对应 HMCL CommandBuilder.addDefault 与 PCL-CE _DeduplicateJvmArguments 的语义）：
+    /// 同键参数保留最后一次出现（版本 JSON / 用户参数覆盖启动器默认值），其余保持原顺序。
+    /// 键的提取规则：-Xmx/-Xms/-Xmn 按标志名；-Dkey=value / -XX:Key=value 按键名；
+    /// -XX:+Opt / -XX:-Opt 及其它按全串。非「-」开头的条目（极少数裸值）不去重。
+    /// </summary>
+    private static void DeduplicateJvmArguments(List<string> arguments)
+    {
+        var keys = new string?[arguments.Count];
+        for (var index = 0; index < arguments.Count; index++)
+        {
+            var argument = arguments[index];
+            if (!argument.StartsWith('-'))
+            {
+                keys[index] = null;
+                continue;
+            }
+
+            if (argument.StartsWith("-Xmx", StringComparison.Ordinal)
+                || argument.StartsWith("-Xms", StringComparison.Ordinal)
+                || argument.StartsWith("-Xmn", StringComparison.Ordinal))
+            {
+                keys[index] = argument[..4];
+            }
+            else if (argument.StartsWith("-D", StringComparison.Ordinal))
+            {
+                var equals = argument.IndexOf('=', StringComparison.Ordinal);
+                keys[index] = equals > 2 ? argument[..(equals + 1)] : argument;
+            }
+            else if (argument.StartsWith("-XX:", StringComparison.Ordinal))
+            {
+                var equals = argument.IndexOf('=', StringComparison.Ordinal);
+                keys[index] = equals > 4 ? argument[..(equals + 1)] : argument;
+            }
+            else
+            {
+                keys[index] = argument;
+            }
+        }
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        for (var index = arguments.Count - 1; index >= 0; index--)
+        {
+            var key = keys[index];
+            if (key is null || seen.Add(key))
+            {
+                continue;
+            }
+
+            arguments.RemoveAt(index);
+        }
+    }
+
+    /// <summary>统计实例 mods 目录的文件数（用于内存自动分配的加权档位；目录不存在按 0）。</summary>
+    private static int CountModFiles(string gameDirectory)
+    {
+        try
+        {
+            var modsDirectory = Path.Combine(gameDirectory, "mods");
+            return Directory.Exists(modsDirectory) ? Directory.GetFiles(modsDirectory).Length : 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return 0;
+        }
+    }
+
+    /// <summary>当前可用物理内存（MB）；获取失败按 4096 兜底。</summary>
+    private static long GetAvailablePhysicalMemoryMegabytes()
+    {
+        try
+        {
+            return new NativeMemoryStatus().QueryAvailablePhysicalMegabytes();
+        }
+        catch (Exception ex) when (ex is IOException or DllNotFoundException)
+        {
+            return 4096;
+        }
+    }
+
+    /// <summary>
+    /// 内存自动分配（移植 PCL-CE PageSetupLaunch.GetRam 的三档加权语义）：
+    /// 按「普通实例 / OptiFine / 可装 Mod 实例（按 mods 文件数）」给出需求曲线，
+    /// 用可用物理内存按 1 / 0.7 / 0.4 / 0.15 四段加权满足，不低于保底值；
+    /// 32 位 JVM 封顶 1024MB（超过必然无法分配）。
+    /// </summary>
+    private static int ResolveAutoMemoryMegabytes(int modFileCount, long availablePhysicalMegabytes, bool is64BitJvm)
+    {
+        var available = availablePhysicalMegabytes / 1024.0; // GB
+        double ramMinimum;
+        double ramTarget1;
+        double ramTarget2;
+        double ramTarget3;
+        if (modFileCount > 0)
+        {
+            // 可安装 Mod 的实例：需求随模组数线性增长
+            ramMinimum = 0.5 + modFileCount / 150.0;
+            ramTarget1 = 1.5 + modFileCount / 90.0;
+            ramTarget2 = 2.7 + modFileCount / 50.0;
+            ramTarget3 = 4.5 + modFileCount / 25.0;
+        }
+        else
+        {
+            // 普通实例
+            ramMinimum = 0.5;
+            ramTarget1 = 1.5;
+            ramTarget2 = 2.5;
+            ramTarget3 = 4.0;
+        }
+
+        var ramGive = 0.0;
+        foreach (var (delta, ratio) in new[]
+                 {
+                     (Target: ramTarget1, Ratio: 1.0),
+                     (Target: ramTarget2 - ramTarget1, Ratio: 0.7),
+                     (Target: ramTarget3 - ramTarget2, Ratio: 0.4),
+                     (Target: ramTarget3, Ratio: 0.15)
+                 })
+        {
+            ramGive += Math.Min(available * ratio, delta);
+            available -= delta / ratio;
+            if (available < 0.1)
+            {
+                break;
+            }
+        }
+
+        var megabytes = (int)Math.Round(Math.Max(ramGive, ramMinimum) * 1024, MidpointRounding.AwayFromZero);
+        megabytes = Math.Max(512, megabytes);
+        if (!is64BitJvm)
+        {
+            megabytes = Math.Min(megabytes, 1024);
+        }
+
+        return megabytes;
+    }
+
+    /// <summary>GlobalMemoryStatusEx 的最小封装：只取可用物理内存。</summary>
+    private sealed class NativeMemoryStatus
+    {
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX buffer);
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct MEMORYSTATUSEX
+        {
+            public uint dwLength;
+            public uint dwMemoryLoad;
+            public ulong ullTotalPhys;
+            public ulong ullAvailPhys;
+            public ulong ullTotalPageFile;
+            public ulong ullAvailPageFile;
+            public ulong ullTotalVirtual;
+            public ulong ullAvailVirtual;
+            public ulong ullAvailExtendedVirtual;
+        }
+
+        public long QueryAvailablePhysicalMegabytes()
+        {
+            var status = new MEMORYSTATUSEX
+            {
+                dwLength = (uint)System.Runtime.InteropServices.Marshal.SizeOf<MEMORYSTATUSEX>()
+            };
+            if (!GlobalMemoryStatusEx(ref status))
+            {
+                throw new IOException("GlobalMemoryStatusEx 查询失败");
+            }
+
+            return (long)(status.ullAvailPhys / (1024 * 1024));
+        }
     }
 
     private static List<string> BuildGameArguments(
@@ -1148,6 +1368,15 @@ public sealed class LaunchService
 
                 var destination = Path.GetFullPath(Path.Combine(destinationDirectory, entry.FullName.Replace('/', Path.DirectorySeparatorChar)));
                 if (!destination.StartsWith(Path.GetFullPath(destinationDirectory), StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                // 增量跳过（对应 HMCL DefaultLauncher 的解压策略）：目标已存在且大小与条目
+                // 一致时不再解压——重复启动 / 混合版本共享 natives 目录时省去全部 IO，
+                // 也避免「上次解压中断留下半成品」之外的重复写入
+                var existing = new FileInfo(destination);
+                if (existing.Exists && existing.Length == entry.Length)
                 {
                     continue;
                 }
