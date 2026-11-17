@@ -109,6 +109,9 @@ public sealed class LauncherServices
         var paths = LauncherPaths.CreateDefault();
         PerfTrace.Mark("paths_ready");
         var logger = new LauncherLogger(paths.LogDirectory);
+        // 本地内容元数据的磁盘缓存：跨进程命中，冷启动不再重读全部模组 jar
+        LocalContentMetadataReader.SetDiskCachePath(
+            Path.Combine(paths.CacheDirectory, "local-metadata.json"));
         PerfTrace.Mark("logger_ready");
         logger.Info("Hyplay Craft Launcher 启动");
         PerfTrace.Mark("core_create_begin");

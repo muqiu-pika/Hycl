@@ -38,6 +38,35 @@ public static class LocalContentMetadataReader
 
     private const int CacheLimit = 4096;
 
+    /// <summary>磁盘缓存文件（跨进程命中：进程重启后的冷启动不再重读全部 jar）。</summary>
+    private static string? _diskCachePath;
+
+    private static bool _diskLoaded;
+
+    private static bool _savePending;
+
+    private static readonly object DiskGate = new();
+
+    private static readonly JsonSerializerOptions DiskSerializerOptions = new(JsonSerializerDefaults.General);
+
+    private sealed record MetadataDiskEntry(
+        string Path,
+        long Size,
+        long MTimeTicks,
+        string Name,
+        string Version,
+        string Description,
+        string ModId,
+        IReadOnlyList<string> Tags,
+        IReadOnlyList<string> Required,
+        IReadOnlyList<string> Incompatible);
+
+    /// <summary>
+    /// 注入磁盘缓存文件路径（应用启动时由组合根调用，指向 cache/local-metadata.json）。
+    /// 不注入（为 null）时仅使用进程内缓存。
+    /// </summary>
+    public static void SetDiskCachePath(string path) => _diskCachePath = path;
+
     public static LocalContentMetadata Read(string path, bool isDirectory)
     {
         var fallbackName = EffectiveName(path);
@@ -73,6 +102,9 @@ public static class LocalContentMetadataReader
             return cached.Metadata;
         }
 
+        // 磁盘层：跨进程命中（按文件指纹，指纹不符的条目不会返回旧数据）
+        EnsureDiskCacheLoaded();
+
         var metadata = ReadCore(path, fallbackName, isDirectory: false);
         if (Cache.Count >= CacheLimit)
         {
@@ -81,11 +113,114 @@ public static class LocalContentMetadataReader
         }
 
         Cache[path] = (size, mtimeTicks, metadata);
+        ScheduleDiskSave(path, size, mtimeTicks, metadata);
         return metadata;
     }
 
-    /// <summary>清空元数据缓存（「重新检测」时强制重新解压读取）。</summary>
+    /// <summary>清空元数据缓存（「重新检测」时强制重新解压读取）。磁盘层按文件指纹命中，无需清除。</summary>
     public static void ClearCache() => Cache.Clear();
+
+    private static void EnsureDiskCacheLoaded()
+    {
+        if (_diskLoaded || _diskCachePath is null)
+        {
+            return;
+        }
+
+        lock (DiskGate)
+        {
+            if (_diskLoaded)
+            {
+                return;
+            }
+
+            try
+            {
+                if (File.Exists(_diskCachePath))
+                {
+                    var entries = JsonSerializer.Deserialize<List<MetadataDiskEntry>>(
+                        File.ReadAllText(_diskCachePath), DiskSerializerOptions);
+                    if (entries is not null)
+                    {
+                        foreach (var entry in entries)
+                        {
+                            Cache[entry.Path] = (entry.Size, entry.MTimeTicks, new LocalContentMetadata(
+                                entry.Name,
+                                entry.Version,
+                                entry.Description,
+                                entry.ModId,
+                                entry.Tags,
+                                entry.Required,
+                                entry.Incompatible));
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+            {
+                // 磁盘缓存损坏/不可读：忽略，退回逐 jar 解析
+            }
+
+            _diskLoaded = true;
+        }
+    }
+
+    /// <summary>新解析的元数据落盘（防抖 3 秒合并写入；296 次冷启动解析只落一次盘）。</summary>
+    private static void ScheduleDiskSave(string path, long size, long mtimeTicks, LocalContentMetadata metadata)
+    {
+        if (_diskCachePath is null)
+        {
+            return;
+        }
+
+        lock (DiskGate)
+        {
+            if (_savePending)
+            {
+                return;
+            }
+
+            _savePending = true;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(3000).ConfigureAwait(false);
+                lock (DiskGate)
+                {
+                    _savePending = false;
+                    var entries = Cache.Select(pair => new MetadataDiskEntry(
+                        pair.Key,
+                        pair.Value.Size,
+                        pair.Value.MTimeTicks,
+                        pair.Value.Metadata.Name,
+                        pair.Value.Metadata.Version,
+                        pair.Value.Metadata.Description,
+                        pair.Value.Metadata.ModId,
+                        pair.Value.Metadata.Tags,
+                        pair.Value.Metadata.RequiredDependencies,
+                        pair.Value.Metadata.IncompatibleDependencies))
+                        .ToList();
+
+                    var directory = Path.GetDirectoryName(_diskCachePath!) ?? "";
+                    if (directory.Length > 0)
+                    {
+                        Directory.CreateDirectory(directory);
+                    }
+
+                    var temporary = _diskCachePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                    File.WriteAllText(temporary, JsonSerializer.Serialize(entries, DiskSerializerOptions));
+                    File.Move(temporary, _diskCachePath, true);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // 磁盘缓存写失败不影响功能
+            }
+        });
+    }
 
     private static LocalContentMetadata ReadCore(string path, string fallbackName, bool isDirectory)
     {

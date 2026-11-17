@@ -108,6 +108,17 @@ public class HyclImage : Image
         DisposeSource();
         try
         {
+            // 磁盘缓存命中：直接从文件流降采样解码。
+            // 此前的链路是 File.ReadAllBytesAsync → byte[]（大图标 1~2.6MB 直接进 LOH）
+            // → MemoryStream → 解码——模组页一次加载几十个图标的字节缓冲就是
+            // 「内存瞬间冲顶」的主力。流式解码完全不产生图标大小的 managed 大对象；
+            // 头部校验只读前 12 字节，损坏缓存仍走「删缓存 → 在线重下」的统一路径。
+            if (url.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                && await TryShowFromCacheFileAsync(url).ConfigureAwait(true))
+            {
+                return;
+            }
+
             var bytes = await Downloads.GetOrAdd(url, DownloadAndCacheAsync).ConfigureAwait(true);
             if (bytes is null || Url != url || !this.IsAttachedToVisualTree())
             {
@@ -150,6 +161,65 @@ public class HyclImage : Image
             {
                 LoadCompleted?.Invoke(this, false);
             }
+        }
+    }
+
+    /// <summary>
+    /// 磁盘缓存命中时从文件流解码并显示。返回 true 表示已处理（成功显示，或确认缓存
+    /// 损坏且已删除——调用方继续走在线重下）；返回 false 表示无缓存/缓存过期，走在线。
+    /// </summary>
+    private async Task<bool> TryShowFromCacheFileAsync(string url)
+    {
+        try
+        {
+            var cachePath = GetCachePath(url);
+            if (!File.Exists(cachePath)
+                || DateTimeOffset.UtcNow - File.GetLastWriteTimeUtc(cachePath) >= CacheTtl)
+            {
+                return false;
+            }
+
+            await using var stream = File.OpenRead(cachePath);
+            // 头部校验只读前 12 字节：PNG/JPEG/GIF/WebP/BMP 的魔数都在文件头
+            var header = new byte[12];
+            var read = 0;
+            while (read < header.Length)
+            {
+                var n = await stream.ReadAsync(header.AsMemory(read, header.Length - read)).ConfigureAwait(true);
+                if (n == 0)
+                {
+                    break;
+                }
+
+                read += n;
+            }
+
+            if (!TryValidateBitmap(header))
+            {
+                // 缓存内容损坏（历史坏数据/写坏）：删除后由调用方落到在线重下
+                TryDeleteCache(url);
+                return false;
+            }
+
+            stream.Position = 0;
+            var bitmap = Bitmap.DecodeToWidth(stream, DecodeWidth);
+            if (Url != url || !this.IsAttachedToVisualTree())
+            {
+                // 已离开视觉树（翻页/切分区）：挂上去就等于永久泄漏
+                bitmap.Dispose();
+                return true;
+            }
+
+            DisposeSource();
+            Source = bitmap;
+            LoadCompleted?.Invoke(this, true);
+            return true;
+        }
+        catch (Exception)
+        {
+            // 解码失败说明缓存内容不是有效图片：清掉对应缓存，落到在线重下
+            TryDeleteCache(url);
+            return false;
         }
     }
 
