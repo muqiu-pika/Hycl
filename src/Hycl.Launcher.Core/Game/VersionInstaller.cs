@@ -61,13 +61,20 @@ public sealed partial class VersionInstaller
     }
 
     /// <summary>
-    /// 获取版本列表：磁盘缓存（24h TTL）命中即回，并触发后台静默刷新；
+    /// 获取版本列表：内存缓存（10 分钟）→ 磁盘缓存（24h TTL）命中即回并触发后台静默刷新；
     /// 否则按下载源策略双源竞速（主源立即，副源延迟 5 秒加入，单源 8 秒超时不重试）。
     /// </summary>
     public async Task<IReadOnlyList<VersionSummary>> GetVersionListAsync(
         DownloadPolicy policy,
         CancellationToken cancellationToken = default)
     {
+        // 内存层：版本清单 ~1MB JSON，磁盘命中也要反序列化一遍——6 个调用方
+        // （下载页分区/向导/加载器安装/原版安装）高频复用同一份，10 分钟内直接共享
+        if (_manifestMemoryCache is not null && DateTimeOffset.Now - _manifestMemoryAt < ManifestMemoryTtl)
+        {
+            return _manifestMemoryCache;
+        }
+
         var effectivePolicy = policy with { MojangFast = policy.MojangFast || DownloadSourceMonitor.MojangFast };
         if (_versionListCache is not null)
         {
@@ -75,13 +82,22 @@ public sealed partial class VersionInstaller
             if (cached is not null && DateTimeOffset.Now - cached.Value.FetchedAt < VersionListCacheTtl)
             {
                 _ = RefreshVersionListQuietlyAsync(effectivePolicy);
+                _manifestMemoryCache = cached.Value.Manifest.Versions;
+                _manifestMemoryAt = DateTimeOffset.Now;
                 return cached.Value.Manifest.Versions;
             }
         }
 
         var manifest = await FetchVersionListAsync(effectivePolicy, cancellationToken).ConfigureAwait(false);
+        _manifestMemoryCache = manifest.Versions;
+        _manifestMemoryAt = DateTimeOffset.Now;
         return manifest.Versions;
     }
+
+    /// <summary>版本清单内存缓存（全安装器实例共享；清单每日更新，10 分钟的陈旧度无感）。</summary>
+    private static IReadOnlyList<VersionSummary>? _manifestMemoryCache;
+    private static DateTimeOffset _manifestMemoryAt;
+    private static readonly TimeSpan ManifestMemoryTtl = TimeSpan.FromMinutes(10);
 
     /// <summary>后台静默刷新版本列表缓存（失败忽略）。</summary>
     private async Task RefreshVersionListQuietlyAsync(DownloadPolicy policy)
@@ -95,6 +111,8 @@ public sealed partial class VersionInstaller
         {
             var manifest = await FetchVersionListAsync(policy, CancellationToken.None).ConfigureAwait(false);
             await _versionListCache.WriteAsync(manifest, CancellationToken.None).ConfigureAwait(false);
+            _manifestMemoryCache = manifest.Versions;
+            _manifestMemoryAt = DateTimeOffset.Now;
         }
         catch (Exception ex) when (ex is DownloadException or IOException or InvalidOperationException or HttpRequestException or TaskCanceledException)
         {
@@ -393,6 +411,8 @@ public sealed partial class VersionInstaller
 
             reporter.Stage("安装完成");
             _logger.Info($"版本 {displayName} 安装完成");
+            // 新版本目录已落盘：清掉实例扫描缓存
+            InstanceManager.InvalidateScanCache();
             // 资源索引 JSON（数千条对象图）与版本/加载器 profile 的反序列化大缓冲都落 LOH
             GcReclaimer.RequestSettle("版本安装", _logger);
         }

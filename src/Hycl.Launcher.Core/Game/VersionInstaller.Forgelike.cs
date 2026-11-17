@@ -166,6 +166,7 @@ public partial class VersionInstaller
         TryDeleteFile(installerPath);
         reporter.Stage("安装完成");
         _logger.Info($"{loaderName} {entry.VersionName}（{request.GameVersion}）安装完成：{request.TargetName}");
+        InstanceManager.InvalidateScanCache();
         return request.TargetName;
     }
 

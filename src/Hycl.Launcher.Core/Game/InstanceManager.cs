@@ -129,11 +129,45 @@ public sealed class InstanceManager
         _resolver = resolver;
     }
 
+    /// <summary>
+    /// 扫描结果短 TTL 缓存（按游戏目录）：启动页刷新、下载页 6 个分区 Attach、
+    /// 存档/整合包的实例选择弹窗、跨文件夹搜索会在几秒内连续触发多次全量扫描
+    /// （每次都重读全部版本 JSON）——短缓存把这些合并成一次。所有会新建/删除
+    /// 实例的路径都会显式 <see cref="InvalidateScanCache"/>，其余陈旧窗口 ≤5 秒。
+    /// </summary>
+    private static readonly TimeSpan ScanCacheTtl = TimeSpan.FromSeconds(5);
+
+    private static readonly object ScanGate = new();
+
+    private static (string Directory, DateTimeOffset At, IReadOnlyList<MinecraftInstance> Results)? _scanCache;
+
+    /// <summary>清除扫描缓存（安装新实例 / 删除实例 / 强制刷新后调用）。</summary>
+    public static void InvalidateScanCache() => _scanCache = null;
+
     public async Task<IReadOnlyList<MinecraftInstance>> ScanAsync(
         string gameDirectory,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool force = false)
     {
         var versionsDirectory = Path.Combine(gameDirectory, "versions");
+        if (!Directory.Exists(versionsDirectory))
+        {
+            return Array.Empty<MinecraftInstance>();
+        }
+
+        if (!force)
+        {
+            lock (ScanGate)
+            {
+                if (_scanCache is { } cached
+                    && cached.Directory.Equals(versionsDirectory, StringComparison.OrdinalIgnoreCase)
+                    && DateTimeOffset.Now - cached.At < ScanCacheTtl)
+                {
+                    return cached.Results;
+                }
+            }
+        }
+
         if (!Directory.Exists(versionsDirectory))
         {
             return Array.Empty<MinecraftInstance>();
@@ -181,10 +215,17 @@ public sealed class InstanceManager
             }
         }
 
-        return results
+        var ordered = results
             .OrderByDescending(x => x.LastWriteTime)
             .ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        lock (ScanGate)
+        {
+            _scanCache = (versionsDirectory, DateTimeOffset.Now, ordered);
+        }
+
+        return ordered;
     }
 
     /// <summary>删除实例：Windows 进回收站，其他平台移入 .hycl-trash 兜底目录（与 PCL-CE 回收站策略一致）。</summary>
@@ -204,6 +245,7 @@ public sealed class InstanceManager
         if (RecycleBin.DeleteDirectory(directory, gameDirectory, instanceId, _logger))
         {
             _logger.Info($"已删除实例：{instanceId}");
+            InvalidateScanCache();
             return true;
         }
 
@@ -438,6 +480,7 @@ public sealed class InstanceManager
             Directory.Move(source, target);
             RenameCoreFiles(target, oldId, newId);
             _logger.Info($"已重命名实例：{oldId} → {newId}");
+            InvalidateScanCache();
             return new InstanceOperationResult(true, $"已重命名为 {newId}");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
