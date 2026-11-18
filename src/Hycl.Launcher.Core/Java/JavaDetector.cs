@@ -196,14 +196,19 @@ public sealed class JavaDetector
         return 17;
     }
 
+    /// <summary>当前工具链支持的最高 Java 主版本（ASM 9.6 支持到 Java 23 / class file major version 67）。</summary>
+    public const int MaxSupportedMajorVersion = 23;
+
     /// <summary>在候选列表中挑选最合适的 Java。</summary>
     public static JavaInstallation? FindBest(IEnumerable<JavaInstallation> installations, int requiredMajor)
     {
         var list = installations.ToList();
-        var adequate = list.Where(x => x.MajorVersion >= requiredMajor)
+        // 过滤掉过新的 Java（工具链不支持的版本），避免 "Unsupported class file major version" 错误
+        var supported = list.Where(x => x.MajorVersion <= MaxSupportedMajorVersion).ToList();
+        var adequate = supported.Where(x => x.MajorVersion >= requiredMajor)
             .OrderBy(x => x.MajorVersion)
             .FirstOrDefault();
-        return adequate ?? list.OrderByDescending(x => x.MajorVersion).FirstOrDefault();
+        return adequate ?? supported.OrderByDescending(x => x.MajorVersion).FirstOrDefault();
     }
 
     private static string? MatchValue(Regex regex, string text)
