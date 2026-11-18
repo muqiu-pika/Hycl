@@ -1082,8 +1082,7 @@ public partial class MainWindow : Window
             {
                 _startupDismissing = true;
                 _startupDismissAt = t;
-                // 退场期间不再拦截鼠标
-                overlay.IsHitTestVisible = false;
+                // 退场期间继续拦截鼠标：启动层完全收起前不把点击漏给下方界面
             }
 
             return;

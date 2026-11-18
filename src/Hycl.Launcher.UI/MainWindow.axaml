@@ -179,6 +179,8 @@
                     加载完成后柔和淡出，下方界面随之浮现；底色与前景全部跟随浅色/深色主题。
                 -->
                 <Panel Name="StartupOverlay"
+                       Grid.RowSpan="2"
+                       IsHitTestVisible="True"
                        RenderTransformOrigin="50%,50%"
                        Background="{DynamicResource SplashBackdropBrush}">
                     <Panel Name="StartupOverlayContent" RenderTransformOrigin="50%,50%">
