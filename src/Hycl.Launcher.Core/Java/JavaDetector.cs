@@ -140,7 +140,7 @@ public sealed class JavaDetector
             return null;
         }
 
-        var result = await RunAsync(fullPath, new[] { "-XshowSettings:properties", "-version" }, cancellationToken).ConfigureAwait(false);
+        var result = await RunAsync(GetProbeExecutable(fullPath), new[] { "-XshowSettings:properties", "-version" }, cancellationToken).ConfigureAwait(false);
         if (result is null)
         {
             return null;
@@ -196,15 +196,34 @@ public sealed class JavaDetector
         return 17;
     }
 
-    /// <summary>当前工具链支持的最高 Java 主版本（ASM 9.6 支持到 Java 23 / class file major version 67）。</summary>
+    /// <summary>当前安装器/注入工具链支持的最高 Java 主版本（ASM 9.6 支持到 Java 23 / class file major version 67）。</summary>
     public const int MaxSupportedMajorVersion = 23;
 
-    /// <summary>在候选列表中挑选最合适的 Java。</summary>
-    public static JavaInstallation? FindBest(IEnumerable<JavaInstallation> installations, int requiredMajor)
+    /// <summary>
+    /// 启动游戏时可接受的 Java 主版本上限：旧版本（1.16 及以下）运行在过新的 Java 上会直接崩溃，
+    /// 需要排除掉；1.18+ 对现代 Java 兼容性较好，不再设上限，
+    /// 否则「机器上只有 Java 24/25」会被误判成「检测不到 Java」。
+    /// </summary>
+    public static int MaxCompatibleMajorVersion(int requiredMajor) => requiredMajor switch
+    {
+        <= 8 => 11,
+        16 => 17,
+        17 => 21,
+        _ => int.MaxValue
+    };
+
+    /// <summary>
+    /// 在候选列表中挑选最合适的 Java。
+    /// <paramref name="maxMajorVersion"/> 用于排除「过新」的运行时（旧版本游戏 / 安装器），
+    /// 启动游戏时按 <see cref="MaxCompatibleMajorVersion"/> 计算，不要一律卡在 23。
+    /// </summary>
+    public static JavaInstallation? FindBest(
+        IEnumerable<JavaInstallation> installations,
+        int requiredMajor,
+        int maxMajorVersion = int.MaxValue)
     {
         var list = installations.ToList();
-        // 过滤掉过新的 Java（工具链不支持的版本），避免 "Unsupported class file major version" 错误
-        var supported = list.Where(x => x.MajorVersion <= MaxSupportedMajorVersion).ToList();
+        var supported = list.Where(x => x.MajorVersion <= maxMajorVersion).ToList();
         var adequate = supported.Where(x => x.MajorVersion >= requiredMajor)
             .OrderBy(x => x.MajorVersion)
             .FirstOrDefault();
@@ -251,9 +270,34 @@ public sealed class JavaDetector
 
         var fileName = Path.GetFileName(expanded);
         return fileName.Equals("java", StringComparison.OrdinalIgnoreCase) ||
-               fileName.Equals("java.exe", StringComparison.OrdinalIgnoreCase)
+               fileName.Equals("java.exe", StringComparison.OrdinalIgnoreCase) ||
+               fileName.Equals("javaw", StringComparison.OrdinalIgnoreCase) ||
+               fileName.Equals("javaw.exe", StringComparison.OrdinalIgnoreCase)
             ? Path.GetFullPath(expanded)
             : null;
+    }
+
+    /// <summary>
+    /// javaw(.exe) 是 Windows 的无控制台版本，执行 -version 不会向标准输出写任何内容，
+    /// 直接探测必然拿不到版本号（表现为「手动指定的 javaw.exe 无效」）。
+    /// 探测时改用同目录的 java(.exe)，启动时仍使用用户指定的 javaw。
+    /// </summary>
+    private static string GetProbeExecutable(string executablePath)
+    {
+        var fileName = Path.GetFileName(executablePath);
+        if (!fileName.StartsWith("javaw", StringComparison.OrdinalIgnoreCase))
+        {
+            return executablePath;
+        }
+
+        var directory = Path.GetDirectoryName(executablePath);
+        if (directory is null)
+        {
+            return executablePath;
+        }
+
+        var console = Path.Combine(directory, PlatformInfo.JavaExecutableName);
+        return File.Exists(console) ? console : executablePath;
     }
 
     private HashSet<string> CollectCandidates(string? explicitPath, IEnumerable<string>? extraRoots = null)
@@ -328,16 +372,25 @@ public sealed class JavaDetector
                 yield return Path.Combine(programFiles, "GraalVM");
             }
 
-            yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Eclipse Adoptium");
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var roamingAppData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+
+            yield return Path.Combine(localAppData, "Programs", "Eclipse Adoptium");
+            // 按用户安装的 JDK（Microsoft OpenJDK / Oracle 安装器常见落点）
+            yield return Path.Combine(localAppData, "Programs", "Microsoft");
+            yield return Path.Combine(localAppData, "Programs", "Java");
             yield return Path.Combine(home, ".jdks");
             yield return Path.Combine(home, ".gradle", "jdks");
             yield return Path.Combine(home, "scoop", "apps");
             yield return Path.Combine(home, ".minecraft", "runtime");
             yield return Path.Combine(home, ".lunarclient", "jre");
 
+            // 官方启动器托管的运行时：Windows 下在 %APPDATA%\.minecraft\runtime，
+            // 不是用户目录下的 .minecraft（旧逻辑因此常常扫不到官方启动器自带的 Java）
+            yield return Path.Combine(roamingAppData, ".minecraft", "runtime");
+            yield return Path.Combine(localAppData, ".minecraft", "runtime");
+
             // 其他启动器托管的运行时（目录不存在时自动跳过）
-            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            var roamingAppData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             // 微软商店版 Minecraft 的运行时
             yield return Path.Combine(localAppData, "Packages", "Microsoft.4297127D64EC6_8wekyb3d8bbwe", "LocalCache", "Local", "runtime");
             yield return Path.Combine(localAppData, "PrismLauncher", "java");

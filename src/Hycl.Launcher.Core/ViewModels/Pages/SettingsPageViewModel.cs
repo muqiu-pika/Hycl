@@ -551,7 +551,7 @@ public partial class SettingsPageViewModel : ObservableObject
                     "手动指定 Java",
                     "例如 C:\\Program Files\\Java\\jdk-21\\bin\\javaw.exe",
                     config.JavaPath),
-                new TextLineRowViewModel("开启自动选择时忽略手动路径，由启动服务按版本要求挑选 Java；手动指定后该 Java 优先。")
+                new TextLineRowViewModel("填写手动路径后立即生效并优先使用；开启自动选择会清空手动路径，由启动服务按版本要求挑选 Java。")
             ]),
             new SettingCardViewModel("已检测的 Java",
             [
@@ -1182,6 +1182,18 @@ public partial class SettingsPageViewModel : ObservableObject
                 }
             };
         }
+
+        // 打开「自动选择 Java」时清空手动路径，否则保存时的手动路径优先规则会让开关看起来无效
+        if (_autoJavaRow is not null && _javaPathRow is not null)
+        {
+            _autoJavaRow.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(ToggleRowViewModel.IsOn) && _autoJavaRow.IsOn)
+                {
+                    _javaPathRow.Text = "";
+                }
+            };
+        }
     }
 
     private void QueueSave()
@@ -1291,13 +1303,20 @@ public partial class SettingsPageViewModel : ObservableObject
             config.GameDirectory = _gameDirectoryRow.Text.Trim();
         }
 
-        if (_autoJavaRow is not null && _autoJavaRow.IsOn)
+        if (_javaPathRow is { } javaPathRow)
+        {
+            // 手动路径优先：填了就立即生效（与「自动选择 Java」默认开启无关），
+            // 否则默认开启的开关会把用户刚填的路径静默清空，表现为「手动指定无效」。
+            var manualPath = javaPathRow.Text.Trim();
+            config.JavaPath = manualPath;
+            if (manualPath.Length > 0 && _autoJavaRow is { IsOn: true })
+            {
+                _autoJavaRow.IsOn = false;
+            }
+        }
+        else if (_autoJavaRow is { IsOn: true })
         {
             config.JavaPath = "";
-        }
-        else if (_javaPathRow is not null)
-        {
-            config.JavaPath = _javaPathRow.Text.Trim();
         }
 
         if (_versionListSourceRow?.SelectedOption is { } versionListSource)

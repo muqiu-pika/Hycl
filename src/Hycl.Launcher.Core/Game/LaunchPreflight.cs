@@ -91,13 +91,20 @@ public static class LaunchPreflight
         var java = await ResolveJavaAsync(options, javaDetector, requiredJava, cancellationToken)
             .ConfigureAwait(false);
         var javaIssue = (string?)null;
-        if (java is null && string.IsNullOrWhiteSpace(options.JavaPath) && javaRuntimeInstaller is not null)
+        if ((java is null || java.MajorVersion < requiredJava)
+            && string.IsNullOrWhiteSpace(options.JavaPath)
+            && javaRuntimeInstaller is not null)
         {
-            // 没有可用 Java 时自动下载安装（PCL-CE / HMCL 同款链路），失败原因并入检查项文案
+            // 没有可用 Java（或本机 Java 主版本偏低）时自动下载安装（PCL-CE / HMCL 同款链路），
+            // 失败原因并入检查项文案；手动指定路径时尊重用户选择，不擅自换用其他版本
             var ensured = await EnsureJavaAsync(javaRuntimeInstaller, javaDetector, requiredJava, onStage, cancellationToken)
                 .ConfigureAwait(false);
-            java = ensured.Java;
-            javaIssue = ensured.Issue;
+            if (ensured.Java is not null)
+            {
+                java = ensured.Java;
+            }
+
+            javaIssue = ensured.Issue ?? javaIssue;
         }
 
         items.Add(CheckJava(options.JavaPath, java, requiredJava, javaIssue));
@@ -256,7 +263,8 @@ public static class LaunchPreflight
         }
 
         var installations = await javaDetector.DetectAsync(null, cancellationToken).ConfigureAwait(false);
-        var best = JavaDetector.FindBest(installations, requiredMajor);
+        var best = JavaDetector.FindBest(
+            installations, requiredMajor, JavaDetector.MaxCompatibleMajorVersion(requiredMajor));
         if (best is not null && best.MajorVersion >= requiredMajor)
         {
             return best;
@@ -269,7 +277,8 @@ public static class LaunchPreflight
             var extras = await javaDetector
                 .DetectInRootsAsync([runtimeRoot], cancellationToken)
                 .ConfigureAwait(false);
-            var fromRuntime = JavaDetector.FindBest(extras, requiredMajor);
+            var fromRuntime = JavaDetector.FindBest(
+                extras, requiredMajor, JavaDetector.MaxCompatibleMajorVersion(requiredMajor));
             if (fromRuntime is not null
                 && (best is null || fromRuntime.MajorVersion >= requiredMajor))
             {
@@ -300,7 +309,8 @@ public static class LaunchPreflight
         var installed = await javaDetector
             .DetectInRootsAsync([outcome.Directory], cancellationToken)
             .ConfigureAwait(false);
-        var best = JavaDetector.FindBest(installed, requiredMajor);
+        var best = JavaDetector.FindBest(
+            installed, requiredMajor, JavaDetector.MaxCompatibleMajorVersion(requiredMajor));
         return best is null || best.MajorVersion < requiredMajor
             ? (null, $"自动下载的 Java 未能被识别：{outcome.Directory}")
             : (best, null);

@@ -539,8 +539,17 @@ public sealed class LaunchService
         }
 
         var required = resolved.Info.JavaVersion?.MajorVersion ?? JavaDetector.RequiredMajorVersion(resolved.RootId);
+        var maxMajor = JavaDetector.MaxCompatibleMajorVersion(required);
         var installations = await GetJavaInstallationsAsync(false, cancellationToken, options.GameDirectory).ConfigureAwait(false);
-        var best = JavaDetector.FindBest(installations, required);
+        var best = JavaDetector.FindBest(installations, required, maxMajor);
+        if (best is null || best.MajorVersion < required)
+        {
+            // 缓存可能是用户安装新 Java（或预检刚自动下载 JRE）之前的结果：强制重新探测一次，
+            // 避免「本机明明有合适的 Java 却提示未检测到」。
+            installations = await GetJavaInstallationsAsync(true, cancellationToken, options.GameDirectory).ConfigureAwait(false);
+            best = JavaDetector.FindBest(installations, required, maxMajor);
+        }
+
         if (best is null)
         {
             throw new LaunchException(

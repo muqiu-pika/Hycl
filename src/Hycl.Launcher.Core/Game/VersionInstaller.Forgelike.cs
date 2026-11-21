@@ -523,7 +523,7 @@ public partial class VersionInstaller
         }
 
         var installations = await _javaDetector.DetectAsync(null, cancellationToken).ConfigureAwait(false);
-        var best = JavaDetector.FindBest(installations, 8);
+        var best = JavaDetector.FindBest(installations, 8, JavaDetector.MaxSupportedMajorVersion);
         if (best is null)
         {
             throw new DownloadException(

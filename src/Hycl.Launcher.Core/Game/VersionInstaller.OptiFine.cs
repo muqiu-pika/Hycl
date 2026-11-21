@@ -346,7 +346,7 @@ public partial class VersionInstaller
             return exact;
         }
 
-        var fallback = JavaDetector.FindBest(installations, requiredMajor);
+        var fallback = JavaDetector.FindBest(installations, requiredMajor, JavaDetector.MaxSupportedMajorVersion);
         if (fallback is null)
         {
             throw new DownloadException($"安装 OptiFine 需要 Java {requiredMajor}，未找到可用 Java。请在设置中配置后重试。");

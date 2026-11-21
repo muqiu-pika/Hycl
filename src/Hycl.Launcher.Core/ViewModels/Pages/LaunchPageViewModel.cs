@@ -1648,11 +1648,17 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle, IBa
                 try
                 {
                     var refreshed = await _services.MicrosoftAuth
-                        .RefreshAsync(account.RefreshToken)
+                        .RefreshAsync(account.RefreshToken, launchToken)
                         .ConfigureAwait(true);
                     AccountStore.ApplyMicrosoftAuth(account, refreshed);
                     await _services.Accounts.SaveAsync().ConfigureAwait(true);
                     BuildProfiles();
+                }
+                catch (OperationCanceledException) when (launchToken.IsCancellationRequested)
+                {
+                    // 取消落在正版验证（续期 / XBL / XSTS 链路）：按取消收尾，不再往下启动
+                    FinishCancelledLaunch();
+                    return;
                 }
                 catch (Exception ex)
                 {
@@ -1673,28 +1679,34 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle, IBa
                 try
                 {
                     if (!await _services.AuthlibAuth
-                            .ValidateAsync(account.Server, account.AccessToken, account.ClientToken)
+                            .ValidateAsync(account.Server, account.AccessToken, account.ClientToken, launchToken)
                             .ConfigureAwait(true))
                     {
-                        var refreshed = await _services.AuthlibAuth.RefreshAsync(account).ConfigureAwait(true);
+                        var refreshed = await _services.AuthlibAuth.RefreshAsync(account, launchToken).ConfigureAwait(true);
                         AccountStore.ApplyAuthlibAuth(account, refreshed);
                         await _services.Accounts.SaveAsync().ConfigureAwait(true);
                     }
 
+                    launchToken.ThrowIfCancellationRequested();
                     authlibJar = await _services.AuthlibAuth
-                        .EnsureAuthlibInjectorJarAsync(_services.Paths.CacheDirectory, _services.DownloadClient)
+                        .EnsureAuthlibInjectorJarAsync(_services.Paths.CacheDirectory, _services.DownloadClient, launchToken)
                         .ConfigureAwait(true);
                     try
                     {
                         // 预取只是加速项，拿不到不影响 javaagent 注入
                         authlibPrefetched = await _services.AuthlibAuth
-                            .GetPrefetchedAsync(account.Server)
+                            .GetPrefetchedAsync(account.Server, launchToken)
                             .ConfigureAwait(true);
                     }
-                    catch (Exception ex)
+                    catch (Exception ex) when (ex is not OperationCanceledException)
                     {
                         _services.Logger.Warn($"皮肤站预取数据获取失败（不影响注入）：{ex.Message}");
                     }
+                }
+                catch (OperationCanceledException) when (launchToken.IsCancellationRequested)
+                {
+                    FinishCancelledLaunch();
+                    return;
                 }
                 catch (Exception ex)
                 {
@@ -1712,7 +1724,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle, IBa
             if (account.Type == "offline")
             {
                 var prepared = await _services.AuthlibAuth
-                    .PrepareOfflineSkinAsync(account, _services.Paths.CacheDirectory, _services.DownloadClient)
+                    .PrepareOfflineSkinAsync(account, _services.Paths.CacheDirectory, _services.DownloadClient, launchToken)
                     .ConfigureAwait(true);
                 if (prepared.Jar is not null && prepared.ApiRoot is not null)
                 {
@@ -1725,6 +1737,7 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle, IBa
                 }
             }
 
+            launchToken.ThrowIfCancellationRequested();
             AdvanceLaunchStep(4);
             var options = BuildLaunchOptions(instance, account, authlibJar, authlibPrefetched, localSkinServer);
 
@@ -1753,7 +1766,8 @@ public partial class LaunchPageViewModel : ObservableObject, IPageLifecycle, IBa
                                 SetLaunchProgress(ProgressForStage(stage));
                             }
                         });
-                    })
+                    },
+                    launchToken)
                 .ConfigureAwait(true);
             _sessions.Add(session);
             // 记录本次启动会话：窗口出现前取消启动时据此结束进程
