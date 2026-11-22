@@ -11,7 +11,7 @@ namespace Hycl.Launcher.Core.Game;
 ///   旧版游戏 zh_cn 会直接 NPE 崩溃或语言设置显示错误；
 /// - 其余版本：统一小写（zh_cn）。
 /// lang 缺失或实例还没有任何存档时，采用启动器语言兜底（中文 Windows 用户默认 zh_cn）。
-/// 目标语言为中文/日文/韩文等非拉丁语言时，自动开启 forceUnicodeFont，避免旧版本把字符渲染成方框。
+/// forceUnicodeFont 只在 options.txt 缺少该键时补默认值，不会覆盖玩家在游戏内的选择。
 /// 独立于 <see cref="GameOptionsService"/>：那是「仅首次启动」的一次性写入（有 applied 标记），
 /// 而语言格式依赖具体版本且可能被游戏改写，必须在每次启动前重新校验。
 /// </summary>
@@ -74,23 +74,13 @@ public static class OptionsLanguageFixer
                 logger?.Info($"已将游戏语言从 {currentLang ?? "（未设置）"} 修正为 {requiredLang}");
             }
 
-            // 中文/日文/韩文等非拉丁语言需要强制 Unicode 字体，否则旧版本会把字符渲染成方框
-            var needsUnicodeFont = IsNonLatinLanguage(requiredLang);
-            var hasUnicodeFont = fontIndex >= 0
-                                 && string.Equals(GetLineValue(lines[fontIndex]), "true", StringComparison.OrdinalIgnoreCase);
-            if (needsUnicodeFont && !hasUnicodeFont)
+            // 中文/日文/韩文等非拉丁语言：只在 options.txt 还没有 forceUnicodeFont 键时补默认值。
+            // 已有该键时尊重玩家在游戏内的选择——每次启动强行改成 true 会把玩家关掉的选项又打开。
+            if (IsNonLatinLanguage(requiredLang) && fontIndex < 0)
             {
-                if (fontIndex >= 0)
-                {
-                    lines[fontIndex] = "forceUnicodeFont:true";
-                }
-                else
-                {
-                    lines.Add("forceUnicodeFont:true");
-                }
-
+                lines.Add("forceUnicodeFont:true");
                 changed = true;
-                logger?.Info("已开启 forceUnicodeFont，确保中文等非拉丁语言正常显示");
+                logger?.Info("options.txt 缺少 forceUnicodeFont，已写入默认值 true");
             }
 
             if (!changed)

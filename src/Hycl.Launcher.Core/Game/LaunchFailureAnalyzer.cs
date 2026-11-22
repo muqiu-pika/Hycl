@@ -368,6 +368,13 @@ public static class LaunchFailureAnalyzer
                 "the requested compatibility level java_11 could not be set",
                 "has been compiled by a more recent version of the java runtime (class file version 55.0)"]),
 
+        // 8.1 主类无法加载：JVM 参数（--add-opens / -cp 等）被拆散，取值被当成了主类
+        R("启动参数异常",
+            "JVM 找不到游戏主类：通常是 --add-opens / -cp 这类「标志 + 独立取值」的 JVM 参数被拆散或丢失，"
+            + "取值被当成了主类名（Forge/NeoForge 的启动参数最容易被影响）。",
+            "移除自定义 JVM 参数后重试；若使用 Forge/NeoForge，重新安装该版本以重建启动参数。",
+            ["找不到或无法加载主类", "could not find or load main class"]),
+
         // ---------- 内存 ----------
         // 9. 内存不足 / 分配过大（泛化 OOM）
         R("内存分配失败",

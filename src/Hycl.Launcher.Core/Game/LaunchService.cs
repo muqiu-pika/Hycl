@@ -821,7 +821,11 @@ public sealed class LaunchService
     /// JVM 参数去重（对应 HMCL CommandBuilder.addDefault 与 PCL-CE _DeduplicateJvmArguments 的语义）：
     /// 同键参数保留最后一次出现（版本 JSON / 用户参数覆盖启动器默认值），其余保持原顺序。
     /// 键的提取规则：-Xmx/-Xms/-Xmn 按标志名；-Dkey=value / -XX:Key=value 按键名；
-    /// -XX:+Opt / -XX:-Opt 及其它按全串。非「-」开头的条目（极少数裸值）不去重。
+    /// -XX:+Opt / -XX:-Opt 及其它单值开关按全串。
+    /// 取值与标志分开传递的选项（-cp / -p / --add-opens 等）不参与去重：它们是成对出现的，
+    /// NeoForge 版本 JSON 里就有两组 --add-opens，按标志名去重会删掉前一个标志、
+    /// 让它的取值（java.base/java.util.jar=...）被 JVM 当成主类，报 ClassNotFoundException。
+    /// 非「-」开头的条目（极少数裸值）同样不去重。
     /// </summary>
     private static void DeduplicateJvmArguments(List<string> arguments)
     {
@@ -829,7 +833,7 @@ public sealed class LaunchService
         for (var index = 0; index < arguments.Count; index++)
         {
             var argument = arguments[index];
-            if (!argument.StartsWith('-'))
+            if (!argument.StartsWith('-') || TakesSeparateValue(argument))
             {
                 keys[index] = null;
                 continue;
@@ -869,6 +873,15 @@ public sealed class LaunchService
             arguments.RemoveAt(index);
         }
     }
+
+    /// <summary>JVM 选项取值是否作为下一个独立参数传递（而不是用 = 或 : 拼在同一串里）。</summary>
+    private static bool TakesSeparateValue(string argument) => argument switch
+    {
+        "-cp" or "-classpath" or "-p" or "--module-path"
+            or "--add-modules" or "--add-opens" or "--add-exports" or "--add-reads"
+            or "--patch-module" or "--upgrade-module-path" or "--limit-modules" => true,
+        _ => false
+    };
 
     /// <summary>统计实例 mods 目录的文件数（用于内存自动分配的加权档位；目录不存在按 0）。</summary>
     private static int CountModFiles(string gameDirectory)
