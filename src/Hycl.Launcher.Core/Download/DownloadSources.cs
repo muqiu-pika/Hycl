@@ -11,6 +11,9 @@ public static class DownloadSources
     /// <summary>官方版本清单（v2 带各版本 releaseTime，用于分组排序）。</summary>
     public const string OfficialVersionManifest = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 
+    /// <summary>官方旧域名：piston-meta 握手失败时的备用官方入口。</summary>
+    public const string LegacyOfficialVersionManifest = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
+
     public const string BmclapiVersionManifest = BmclapiBase + "/mc/game/version_manifest_v2.json";
 
     public const string OfficialLibraries = "https://libraries.minecraft.net";
@@ -33,14 +36,14 @@ public static class DownloadSources
             ? officialUrls.Union(mirrorUrls).ToList()
             : mirrorUrls.Union(officialUrls).ToList();
 
-    /// <summary>版本清单地址列表：版本列表源三档决定官方与 BMCLAPI 的先后。</summary>
+    /// <summary>版本清单地址列表：版本列表源三档决定官方与 BMCLAPI 的先后；官方保留两个域名互为兜底。</summary>
     public static IReadOnlyList<string> GetVersionManifestUrls(int versionListSource, bool mojangFast)
     {
         var preferMojang = versionListSource == (int)DownloadSourceMode.OfficialOnly
             || (versionListSource == (int)DownloadSourceMode.OfficialAuto && mojangFast);
         return preferMojang
-            ? [OfficialVersionManifest, BmclapiVersionManifest]
-            : [BmclapiVersionManifest, OfficialVersionManifest];
+            ? [OfficialVersionManifest, LegacyOfficialVersionManifest, BmclapiVersionManifest]
+            : [BmclapiVersionManifest, OfficialVersionManifest, LegacyOfficialVersionManifest];
     }
 
     /// <summary>Launcher/Meta 文件（版本 JSON、客户端 jar、资源索引等）的源顺序。</summary>

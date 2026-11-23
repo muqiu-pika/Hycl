@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using Hycl.Launcher.Core.Config;
 using Hycl.Launcher.Core.Download;
 using Hycl.Launcher.Core.Game.Models;
+using Hycl.Launcher.Core.Game.Loaders;
 using Hycl.Launcher.Core.Platform;
 using Hycl.Launcher.Core.Serialization;
 using Hycl.Launcher.Core.Services;
@@ -128,18 +129,15 @@ public sealed partial class VersionInstaller
     private async Task<VersionManifest> FetchVersionListAsync(DownloadPolicy policy, CancellationToken cancellationToken)
     {
         var urls = DownloadSources.GetVersionManifestUrls(policy.VersionListSource, policy.MojangFast);
-        var primaryUrl = urls[0];
-        var secondaryUrl = urls.Count > 1 ? urls[1] : null;
-        var primaryIsMojang = primaryUrl.Contains("mojang.com", StringComparison.Ordinal);
+        var primaryIsMojang = urls[0].Contains("mojang.com", StringComparison.Ordinal);
 
-        var rawJson = await RaceFetchAsync(primaryUrl, secondaryUrl, cancellationToken)
-            .ConfigureAwait(false);
+        var rawJson = await FetchManifestTextAsync(urls, cancellationToken).ConfigureAwait(false);
         var manifest = JsonSerializer.Deserialize(rawJson, NetJsonContext.Default.VersionManifest)
                        ?? throw new DownloadException("版本清单解析失败");
         if (manifest.Versions.Count < 200)
         {
             // 与 PCL-CE 一致：清单异常缩水视为无效，交由另一源重取
-            throw new DownloadException($"版本清单条目异常（{manifest.Versions.Count}）：{primaryUrl}");
+            throw new DownloadException($"版本清单条目异常（{manifest.Versions.Count}）：{urls[0]}");
         }
 
         _logger.Info($"版本清单已获取：{manifest.Versions.Count} 个版本（主源：{(primaryIsMojang ? "官方" : "镜像")}）");
@@ -153,6 +151,66 @@ public sealed partial class VersionInstaller
         return manifest;
     }
 
+    /// <summary>
+    /// 版本清单获取：前两个源竞速，全部失败后再串行尝试备用官方域名；
+    /// 最终失败时给出中文可操作提示，避免把 .NET 的 TLS 英文异常直接展示给用户。
+    /// </summary>
+    private async Task<string> FetchManifestTextAsync(
+        IReadOnlyList<string> urls,
+        CancellationToken cancellationToken)
+    {
+        Exception? firstError = null;
+        try
+        {
+            return await RaceFetchAsync(
+                    urls[0],
+                    urls.Count > 1 ? urls[1] : null,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            firstError = ex;
+            _logger.Warn($"版本清单双源竞速失败，尝试备用源 · {ex.Message}");
+        }
+
+        foreach (var url in urls.Skip(2))
+        {
+            try
+            {
+                var text = await _client
+                    .GetStringOnceAsync(url, ListTimeout, cancellationToken)
+                    .ConfigureAwait(false);
+                _logger.Info($"版本清单备用源成功：{url}");
+                return text;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                firstError ??= ex;
+                _logger.Warn($"版本清单备用源失败：{url} · {ex.Message}");
+            }
+        }
+
+        var reason = SourceRace.DescribeNetworkError(firstError ?? new IOException("未知错误"));
+        throw new DownloadException(
+            $"版本清单获取失败：{HostList(urls)} · {reason}；请检查网络、代理或 VPN 后重试。",
+            firstError);
+    }
+
+    private static string HostList(IReadOnlyList<string> urls)
+        => string.Join(
+            "、",
+            urls.Select(url => Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.Host : url)
+                .Distinct(StringComparer.Ordinal));
+
     /// <summary>双源竞速：主源立即开始，副源延迟 5 秒加入，先成功者胜出。</summary>
     private async Task<string> RaceFetchAsync(
         string primaryUrl,
@@ -161,7 +219,20 @@ public sealed partial class VersionInstaller
     {
         if (secondaryUrl is null)
         {
-            return await _client.GetStringOnceAsync(primaryUrl, ListTimeout, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return await _client.GetStringOnceAsync(primaryUrl, ListTimeout, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or IOException or DownloadException)
+            {
+                throw new DownloadException(
+                    $"版本清单获取失败：{primaryUrl} · {SourceRace.DescribeNetworkError(ex)}；请检查网络、代理或 VPN 后重试。",
+                    ex);
+            }
         }
 
         var completion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);

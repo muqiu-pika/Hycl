@@ -17,6 +17,15 @@ public sealed partial class NeoForgeProvider(
 {
     private const string BlacklistedVersion = "47.1.82";
 
+    /// <summary>BMCLAPI 镜像（details 目录接口）。</summary>
+    private const string MirrorBase = "https://bmclapi2.bangbang93.com/neoforge/meta/api/maven/details/releases";
+
+    /// <summary>NeoForged 官方 maven（部分网络下 TLS 握手失败/超时）。</summary>
+    private const string OfficialBase = "https://maven.neoforged.net/api/maven/versions/releases";
+
+    /// <summary>ForgeCDN 官方镜像（与官方 maven 同构，作为第三兜底源）。</summary>
+    private const string ForgeCdnBase = "https://neoforged.forgecdn.net/api/maven/versions/releases";
+
     public LoaderKind Kind => LoaderKind.NeoForge;
 
     public async Task<IReadOnlyList<LoaderVersionEntry>> GetVersionsForAsync(
@@ -53,19 +62,40 @@ public sealed partial class NeoForgeProvider(
         CancellationToken cancellationToken)
     {
         var preferMirror = SourceRace.PreferMirror(policy);
-        var mirror = (CancellationToken token) => FetchAsync(true, token);
-        var official = (CancellationToken token) => FetchAsync(false, token);
-        List<NeoForgeEntry> entries = preferMirror
-            ? await SourceRace.RunAsync(
+        var mirror = (CancellationToken token) => FetchAsync(MirrorBase, token);
+        var official = (CancellationToken token) => FetchAsync(OfficialBase, token);
+        var forgeCdn = (CancellationToken token) => FetchAsync(ForgeCdnBase, token);
+        var primaryName = preferMirror ? "BMCLAPI" : "官方源";
+        var primary = preferMirror ? mirror : official;
+        var remainingName = preferMirror ? "官方源" : "BMCLAPI";
+        var remaining = preferMirror ? official : mirror;
+
+        List<NeoForgeEntry> entries;
+        try
+        {
+            // ForgeCDN 是 NeoForged 自己的 CDN 镜像：把它作为竞速备选（延迟 2 秒启动），
+            // 这样官方 maven 在部分网络下 TLS 挂起时不必等满 15 秒超时。
+            entries = await SourceRace.RunAsync(
                 logger, "NeoForge",
-                "BMCLAPI", mirror,
-                "官方源", official,
-                TimeSpan.FromSeconds(3), cancellationToken).ConfigureAwait(false)
-            : await SourceRace.RunAsync(
-                logger, "NeoForge",
-                "官方源", official,
-                "BMCLAPI", mirror,
+                primaryName, primary,
+                "ForgeCDN", forgeCdn,
                 TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.Warn($"NeoForge：{primaryName} 与 ForgeCDN 均失败，改试 {remainingName} · {ex.Message}");
+            try
+            {
+                entries = await remaining(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception fallbackError) when (fallbackError is not OperationCanceledException)
+            {
+                logger.Error("NeoForge：全部元数据源均不可用", new AggregateException(ex, fallbackError));
+                throw new LoaderMetadataException(
+                    $"NeoForge 版本列表获取失败：{primaryName}、ForgeCDN 与 {remainingName} 均不可用，请检查网络、代理或 VPN 后重试。",
+                    new AggregateException(ex, fallbackError));
+            }
+        }
 
         return entries
             .OrderByDescending(x => x.NumericVersion)
@@ -80,11 +110,8 @@ public sealed partial class NeoForgeProvider(
             .ToList();
     }
 
-    private async Task<List<NeoForgeEntry>> FetchAsync(bool useMirror, CancellationToken cancellationToken)
+    private async Task<List<NeoForgeEntry>> FetchAsync(string baseHost, CancellationToken cancellationToken)
     {
-        var baseHost = useMirror
-            ? "https://bmclapi2.bangbang93.com/neoforge/meta/api/maven/details/releases"
-            : "https://maven.neoforged.net/api/maven/versions/releases";
         var latestJson = await SourceRace
             .GetTextAsync(client, $"{baseHost}/net/neoforged/neoforge", 15, cancellationToken)
             .ConfigureAwait(false);

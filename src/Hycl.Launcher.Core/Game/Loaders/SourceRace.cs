@@ -92,9 +92,37 @@ internal static class SourceRace
         }
         catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new LoaderMetadataException($"请求超时（{timeoutSeconds}s）：{url}", ex);
+            throw new LoaderMetadataException($"请求超时（{timeoutSeconds}s）：{Host(url)}", ex);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException)
+        {
+            // 不把 .NET 的英文原始异常直接透给用户：指出主机与失败类型，便于判断代理/VPN/屏蔽
+            throw new LoaderMetadataException($"网络请求失败：{Host(url)} · {DescribeNetworkError(ex)}", ex);
         }
     }
+
+    /// <summary>把网络异常转成简短中文原因（TLS 握手失败在部分网络下最容易被误认为"版本不存在"）。</summary>
+    public static string DescribeNetworkError(Exception ex)
+    {
+        var message = ex.Message;
+        if (message.Contains("SSL", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("TLS", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("certificate", StringComparison.OrdinalIgnoreCase))
+        {
+            return "TLS 握手失败，可能被网络环境或代理拦截";
+        }
+
+        if (ex is IOException)
+        {
+            return "连接被中断";
+        }
+
+        return message;
+    }
+
+    private static string Host(string url)
+        => Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.Host : url;
+
 
     /// <summary>
     /// 按下载源策略决定哪些源优先：镜像优先 = 官方源先等一等；
