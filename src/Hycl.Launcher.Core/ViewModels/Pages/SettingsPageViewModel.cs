@@ -616,7 +616,7 @@ public partial class SettingsPageViewModel : ObservableObject
             new SettingCardViewModel("总开关",
             [
                 _gameSettingsEnabledRow = new ToggleRowViewModel("启用游戏内设置", game.Enabled),
-                new TextLineRowViewModel("启用后只在实例首次启动且选择「跟随全局」时写入一次 options.txt；禁用则完全使用游戏默认设置。")
+                new TextLineRowViewModel("默认关闭。启用后只在实例首次启动且选择「跟随全局」时写入一次 options.txt；禁用则完全使用游戏与整合包自带的设置。")
             ]),
             new SettingCardViewModel("视频设置",
             [

@@ -360,8 +360,11 @@ public sealed class LauncherConfig
 /// </summary>
 public sealed class GameSettingsConfig
 {
-    /// <summary>启用：首次启动写入 options.txt；禁用：完全使用游戏默认，不写任何值。</summary>
-    public bool Enabled { get; set; } = true;
+    /// <summary>
+    /// 启用：首次启动写入 options.txt；禁用：完全使用游戏默认，不写任何值。
+    /// 默认关闭，避免覆盖整合包自带的键位与设置。
+    /// </summary>
+    public bool Enabled { get; set; }
 
     /// <summary>视距（2-32 区块）。</summary>
     public int RenderDistance { get; set; } = 8;
